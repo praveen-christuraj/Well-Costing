@@ -82,7 +82,7 @@ async function submit(): Promise<void> {
       <label>
         Email
         <InputText v-model="email" type="email" autocomplete="username" fluid required autofocus />
-        <small class="login-help">Use the named account provisioned for this environment.</small>
+        <small class="login-help">No self-service signup is enabled. Additional users are provisioned directly in the hosted PostgreSQL database.</small>
       </label>
       <label>
         Password
@@ -104,9 +104,13 @@ async function submit(): Promise<void> {
         :disabled="!canSubmit"
         fluid
       />
+      <div class="login-card__links">
+        <NuxtLink to="/forgot-password">Forgot password?</NuxtLink>
+        <NuxtLink to="/reset-password">Reset password placeholder</NuxtLink>
+      </div>
       <div class="login-card__footer">
         <div class="login-card__note">
-          Cloud deployments keep the same login flow for development, UAT, and production-like testing.
+          Cloud deployments keep the same login flow for development, UAT, and production-like testing. Bootstrap admin is created once; all other users are currently managed directly in the hosted database.
         </div>
         <NuxtLink to="/">Return to dashboard</NuxtLink>
       </div>

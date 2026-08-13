@@ -191,6 +191,21 @@ A production login page, refresh-token strategy, complete role/permission matrix
 
 No default administrator password or seeded production credential is committed.
 
+### Hosted user provisioning
+
+No self-service signup is exposed in the application. After the first bootstrap administrator is created, provision additional cloud users directly against the hosted PostgreSQL database with:
+
+```powershell
+cd backend
+$env:DATABASE_URL = "<direct-hosted-postgresql-url>"
+$env:PROVISION_USER_EMAIL = "user@example.com"
+$env:PROVISION_USER_PASSWORD = "choose-a-long-password"
+$env:PROVISION_USER_FULL_NAME = "Named User"
+python scripts/provision_user.py
+```
+
+Use a direct Neon or Supabase PostgreSQL connection string when running the provisioning script locally.
+
 ## Environment variables
 
 | Variable | Purpose |

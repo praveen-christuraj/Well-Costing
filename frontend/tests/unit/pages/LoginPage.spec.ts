@@ -73,4 +73,12 @@ describe('Login page', () => {
 
     expect(wrapper.text()).toContain('Unable to reach the sign-in service. Check the backend deployment and try again.')
   })
+
+  it('shows the placeholder password-recovery links and database provisioning notice', async () => {
+    const { wrapper } = await mountPage()
+
+    expect(wrapper.text()).toContain('No self-service signup is enabled. Additional users are provisioned directly in the hosted PostgreSQL database.')
+    expect(wrapper.text()).toContain('Forgot password?')
+    expect(wrapper.text()).toContain('Reset password placeholder')
+  })
 })
