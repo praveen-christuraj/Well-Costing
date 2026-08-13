@@ -1,0 +1,105 @@
+"""SQLAlchemy model exports used by Alembic metadata discovery."""
+
+from app.models.afe import AfeSnapshot, AfeSnapshotAttempt, AfeSnapshotLine
+from app.models.calculations import EstimateCalculation
+from app.models.cost_control import (
+    CostControlBatch,
+    CostControlBatchError,
+    CostControlPostAttempt,
+    CostControlStagedLine,
+    CostTransaction,
+)
+from app.models.enterprise_config import (
+    CostBreakdownNode,
+    CostBreakdownStructure,
+    EnterpriseHierarchyRule,
+    EnterpriseNode,
+    EnterpriseNodeType,
+    EstimateTemplate,
+    EstimateTemplateLine,
+    RateBook,
+    RateBookEntry,
+    ReportingMapping,
+)
+from app.models.estimates import CostEstimate, EstimateAssumption, EstimateItem, EstimateVersion
+from app.models.import_tracking import ImportBatch, ImportError
+from app.models.master_data import (
+    CatalogItem,
+    CostCategory,
+    CostCode,
+    Currency,
+    Equipment,
+    Material,
+    Rate,
+    Service,
+    Tangible,
+    Unit,
+    Vendor,
+)
+from app.models.reporting import ReportExportAttempt
+from app.models.requirements import Project, RequirementItem, Well, WellRequirement
+from app.models.role import Role
+from app.models.user import User, user_roles
+from app.models.workflow import (
+    EstimateReviewComment,
+    EstimateWorkflowInstance,
+    WorkflowProfile,
+    WorkflowState,
+    WorkflowTransitionAttempt,
+    WorkflowTransitionDefinition,
+    WorkflowTransitionRole,
+)
+
+__all__ = [
+    "AfeSnapshot",
+    "AfeSnapshotAttempt",
+    "AfeSnapshotLine",
+    "CatalogItem",
+    "CostBreakdownNode",
+    "CostBreakdownStructure",
+    "CostCategory",
+    "CostCode",
+    "CostControlBatch",
+    "CostControlBatchError",
+    "CostControlPostAttempt",
+    "CostControlStagedLine",
+    "CostEstimate",
+    "CostTransaction",
+    "Currency",
+    "EnterpriseHierarchyRule",
+    "EnterpriseNode",
+    "EnterpriseNodeType",
+    "Equipment",
+    "EstimateAssumption",
+    "EstimateCalculation",
+    "EstimateItem",
+    "EstimateReviewComment",
+    "EstimateTemplate",
+    "EstimateTemplateLine",
+    "EstimateVersion",
+    "EstimateWorkflowInstance",
+    "ImportBatch",
+    "ImportError",
+    "Material",
+    "Project",
+    "Rate",
+    "RateBook",
+    "RateBookEntry",
+    "ReportExportAttempt",
+    "ReportingMapping",
+    "RequirementItem",
+    "Role",
+    "Service",
+    "Tangible",
+    "Unit",
+    "User",
+    "Vendor",
+    "Well",
+    "WellRequirement",
+    "WorkflowProfile",
+    "WorkflowState",
+    "WorkflowTransitionAttempt",
+    "WorkflowTransitionDefinition",
+    "WorkflowTransitionRole",
+    "user_roles",
+]

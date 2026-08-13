@@ -1,0 +1,54 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+
+# Node / Nuxt
+node_modules/
+.nuxt/
+.output/
+dist/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Editors / OS
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs and local data
+*.log
+*.sqlite
+*.sqlite3
+uploads/
+# Local AI tooling / orchestration state
+.claude/
+.claude-flow/
+.swarm/
+graphify-out/
+.mcp.json
+CLAUDE.md
+ruvector.db
+
+# Provider-local deployment artifacts
+.vercel/
+

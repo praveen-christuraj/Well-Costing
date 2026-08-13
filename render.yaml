@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: drilling-costing-api-uat
+    runtime: python
+    plan: free
+    region: frankfurt
+    rootDir: backend
+    buildCommand: bash scripts/render_build.sh
+    startCommand: >-
+      uvicorn app.main:app --host 0.0.0.0 --port $PORT
+      --proxy-headers --forwarded-allow-ips "*"
+    healthCheckPath: /api/v1/ready
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: ENVIRONMENT
+        value: uat
+      - key: DATABASE_URL
+        sync: false
+      - key: MIGRATION_DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: API_V1_PREFIX
+        value: /api/v1
+      - key: APP_VERSION
+        value: 0.1.0-uat
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      - key: BOOTSTRAP_ADMIN_FULL_NAME
+        value: UAT System Administrator
+      - key: PYTHONUNBUFFERED
+        value: "1"

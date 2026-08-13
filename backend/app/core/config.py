@@ -1,0 +1,73 @@
+"""Application configuration loaded from environment variables."""
+
+from functools import lru_cache
+from typing import Literal, Self
+
+from pydantic import Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_DEFAULT_SECRET_KEY = "development-only-change-me-please"
+
+
+def _normalize_postgres_url(value: str) -> str:
+    """Select the installed Psycopg 3 driver for provider-issued PostgreSQL URLs."""
+
+    if value.startswith("postgres://"):
+        return value.replace("postgres://", "postgresql+psycopg://", 1)
+    if value.startswith("postgresql://"):
+        return value.replace("postgresql://", "postgresql+psycopg://", 1)
+    return value
+
+
+class Settings(BaseSettings):
+    """Runtime configuration.
+
+    Environment variables use the exact uppercase field names below. Local values may be
+    stored in an uncommitted ``.env`` file copied from ``.env.example``.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
+    ENVIRONMENT: Literal["development", "test", "uat", "staging", "production"] = (
+        "development"
+    )
+    DATABASE_URL: str = "postgresql+psycopg://drilling_costing@localhost:5432/drilling_costing"
+    MIGRATION_DATABASE_URL: str | None = None
+    SECRET_KEY: str = Field(default=_DEFAULT_SECRET_KEY, min_length=32)
+    CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    LOG_LEVEL: str = "INFO"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60, ge=1, le=1440)
+    API_V1_PREFIX: str = "/api/v1"
+    APP_VERSION: str = "0.1.0"
+
+    @field_validator("DATABASE_URL", "MIGRATION_DATABASE_URL", mode="before")
+    @classmethod
+    def normalize_database_urls(cls, value: object) -> object:
+        """Normalize common managed-provider URLs without changing non-PostgreSQL tests."""
+
+        return _normalize_postgres_url(value) if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def reject_unsafe_hosted_configuration(self) -> Self:
+        """Fail startup rather than silently using development defaults in hosted environments."""
+
+        if self.ENVIRONMENT in {"uat", "staging", "production"}:
+            if self.SECRET_KEY == _DEFAULT_SECRET_KEY or self.SECRET_KEY.startswith("replace-"):
+                raise ValueError("SECRET_KEY must be replaced in hosted environments")
+            if not self.DATABASE_URL.startswith("postgresql+psycopg://"):
+                raise ValueError("Hosted environments require a PostgreSQL DATABASE_URL")
+            if any(origin.startswith("http://localhost") for origin in self.CORS_ORIGINS):
+                raise ValueError("Hosted environments cannot allow localhost CORS origins")
+        return self
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Return a process-wide cached settings instance."""
+
+    return Settings()

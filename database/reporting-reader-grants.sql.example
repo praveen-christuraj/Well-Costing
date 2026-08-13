@@ -1,0 +1,8 @@
+-- Phase 10 template only. No reporting principal or grant is created by migrations.
+-- Replace REPORTING_READER_ROLE after production identity/security approval.
+-- GRANT CONNECT ON DATABASE drilling_costing TO REPORTING_READER_ROLE;
+-- GRANT USAGE ON SCHEMA reporting TO REPORTING_READER_ROLE;
+-- GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO REPORTING_READER_ROLE;
+-- ALTER DEFAULT PRIVILEGES IN SCHEMA reporting
+--   GRANT SELECT ON TABLES TO REPORTING_READER_ROLE;
+-- Do not grant access to public transactional schemas/tables.

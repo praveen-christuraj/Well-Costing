@@ -1,0 +1,11 @@
+export interface EstimateItem {
+  id: string; estimate_version_id: string; line_number: number; catalog_item_id: string
+  catalog_item_code: string; catalog_item_name: string; item_type: string; cost_code: string
+  vendor_id: string | null; vendor_code: string | null; rate_id: string | null
+  rate_amount: string | null; quantity: string; unit_id: string; unit_code: string
+  notes: string | null; base_cost: string | null; contingency_cost: string | null
+  escalation_cost: string | null; total_cost: string | null
+}
+export interface EstimateAssumption { id: string; cost_category_id: string | null; contingency_percent: string | null; escalation_percent: string | null; notes: string | null }
+export interface EstimateVersion { id: string; estimate_id: string; version_number: number; status: string; notes: string | null; items: EstimateItem[]; assumptions: EstimateAssumption[] }
+export interface Estimate { id: string; requirement_id: string; requirement_code: string; well_code: string; project_code: string; code: string; title: string; currency_id: string; currency_code: string; current_version_number: number; versions: EstimateVersion[] }

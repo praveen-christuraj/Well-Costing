@@ -1,0 +1,284 @@
+# Changelog
+
+All notable project changes are documented here.
+
+## [Unreleased]
+
+- Draft enterprise configuration publication and numeric rules require separate approval.
+- Production activation remains blocked pending security and operating policies.
+
+## 2026-08-13 — Enterprise Configuration Foundation completed
+
+### Added
+
+- Configurable typed enterprise hierarchy and explicit parent-child rules.
+- Versioned cost breakdown structures, rate books, estimate templates, and reporting mappings.
+- Bootstrap System Administrator write boundary and Enterprise Setup UI.
+- Draft-only configuration APIs with audit actors/timestamps; no guessed hierarchy or publication.
+
+### Validation
+
+- PostgreSQL migration round trip passed through `20260813_0011`.
+- 54 backend tests passed with 81.21% coverage; Ruff and strict Pyright passed.
+- Frontend typecheck, ESLint, 13 Vitest tests, production build, npm audit, and 3 Playwright tests passed.
+
+## 2026-08-13 — Phase 11 Framework Assurance completed
+
+### Added
+
+- Authenticated cross-module assurance status and UI.
+- Live checks for blocked financial outputs, workflow/AFE/posting immutability, and actor attribution.
+- 10,000-row bulk assurance and optimized master-reference preloading.
+- Final security, scale, API, and acceptance-blocker documentation.
+
+### Validation
+
+- 53 backend tests passed with 80.52% coverage; Ruff and strict Pyright passed.
+- Frontend typecheck, ESLint, 13 Vitest tests, production build, 3 Playwright tests, and npm audit passed.
+- PostgreSQL 16.14 staged 10,000 rows in 4.886 seconds with zero errors.
+- Reporting PUBLIC privileges/grants were absent and workspace secret scan was clean.
+
+### Blocked
+
+- Numeric workbook reconciliation and formula acceptance.
+- Production role/security matrix and active workflow/AFE/posting policies.
+- Production deployment, operations, recovery, monitoring, and reporting identity approval.
+
+## 2026-08-13 — Phase 10 Reporting Contract v1 completed
+
+### Added
+
+- PostgreSQL `reporting` schema with versioned transaction fact, six dimensions, policy metadata, and contract metadata views.
+- Contract discovery API, in-app contract panel, Power BI mapping guide, and commented grant template.
+- Transactional schema privacy and `direct_grants_status=not_applied` guardrails.
+
+### Validation
+
+- PostgreSQL 16.14 migration round trip passed through `20260813_0010`; nine v1 views queried successfully.
+- 51 backend tests passed with 80.23% coverage; Ruff and strict Pyright passed.
+- Frontend typecheck, ESLint, 12 Vitest tests, production build, 3 Playwright tests, and npm audit passed.
+
+### Deferred
+
+- Production reporting principal/grants, gateway, refresh SLA, row-level security, and numeric KPI views.
+
+## 2026-08-13 — Phase 9 Shared-Dimension Reporting framework completed
+
+### Added
+
+- Full shared-dimension report API, dashboard filters/cards, source drill-through, pending chart state, and Excel export.
+- Pure pending financial-metric boundary and actor/file-hash export audit.
+
+### Validation
+
+- PostgreSQL 16.14 migration round trip passed through `20260813_0009`.
+- 51 backend tests passed with 80.15% coverage; Ruff and strict Pyright passed.
+- Frontend typecheck, ESLint, 12 Vitest tests, production build, 3 Playwright tests, and npm audit passed.
+
+### Deferred
+
+- Reporting currency, overlap, variance, forecast/EAC, rounding, cut-off, and zero-budget metrics.
+- Stable Power BI/SQL views remain Phase 10.
+
+## 2026-08-13 — Phase 8 Cost Control framework completed
+
+### Added
+
+- Separate typed field-estimate, commitment, accrual, actual, and forecast records.
+- Bulk manual/paste staging, Excel preview/template, row errors, history, and blocked post auditing.
+- Immutable future transaction/source-document lineage and append-only reversal/adjustment references.
+- Cost Control UI and typed `cost_state_policy_pending` boundary.
+
+### Validation
+
+- PostgreSQL 16.14 migration round trip passed through `20260813_0008`.
+- 49 backend tests passed with 79.79% coverage; Ruff and strict Pyright passed.
+- Frontend typecheck, ESLint, 11 Vitest tests, production build, 3 Playwright tests, and npm audit passed.
+- PostgreSQL confirmed one blocked forecast batch/attempt and zero posted transactions.
+
+### Deferred
+
+- Recognition, allocation, matching, FX/tax/sign, reconciliation, forecast/EAC, and reversal amount/period rules.
+
+## 2026-08-13 — Phase 7 Immutable AFE Baseline framework completed
+
+### Added
+
+- Pure typed baseline AFE input/output contracts and mandatory discovery boundary.
+- Immutable AFE header/line persistence framework with calculation provenance, copied dimensions, totals, source snapshots, timestamps, and actors.
+- Audited explicit snapshot attempts with workflow/calculation eligibility evidence.
+- AFE status/create/read APIs and typed `afe_policy_pending` response.
+- Cost Builder AFE baseline panel, policy register, explicit request, blocked message, and attempt history.
+- Backend AFE domain/audit tests, frontend pending-policy test, PostgreSQL browser regression, and Phase 7 documentation.
+
+### Validation
+
+- PostgreSQL 16.14 full migration round trip passed through `20260813_0007`.
+- 46 backend tests passed with 78.63% coverage; Ruff and strict Pyright passed.
+- Frontend strict typecheck, ESLint, 10 Vitest tests, production build, 3 Playwright tests, and dependency audit passed.
+- PostgreSQL confirmed zero AFE headers/lines, one blocked actor-attributed attempt, and unchanged/null estimate financial state.
+
+### Deferred
+
+- Active AFE eligibility, numbering, issuance, and accounting-handoff policy.
+- Revisions, supplements, void/correction behavior, attachments, and authorization rules.
+
+## 2026-08-13 — Phase 6 Review & Approval Workflow framework completed
+
+### Added
+
+- Pure typed state-machine contracts and deterministic structural transition evaluator.
+- Versioned workflow profiles, states, transition definitions, role mappings, estimate workflow instances, transition attempts, and immutable review comments.
+- Estimate workflow/profile/comment APIs with typed `workflow_profile_pending` errors.
+- Fail-closed transition auditing under policy `pending-estimate-review`; no profile, role, state, or transition defaults were seeded.
+- Cost Builder workflow status, pending-policy register, transition trace, and review-note panel.
+- Backend workflow/purity/audit tests, frontend pending-policy test, and PostgreSQL full-stack regression.
+- Phase 6 API, database, architecture, pending-policy, and completion documentation.
+
+### Validation
+
+- PostgreSQL 16.14 full migration round trip passed through `20260813_0006`.
+- 44 backend tests passed with 77.51% coverage; Ruff and strict Pyright passed.
+- Frontend strict typecheck, ESLint, 9 Vitest tests, production build, 3 Playwright tests, and dependency audit passed.
+- PostgreSQL E2E verification confirmed a blocked actor-attributed transition attempt, no workflow instance, unchanged estimate status, null financial values, and one actor-attributed review note.
+
+### Deferred
+
+- Active estimate states, transitions, approval/rejection behavior, and role mappings.
+- Workflow administration/publication UI and APIs until configuration permissions are approved.
+- Calculation prerequisites, approval thresholds, delegation, separation of duties, and in-flight profile migration policy.
+
+## 2026-08-13 — Phase 5 Costing Engine framework completed
+
+### Added
+
+- Pure typed full-chain input/output contracts and a mandatory discovery `NotImplementedError` calculation boundary.
+- Audited calculation runs with engine/rule-set versions, input/output snapshots, status, timestamps, and actor fields.
+- Nullable version totals and a future transactional result-persistence boundary.
+- Calculate/results APIs with typed `business_rule_pending` errors and explicit pending-rule details.
+- Cost Builder recalculation action, status, nullable total cards, category-chart empty state, and pending-rule trace.
+- Backend framework/audit tests, frontend empty-state test, and full-stack blocked-calculation regression.
+- Phase 5 API, database, architecture, pending-rule, and completion documentation.
+
+### Validation
+
+- PostgreSQL 16.14 full migration round trip passed through `20260812_0005`.
+- 40 backend tests passed with 76.68% coverage; Ruff and strict Pyright passed.
+- Frontend strict typecheck, ESLint, 8 Vitest tests, production build, 3 Playwright tests, and dependency audit passed.
+- PostgreSQL E2E verification confirmed blocked audit input, null output, and zero populated line/version financial values.
+
+### Deferred
+
+- Every numeric strategy in the full calculation chain and all numeric acceptance tests.
+- Source-workbook scenario reproduction, because original workbooks and certified expected outputs remain unavailable.
+
+## 2026-08-12 — Phase 4 Bulk Cost Build completed
+
+### Added
+
+- Versioned cost estimates, line-item skeletons, manual vendor/rate assignment, assumptions and version duplication.
+- Cost Builder UI with bulk grid, vendor/rate fill, quantity edits, line duplication and version selection.
+- Estimate-line Excel templates, preview/commit and export.
+- Explicit pending-calculation fields and automatic-rate placeholder.
+
+### Validation
+
+- PostgreSQL 16 full migration round trip passed.
+- 38 backend tests passed with 75.96% coverage.
+- Ruff, strict Pyright, frontend lint/typecheck, 7 unit tests, production build, 3 Playwright tests and dependency audit passed.
+
+### Deferred
+
+- Automatic rate/vendor selection and every financial calculation.
+- Confirmed scenario cost builds remain blocked by missing Phase 0 source package.
+
+## 2026-08-12 — Phase 3 Requirement Intake completed
+
+### Added
+
+- Auditable projects, wells, well requirements, and requirement items.
+- Bulk CRUD APIs, project/well/status filters, active-reference validation, and Draft/Submitted workflow.
+- Requirement line quantities/units, sections, planned days, and optional unit-aware depth ranges sourced from discovery concepts.
+- Requirement-item Excel mapping profile, template, preview, commit, export, and row-level errors.
+- Project → well → requirement frontend workflow and bulk requirement grid with TSV paste, duplicate, import/export, and submission.
+- PostgreSQL-backed full-stack Playwright requirement journey.
+
+### Validation
+
+- PostgreSQL 16 full migration round trip passed.
+- 34 backend tests passed with 75.01% coverage.
+- Ruff and strict Pyright passed.
+- Frontend lint, strict typecheck, 7 unit tests, production build, 3 Playwright tests, and dependency audit passed.
+
+### Deferred
+
+- Requirement revision/locking and any statuses beyond Draft/Submitted.
+- Certified source-workbook mappings and approved Phase 0 regression scenarios.
+- Estimate generation, rate matching, assumptions, and every cost calculation.
+
+## 2026-08-12 — Phase 2 Cost Library and Excel Import completed
+
+### Added
+
+- Auditable units, currencies, cost categories, cost codes, vendors, catalogue items, services, tangibles, materials, equipment, rates, import batches, and import errors.
+- Generic typed repositories/services plus named entity boundaries.
+- CRUD, pagination, filtering, sorting, deactivation, bulk validation, bulk create, and bulk update APIs.
+- Effective-dated rate API linked to item, vendor, currency, and unit.
+- Pandas/OpenPyXL/xlrd Excel reader, versioned mapper, row validator, pipeline orchestrator, transactional importer, exporter, and blank templates.
+- Excel preview/commit, template, export, history, and error-detail endpoints.
+- Cost Library UI with spreadsheet-style grid editing, add rows, TSV paste, multi-select, duplicate, bulk edit, deactivation, import, and export.
+- Rate grid with catalogue/vendor/currency/unit selection.
+- Excel import wizard with mapping override, validation summary, row errors, preview, and commit.
+- Import history page and minimal login flow.
+- Synthetic valid, invalid, and duplicate Excel regression fixtures.
+- Full-stack Playwright Excel import test and PostgreSQL CI job.
+
+### Validation
+
+- PostgreSQL 16 migration downgrade/upgrade passed.
+- 25 backend tests passed with 76.31% coverage.
+- Ruff and strict Pyright passed.
+- Frontend lint, strict typecheck, 7 unit tests, production build, and 2 Playwright tests passed.
+- Frontend dependency audit reported zero vulnerabilities.
+
+### Deferred
+
+- Actual workbook-specific mapping profiles and approved Phase 0 regression data.
+- Rate overlap/precedence, vendor selection, currency conversion, and every costing formula.
+- Final master-data delete/restore policy and organization-specific attributes.
+
+## 2026-08-12 — Phase 1 foundation completed
+
+### Added
+
+- Nuxt 3, strict TypeScript, PrimeVue Aura, Pinia, and ECharts frontend foundation.
+- Responsive dashboard shell, static phase navigation, reusable state components, and preconfigured data-table wrapper.
+- Centralized typed API client, API proxy, health/auth composables, and auth store scaffolding.
+- FastAPI application with Pydantic settings, SQLAlchemy sessions/base mixins, Alembic, structured logging, and normalized global exceptions.
+- PostgreSQL users, roles, and user-role migration with verified upgrade/downgrade round trip.
+- Argon2 password hashing, JWT access tokens, login/current-user endpoints, and authentication dependency.
+- Pure Python costing placeholders and framework-isolation test.
+- Excel reader/mapper/validator/importer/exporter/template interfaces.
+- Backend unit/integration tests, frontend Vitest component/composable tests, and Playwright smoke test.
+- GitHub Actions backend/frontend jobs with PostgreSQL 16 service.
+- Windows/no-Docker setup, architecture, database, API, Excel, testing, ADR, business-rule, and Phase 1 completion documentation.
+
+### Validation
+
+- PostgreSQL 16.14 migration round trip passed.
+- 18 backend tests passed with 88.16% coverage.
+- Ruff and strict Pyright passed.
+- Frontend lint, strict typecheck, 4 unit tests, production build, and Playwright smoke test passed.
+- Frontend dependency audit reported zero vulnerabilities.
+
+### Deferred
+
+- All business data models and calculations, real Excel processing, permissions hardening, AFE, actuals, forecasting, dashboards, and Power BI integration.
+- Phase 0 workbook certification inputs remain pending and no rule has been guessed.
+
+## 2026-08-12 — Phase 0 industry-reference baseline
+
+- Added a public-source study of established well-costing, well-operations, AFE, actual-cost, and reporting workflows.
+- Adopted a configurable requirement-to-reporting reference workflow while retaining workbook/business confirmation as the authority for formulas.
+- Explicitly excluded upstream well-design calculations.
+- Recorded that the original workbook package and certified regression scenarios remain incomplete.
