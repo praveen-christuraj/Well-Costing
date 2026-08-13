@@ -1,4 +1,5 @@
 <script setup lang="ts">
+definePageMeta({ middleware: 'auth' })
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import Button from 'primevue/button'
 import Card from 'primevue/card'
