@@ -13,6 +13,18 @@ export interface MasterDataRecord {
   cost_code?: string | null
   default_unit_id?: string | null
   default_unit_code?: string | null
+  item_category_id?: string | null
+  item_category_code?: string | null
+  item_category_name?: string | null
+  material_number?: string | null
+  specification?: string | null
+  manufacturer?: string | null
+  applies_to?: string | null
+  vendor_type?: string | null
+  contact_person?: string | null
+  email?: string | null
+  phone?: string | null
+  country?: string | null
   item_type?: string | null
   created_at: string
   updated_at: string
@@ -100,6 +112,9 @@ export interface CostLibraryEntity {
 
 export const costLibraryEntities: CostLibraryEntity[] = [
   { key: 'services', label: 'Services', singular: 'service', phase: 2 },
+  { key: 'item-categories', label: 'Item Categories', singular: 'item category', phase: 2 },
+  { key: 'mud-chemicals', label: 'Mud Chemicals', singular: 'mud chemical', phase: 2 },
+  { key: 'cement-additives', label: 'Cement Additives', singular: 'cement additive', phase: 2 },
   { key: 'tangibles', label: 'Tangibles', singular: 'tangible', phase: 2 },
   { key: 'materials', label: 'Materials', singular: 'material', phase: 2 },
   { key: 'equipment', label: 'Equipment', singular: 'equipment item', phase: 2 },

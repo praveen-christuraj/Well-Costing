@@ -9,8 +9,24 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.master_data import CatalogItem, CostCategory, CostCode, Currency, Unit, Vendor
+from app.models.master_data import (
+    CatalogItem,
+    CostCategory,
+    CostCode,
+    Currency,
+    ItemCategory,
+    PurchaseOrder,
+    ServiceOrder,
+    Unit,
+    Vendor,
+)
 from app.schemas.master_data import BulkRowError, MasterDataCreate, RateCreate
+from app.schemas.procurement import (
+    ItemPriceCreate,
+    PurchaseOrderCreate,
+    ServiceOrderCreate,
+    ServiceRateCardCreate,
+)
 from app.services.master_data import ENTITY_CONFIGS
 
 
@@ -61,6 +77,69 @@ class ExcelValidator:
         if entity == "rates":
             values = self._rate_values(values)
             return RateCreate.model_validate(values).model_dump(mode="json")
+        if entity == "service-orders":
+            self._resolve_codes(
+                values,
+                [
+                    ("vendor_code", "vendor_id", Vendor),
+                    ("currency_code", "currency_id", Currency),
+                ],
+            )
+            return ServiceOrderCreate.model_validate(values).model_dump(
+                mode="json", exclude_none=True
+            )
+        if entity == "purchase-orders":
+            self._resolve_codes(
+                values,
+                [
+                    ("vendor_code", "vendor_id", Vendor),
+                    ("currency_code", "currency_id", Currency),
+                ],
+            )
+            return PurchaseOrderCreate.model_validate(values).model_dump(
+                mode="json", exclude_none=True
+            )
+        if entity == "service-rates":
+            self._resolve_codes(
+                values,
+                [
+                    ("vendor_code", "vendor_id", Vendor),
+                    ("currency_code", "currency_id", Currency),
+                    ("unit_code", "unit_id", Unit),
+                ],
+            )
+            self._resolve_order(values, "service_order_number", "service_order_id", ServiceOrder)
+            service_code = values.pop("service_code", None)
+            if service_code in (None, ""):
+                raise ValueError("service_code is required")
+            service = self.session.scalar(
+                select(CatalogItem).where(
+                    CatalogItem.code == str(service_code).strip().upper(),
+                    CatalogItem.item_type == "service",
+                )
+            )
+            if service is None:
+                raise ValueError(f"service_code '{service_code}' does not exist")
+            values["service_id"] = service.id
+            return ServiceRateCardCreate.model_validate(values).model_dump(
+                mode="json", exclude_none=True
+            )
+        if entity == "item-prices":
+            self._resolve_codes(
+                values,
+                [
+                    ("vendor_code", "vendor_id", Vendor),
+                    ("currency_code", "currency_id", Currency),
+                    ("unit_code", "unit_id", Unit),
+                ],
+            )
+            self._resolve_order(
+                values, "purchase_order_number", "purchase_order_id", PurchaseOrder
+            )
+            values["item_id"] = self._resolve_item(values)
+            return ItemPriceCreate.model_validate(values).model_dump(
+                mode="json", exclude_none=True
+            )
 
         if entity not in ENTITY_CONFIGS:
             raise ValueError(f"Unsupported entity '{entity}'")
@@ -77,12 +156,20 @@ class ExcelValidator:
             mappings.append(("parent_code", "parent_id", CostCategory))
         if entity == "cost-codes":
             mappings.append(("cost_category_code", "cost_category_id", CostCategory))
-        if entity in {"services", "tangibles", "materials", "equipment"}:
+        if entity in {
+            "services",
+            "tangibles",
+            "materials",
+            "equipment",
+            "mud-chemicals",
+            "cement-additives",
+        }:
             mappings.extend(
                 [
                     ("cost_category_code", "cost_category_id", CostCategory),
                     ("cost_code", "cost_code_id", CostCode),
                     ("default_unit_code", "default_unit_id", Unit),
+                    ("item_category_code", "item_category_id", ItemCategory),
                 ]
             )
         for source_field, target_field, model in mappings:
@@ -95,6 +182,53 @@ class ExcelValidator:
             if instance is None:
                 raise ValueError(f"{source_field} '{code}' does not exist")
             values[target_field] = instance.id
+
+    def _resolve_codes(
+        self, values: dict[str, Any], mappings: list[tuple[str, str, type[Any]]]
+    ) -> None:
+        for source_field, target_field, model in mappings:
+            code = values.pop(source_field, None)
+            if code in (None, ""):
+                continue
+            instance = self.session.scalar(
+                select(model).where(model.code == str(code).strip().upper())
+            )
+            if instance is None:
+                raise ValueError(f"{source_field} '{code}' does not exist")
+            values[target_field] = instance.id
+
+    def _resolve_order(
+        self, values: dict[str, Any], source_field: str, target_field: str, model: type[Any]
+    ) -> None:
+        number = values.pop(source_field, None)
+        if number in (None, ""):
+            return
+        instance = self.session.scalar(
+            select(model).where(model.order_number == str(number).strip().upper())
+        )
+        if instance is None:
+            raise ValueError(f"{source_field} '{number}' does not exist")
+        values[target_field] = instance.id
+
+    def _resolve_item(self, values: dict[str, Any]) -> Any:
+        item_code = values.pop("item_code", None)
+        if item_code in (None, ""):
+            raise ValueError("item_code is required")
+        item_type = values.pop("item_type", None)
+        statement = select(CatalogItem).where(
+            CatalogItem.code == str(item_code).strip().upper()
+        )
+        if item_type:
+            statement = statement.where(
+                CatalogItem.item_type == str(item_type).strip().lower().replace("-", "_")
+            )
+        items = list(self.session.scalars(statement).all())
+        if len(items) != 1:
+            raise ValueError(
+                f"item_code '{item_code}' must resolve to exactly one item; "
+                "supply item_type if ambiguous"
+            )
+        return items[0].id
 
     def _rate_values(self, values: dict[str, Any]) -> dict[str, Any]:
         item_code = str(values.pop("item_code")).strip().upper()

@@ -43,7 +43,8 @@ def test_valid_workbook_preview_commit_and_history(client: TestClient) -> None:
     body = preview.json()
     assert body["status"] == "validated"
     assert body["valid_rows"] == 2
-    assert body["mapping_version"] == "1.0"
+    assert body["mapping_profile"] == "vendors-default"
+    assert body["mapping_version"] == "1.1"
 
     commit = client.post(
         "/api/v1/import/vendors/commit",

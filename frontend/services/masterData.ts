@@ -1,5 +1,6 @@
 import type { ApiClient } from '~/services/apiClient'
 import type { ImportBatch, ImportCommitResult, ImportPreview } from '~/types/imports'
+import { buildQuery, type QueryValue } from '~/services/procurement'
 import type {
   BulkValidationResult,
   MasterDataRecord,
@@ -18,6 +19,16 @@ export interface MasterDataWrite {
   cost_category_id?: string | null
   cost_code_id?: string | null
   default_unit_id?: string | null
+  item_category_id?: string | null
+  material_number?: string | null
+  specification?: string | null
+  manufacturer?: string | null
+  applies_to?: string | null
+  vendor_type?: string | null
+  contact_person?: string | null
+  email?: string | null
+  phone?: string | null
+  country?: string | null
 }
 
 export class MasterDataApi {
@@ -27,6 +38,23 @@ export class MasterDataApi {
     const query = new URLSearchParams({ page: '1', page_size: '500', sort_by: 'code' })
     if (search) query.set('search', search)
     return this.api.get(`/master-data/${entity}?${query.toString()}`)
+  }
+
+  /** Server-side paginated listing with filter support. */
+  listPage(
+    entity: string,
+    params: Record<string, QueryValue> = {},
+  ): Promise<PageResponse<MasterDataRecord>> {
+    return this.api.get(`/master-data/${entity}?${buildQuery(params)}`)
+  }
+
+  create(entity: string, payload: MasterDataWrite): Promise<MasterDataRecord> {
+    return this.api.post(`/master-data/${entity}`, { ...payload })
+  }
+
+  update(entity: string, id: string, payload: MasterDataWrite): Promise<MasterDataRecord> {
+    const { id: _omit, ...body } = payload
+    return this.api.patch(`/master-data/${entity}/${id}`, body)
   }
 
   validate(entity: string, rows: MasterDataWrite[]): Promise<BulkValidationResult> {
@@ -43,6 +71,11 @@ export class MasterDataApi {
 
   deactivate(entity: string, id: string): Promise<undefined> {
     return this.api.delete(`/master-data/${entity}/${id}`)
+  }
+
+  /** Permanently delete a record; the API refuses when it is still referenced. */
+  remove(entity: string, id: string): Promise<undefined> {
+    return this.api.delete(`/master-data/${entity}/${id}?hard=true`)
   }
 
   listRates(): Promise<PageResponse<RateRecord>> {

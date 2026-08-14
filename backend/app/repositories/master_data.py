@@ -1,7 +1,7 @@
 """Generic typed repositories for the Phase 2 cost library."""
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Generic, TypeVar
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -10,8 +10,12 @@ from sqlalchemy.orm import Session
 from app.db.base import Base
 from app.models.master_data import CatalogItem, Rate
 
+# ``Generic`` is used instead of PEP 695 type parameters so the module also imports
+# under Python 3.11 tooling; behaviour is identical on the supported 3.12+ runtime.
+ModelT = TypeVar("ModelT", bound=Base)
 
-class MasterDataRepository[ModelT: Base]:
+
+class MasterDataRepository(Generic[ModelT]):  # noqa: UP046
     """Shared SQLAlchemy CRUD with safe filtering and sorting."""
 
     def __init__(self, session: Session, model: type[ModelT]) -> None:
@@ -34,23 +38,33 @@ class MasterDataRepository[ModelT: Base]:
         is_active: bool | None,
         sort_by: str,
         sort_order: str,
+        filters: dict[str, Any] | None = None,
     ) -> tuple[Sequence[ModelT], int]:
         statement = select(self.model)
         count_statement = select(func.count()).select_from(self.model)
-        filters: list[Any] = []
+        clauses: list[Any] = []
         if search:
             pattern = f"%{search.strip()}%"
-            filters.append(
-                or_(
-                    self.model.code.ilike(pattern),  # type: ignore[attr-defined]
-                    self.model.name.ilike(pattern),  # type: ignore[attr-defined]
-                )
-            )
+            searchable = [
+                self.model.code.ilike(pattern),  # type: ignore[attr-defined]
+                self.model.name.ilike(pattern),  # type: ignore[attr-defined]
+            ]
+            for optional in ("material_number", "specification", "manufacturer"):
+                column = getattr(self.model, optional, None)
+                if column is not None:
+                    searchable.append(column.ilike(pattern))
+            clauses.append(or_(*searchable))
         if is_active is not None:
-            filters.append(self.model.is_active == is_active)  # type: ignore[attr-defined]
-        if filters:
-            statement = statement.where(*filters)
-            count_statement = count_statement.where(*filters)
+            clauses.append(self.model.is_active == is_active)  # type: ignore[attr-defined]
+        for field, value in (filters or {}).items():
+            if value in (None, ""):
+                continue
+            column = getattr(self.model, field, None)
+            if column is not None:
+                clauses.append(column == value)
+        if clauses:
+            statement = statement.where(*clauses)
+            count_statement = count_statement.where(*clauses)
 
         allowed_sort = {"code", "name", "created_at", "updated_at", "is_active"}
         resolved_sort = sort_by if sort_by in allowed_sort else "code"
