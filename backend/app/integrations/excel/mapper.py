@@ -33,6 +33,22 @@ CATALOG_ALIASES = {
     "cost_category_code": frozenset({"cost_category_code", "cost_category", "category_code"}),
     "cost_code": frozenset({"cost_code", "expense_code"}),
     "default_unit_code": frozenset({"default_unit_code", "unit", "uom"}),
+    "item_category_code": frozenset(
+        {"item_category_code", "item_category", "tangible_category", "group"}
+    ),
+    "material_number": frozenset(
+        {"material_number", "material_no", "unique_number", "sap_number", "part_number"}
+    ),
+    "specification": frozenset({"specification", "spec", "size"}),
+    "manufacturer": frozenset({"manufacturer", "make", "brand"}),
+}
+VENDOR_ALIASES = {
+    **COMMON_ALIASES,
+    "vendor_type": frozenset({"vendor_type", "type", "vendor_category"}),
+    "contact_person": frozenset({"contact_person", "contact", "contact_name"}),
+    "email": frozenset({"email", "email_address"}),
+    "phone": frozenset({"phone", "telephone", "mobile", "contact_number"}),
+    "country": frozenset({"country", "location"}),
 }
 PROFILE_REGISTRY: dict[str, MappingProfile] = {
     "units": MappingProfile(
@@ -63,19 +79,122 @@ PROFILE_REGISTRY: dict[str, MappingProfile] = {
         },
     ),
     "vendors": MappingProfile(
-        "vendors-default", "1.0", frozenset({"code", "name"}), COMMON_ALIASES
+        "vendors-default", "1.1", frozenset({"code", "name"}), VENDOR_ALIASES
+    ),
+    "item-categories": MappingProfile(
+        "item-categories-default",
+        "1.0",
+        frozenset({"code", "name"}),
+        {
+            **COMMON_ALIASES,
+            "applies_to": frozenset({"applies_to", "scope", "category_scope"}),
+        },
     ),
     "services": MappingProfile(
-        "services-default", "1.0", frozenset({"code", "name"}), CATALOG_ALIASES
+        "services-default", "1.1", frozenset({"code", "name"}), CATALOG_ALIASES
     ),
     "tangibles": MappingProfile(
-        "tangibles-default", "1.0", frozenset({"code", "name"}), CATALOG_ALIASES
+        "tangibles-default", "1.1", frozenset({"code", "name"}), CATALOG_ALIASES
     ),
     "materials": MappingProfile(
-        "materials-default", "1.0", frozenset({"code", "name"}), CATALOG_ALIASES
+        "materials-default", "1.1", frozenset({"code", "name"}), CATALOG_ALIASES
     ),
     "equipment": MappingProfile(
-        "equipment-default", "1.0", frozenset({"code", "name"}), CATALOG_ALIASES
+        "equipment-default", "1.1", frozenset({"code", "name"}), CATALOG_ALIASES
+    ),
+    "mud-chemicals": MappingProfile(
+        "mud-chemicals-default", "1.0", frozenset({"code", "name"}), CATALOG_ALIASES
+    ),
+    "cement-additives": MappingProfile(
+        "cement-additives-default", "1.0", frozenset({"code", "name"}), CATALOG_ALIASES
+    ),
+    "service-orders": MappingProfile(
+        "service-orders-default",
+        "1.0",
+        frozenset({"order_number", "title", "vendor_code", "valid_from"}),
+        {
+            "order_number": frozenset({"order_number", "service_order_number", "so_number"}),
+            "title": frozenset({"title", "name", "subject"}),
+            "vendor_code": frozenset({"vendor_code", "vendor"}),
+            "currency_code": frozenset({"currency_code", "currency"}),
+            "valid_from": frozenset({"valid_from", "effective_date", "start_date"}),
+            "valid_to": frozenset({"valid_to", "end_date", "expiry_date"}),
+            "contract_value": frozenset({"contract_value", "value", "amount"}),
+            "status": frozenset({"status", "order_status"}),
+            "description": COMMON_ALIASES["description"],
+            "is_active": COMMON_ALIASES["is_active"],
+        },
+    ),
+    "purchase-orders": MappingProfile(
+        "purchase-orders-default",
+        "1.0",
+        frozenset({"order_number", "title", "vendor_code", "order_date"}),
+        {
+            "order_number": frozenset({"order_number", "purchase_order_number", "po_number"}),
+            "title": frozenset({"title", "name", "subject"}),
+            "vendor_code": frozenset({"vendor_code", "vendor"}),
+            "currency_code": frozenset({"currency_code", "currency"}),
+            "order_date": frozenset({"order_date", "po_date", "date"}),
+            "expected_delivery_date": frozenset(
+                {"expected_delivery_date", "delivery_date", "eta"}
+            ),
+            "order_value": frozenset({"order_value", "value", "amount"}),
+            "status": frozenset({"status", "order_status"}),
+            "description": COMMON_ALIASES["description"],
+            "is_active": COMMON_ALIASES["is_active"],
+        },
+    ),
+    "service-rates": MappingProfile(
+        "service-rates-default",
+        "1.0",
+        frozenset(
+            {"service_code", "vendor_code", "currency_code", "unit_code", "effective_from"}
+        ),
+        {
+            "service_code": frozenset({"service_code", "item_code", "service"}),
+            "vendor_code": frozenset({"vendor_code", "vendor"}),
+            "service_order_number": frozenset(
+                {"service_order_number", "so_number", "service_order"}
+            ),
+            "currency_code": frozenset({"currency_code", "currency"}),
+            "unit_code": frozenset({"unit_code", "unit", "uom"}),
+            "hole_section": frozenset({"hole_section", "section", "hole_size"}),
+            "operating_rate": frozenset({"operating_rate", "operating", "day_rate"}),
+            "standby_rate": frozenset({"standby_rate", "standby"}),
+            "mobilisation_rate": frozenset(
+                {"mobilisation_rate", "mobilization_rate", "mob_rate", "mob"}
+            ),
+            "demobilisation_rate": frozenset(
+                {"demobilisation_rate", "demobilization_rate", "demob_rate", "demob"}
+            ),
+            "effective_from": frozenset({"effective_from", "start_date", "effective_date"}),
+            "effective_to": frozenset({"effective_to", "end_date", "expiry_date"}),
+            "description": COMMON_ALIASES["description"],
+            "is_active": COMMON_ALIASES["is_active"],
+        },
+    ),
+    "item-prices": MappingProfile(
+        "item-prices-default",
+        "1.0",
+        frozenset(
+            {"item_code", "vendor_code", "currency_code", "unit_code", "unit_price",
+             "effective_from"}
+        ),
+        {
+            "item_code": frozenset({"item_code", "material_code", "tangible_code"}),
+            "item_type": frozenset({"item_type", "cost_type"}),
+            "vendor_code": frozenset({"vendor_code", "vendor"}),
+            "purchase_order_number": frozenset(
+                {"purchase_order_number", "po_number", "purchase_order"}
+            ),
+            "currency_code": frozenset({"currency_code", "currency"}),
+            "unit_code": frozenset({"unit_code", "unit", "uom"}),
+            "unit_price": frozenset({"unit_price", "price", "rate", "amount"}),
+            "effective_from": frozenset({"effective_from", "start_date", "effective_date"}),
+            "effective_to": frozenset({"effective_to", "end_date", "expiry_date"}),
+            "description": COMMON_ALIASES["description"],
+            "is_active": COMMON_ALIASES["is_active"],
+        },
     ),
     "estimate-items": MappingProfile(
         "estimate-items-default",

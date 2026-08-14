@@ -21,7 +21,26 @@ from app.schemas.imports import (
     ImportPreviewResponse,
 )
 from app.schemas.master_data import MasterDataCreate, PageResponse, RateCreate
+from app.schemas.procurement import (
+    ItemPriceCreate,
+    PurchaseOrderCreate,
+    ServiceOrderCreate,
+    ServiceRateCardCreate,
+)
 from app.services.master_data import MasterDataService, RateService, get_entity_config
+from app.services.procurement import (
+    ItemPriceService,
+    PurchaseOrderService,
+    ServiceOrderService,
+    ServiceRateCardService,
+)
+
+PROCUREMENT_ENTITIES = {
+    "service-orders": (ServiceOrderService, ServiceOrderCreate, "order_number"),
+    "purchase-orders": (PurchaseOrderService, PurchaseOrderCreate, "order_number"),
+    "service-rates": (ServiceRateCardService, ServiceRateCardCreate, "effective_from"),
+    "item-prices": (ItemPriceService, ItemPriceCreate, "effective_from"),
+}
 
 
 class ExcelImportService:
@@ -39,7 +58,7 @@ class ExcelImportService:
         sheet_name: str | None,
         mapping_overrides: dict[str, str] | None,
     ) -> ImportPreviewResponse:
-        if entity != "rates":
+        if entity != "rates" and entity not in PROCUREMENT_ENTITIES:
             get_entity_config(entity)
         pipeline = ExcelImportPipeline(self.session).preview(
             entity=entity,
@@ -106,7 +125,15 @@ class ExcelImportService:
 
         try:
             imported = 0
-            if entity == "rates":
+            if entity in PROCUREMENT_ENTITIES:
+                service_class, create_schema, _ = PROCUREMENT_ENTITIES[entity]
+                procurement_service = service_class(self.session, self.actor_id)
+                for staged in batch.staged_rows:
+                    procurement_service.create(
+                        create_schema.model_validate(staged), commit=False
+                    )
+                    imported += 1
+            elif entity == "rates":
                 service = RateService(self.session, self.actor_id)
                 for staged in batch.staged_rows:
                     service.create(RateCreate.model_validate(staged), commit=False)
@@ -148,7 +175,15 @@ class ExcelImportService:
         return ExcelTemplateService().create_blank(entity)
 
     def export(self, entity: str) -> bytes:
-        if entity == "rates":
+        if entity in PROCUREMENT_ENTITIES:
+            service_class, _, sort_field = PROCUREMENT_ENTITIES[entity]
+            page = service_class(self.session, self.actor_id).list_page(
+                page=1,
+                page_size=10_000,
+                sort_by=sort_field,
+                sort_order="asc",
+            )
+        elif entity == "rates":
             page = RateService(self.session, self.actor_id).list_page(
                 page=1,
                 page_size=10_000,

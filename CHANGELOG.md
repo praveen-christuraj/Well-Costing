@@ -2,6 +2,26 @@
 
 All notable project changes are documented here.
 
+## AFE reference data
+
+### Added
+
+- Vendor classification (`third_party` / `inhouse`) with contact, email, phone, and country.
+- `item_categories` for catalogue classification (bits, casings, shoes and collars, wellheads, and consumable groups), scoped by `applies_to`.
+- `mud_chemical` and `cement_additive` catalogue types with unit of measure and unique material numbers.
+- `service_orders` and `purchase_orders` registers linked to vendors and currencies.
+- `service_rate_cards` holding operating, standby, mobilisation, and demobilisation rates as columns, with optional hole-section scoping and effective dating.
+- `item_prices` for effective-dated tangible and consumable prices linked to purchase orders.
+- Ten Master Data pages built on a reusable enterprise grid with server-side pagination, entity-specific filters, inline Excel-style editing, clipboard paste, and per-row edit/delete actions.
+- Excel mapping profiles, templates, imports, and exports for the new entities.
+- Migration `20260814_0012_add_procurement_and_consumable_master_data`.
+
+### Changed
+
+- Master-data list endpoints accept typed filter parameters; catalogue search now also matches material number, specification, and manufacturer.
+- `DELETE` endpoints accept `?hard=true` and return 409 when a record is still referenced.
+- The `vendors` Excel mapping profile is now version 1.1 (additional columns).
+
 ## [Unreleased]
 
 - Draft enterprise configuration publication and numeric rules require separate approval.

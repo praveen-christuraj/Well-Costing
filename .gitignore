@@ -52,3 +52,7 @@ ruvector.db
 # Provider-local deployment artifacts
 .vercel/
 
+
+# Local SQLite development database (never committed)
+*.db
+backend/.venv312/

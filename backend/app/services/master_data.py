@@ -12,11 +12,14 @@ from app.core.exceptions import BusinessValidationError, ConflictError, NotFound
 from app.db.base import Base
 from app.models.master_data import (
     CatalogItem,
+    CementAdditive,
     CostCategory,
     CostCode,
     Currency,
     Equipment,
+    ItemCategory,
     Material,
+    MudChemical,
     Rate,
     Service,
     Tangible,
@@ -45,32 +48,35 @@ class EntityConfig:
 
 
 COMMON_FIELDS = frozenset({"code", "name", "description", "is_active"})
+VENDOR_FIELDS = COMMON_FIELDS | {
+    "vendor_type",
+    "contact_person",
+    "email",
+    "phone",
+    "country",
+}
+CATALOG_FIELDS = COMMON_FIELDS | {
+    "cost_category_id",
+    "cost_code_id",
+    "default_unit_id",
+    "item_category_id",
+    "material_number",
+    "specification",
+    "manufacturer",
+}
 ENTITY_CONFIGS: dict[str, EntityConfig] = {
     "units": EntityConfig(Unit, COMMON_FIELDS | {"symbol"}),
     "currencies": EntityConfig(Currency, COMMON_FIELDS | {"symbol"}),
     "cost-categories": EntityConfig(CostCategory, COMMON_FIELDS | {"parent_id"}),
     "cost-codes": EntityConfig(CostCode, COMMON_FIELDS | {"cost_category_id"}),
-    "vendors": EntityConfig(Vendor, COMMON_FIELDS),
-    "services": EntityConfig(
-        Service,
-        COMMON_FIELDS | {"cost_category_id", "cost_code_id", "default_unit_id"},
-        "service",
-    ),
-    "tangibles": EntityConfig(
-        Tangible,
-        COMMON_FIELDS | {"cost_category_id", "cost_code_id", "default_unit_id"},
-        "tangible",
-    ),
-    "materials": EntityConfig(
-        Material,
-        COMMON_FIELDS | {"cost_category_id", "cost_code_id", "default_unit_id"},
-        "material",
-    ),
-    "equipment": EntityConfig(
-        Equipment,
-        COMMON_FIELDS | {"cost_category_id", "cost_code_id", "default_unit_id"},
-        "equipment",
-    ),
+    "vendors": EntityConfig(Vendor, VENDOR_FIELDS),
+    "item-categories": EntityConfig(ItemCategory, COMMON_FIELDS | {"applies_to"}),
+    "services": EntityConfig(Service, CATALOG_FIELDS, "service"),
+    "tangibles": EntityConfig(Tangible, CATALOG_FIELDS, "tangible"),
+    "materials": EntityConfig(Material, CATALOG_FIELDS, "material"),
+    "equipment": EntityConfig(Equipment, CATALOG_FIELDS, "equipment"),
+    "mud-chemicals": EntityConfig(MudChemical, CATALOG_FIELDS, "mud_chemical"),
+    "cement-additives": EntityConfig(CementAdditive, CATALOG_FIELDS, "cement_additive"),
 }
 
 
@@ -102,6 +108,7 @@ class MasterDataService:
         is_active: bool | None,
         sort_by: str,
         sort_order: str,
+        filters: dict[str, Any] | None = None,
     ) -> PageResponse:
         items, total = self.repository.list(
             page=page,
@@ -110,6 +117,7 @@ class MasterDataService:
             is_active=is_active,
             sort_by=sort_by,
             sort_order=sort_order,
+            filters=filters,
         )
         return PageResponse(
             items=[self._serialize(item) for item in items],
@@ -170,6 +178,22 @@ class MasterDataService:
         instance.is_active = False
         instance.updated_by = self.actor_id
         self.session.commit()
+
+    def delete(self, item_id: UUID) -> None:
+        """Permanently remove a record, refusing when it is still referenced."""
+
+        instance = self.repository.get(item_id)
+        if instance is None:
+            raise NotFoundError(f"{self.entity} record not found")
+        try:
+            self.repository.delete(instance)
+            self.session.commit()
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise ConflictError(
+                f"This {self.entity} record is referenced by other records and cannot be "
+                "deleted. Deactivate it instead."
+            ) from exc
 
     def validate_bulk(self, rows: list[MasterDataCreate]) -> BulkValidationResult:
         errors: list[BulkRowError] = []
@@ -259,11 +283,25 @@ class MasterDataService:
             and not values.get("cost_category_id")
         ):
             raise BusinessValidationError("cost_category_id is required for cost codes")
+        vendor_type = values.get("vendor_type")
+        if vendor_type is not None and vendor_type not in {"third_party", "inhouse"}:
+            raise BusinessValidationError("vendor_type must be 'third_party' or 'inhouse'")
+        applies_to = values.get("applies_to")
+        if applies_to is not None and applies_to not in {
+            "service",
+            "tangible",
+            "mud_chemical",
+            "cement_additive",
+        }:
+            raise BusinessValidationError(
+                "applies_to must be one of service, tangible, mud_chemical, cement_additive"
+            )
         reference_models = {
             "parent_id": CostCategory,
             "cost_category_id": CostCategory,
             "cost_code_id": CostCode,
             "default_unit_id": Unit,
+            "item_category_id": ItemCategory,
         }
         for field, model in reference_models.items():
             value = values.get(field)
@@ -288,6 +326,16 @@ class MasterDataService:
             "cost_category_id": getattr(instance, "cost_category_id", None),
             "cost_code_id": getattr(instance, "cost_code_id", None),
             "default_unit_id": getattr(instance, "default_unit_id", None),
+            "item_category_id": getattr(instance, "item_category_id", None),
+            "material_number": getattr(instance, "material_number", None),
+            "specification": getattr(instance, "specification", None),
+            "manufacturer": getattr(instance, "manufacturer", None),
+            "applies_to": getattr(instance, "applies_to", None),
+            "vendor_type": getattr(instance, "vendor_type", None),
+            "contact_person": getattr(instance, "contact_person", None),
+            "email": getattr(instance, "email", None),
+            "phone": getattr(instance, "phone", None),
+            "country": getattr(instance, "country", None),
             "item_type": getattr(instance, "item_type", None),
         }
         if isinstance(instance, CostCategory):
@@ -303,6 +351,12 @@ class MasterDataService:
                     "cost_code": instance.cost_code.code if instance.cost_code else None,
                     "default_unit_code": instance.default_unit.code
                     if instance.default_unit
+                    else None,
+                    "item_category_code": instance.item_category.code
+                    if instance.item_category
+                    else None,
+                    "item_category_name": instance.item_category.name
+                    if instance.item_category
                     else None,
                 }
             )

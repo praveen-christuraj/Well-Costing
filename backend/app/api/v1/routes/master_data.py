@@ -35,6 +35,12 @@ def list_records(
     page_size: Annotated[int, Query(ge=1, le=500)] = 50,
     search: str | None = None,
     is_active: bool | None = None,
+    item_category_id: UUID | None = None,
+    cost_category_id: UUID | None = None,
+    cost_code_id: UUID | None = None,
+    default_unit_id: UUID | None = None,
+    vendor_type: str | None = None,
+    applies_to: str | None = None,
     sort_by: str = "code",
     sort_order: str = "asc",
 ) -> PageResponse:
@@ -45,6 +51,14 @@ def list_records(
         is_active=is_active,
         sort_by=sort_by,
         sort_order=sort_order,
+        filters={
+            "item_category_id": item_category_id,
+            "cost_category_id": cost_category_id,
+            "cost_code_id": cost_code_id,
+            "default_unit_id": default_unit_id,
+            "vendor_type": vendor_type,
+            "applies_to": applies_to,
+        },
     )
 
 
@@ -122,6 +136,13 @@ def deactivate_record(
     item_id: UUID,
     current_user: CurrentUser,
     session: Annotated[Session, Depends(get_db)],
+    hard: bool = False,
 ) -> Response:
-    _service(session, entity, current_user).deactivate(item_id)
+    """Deactivate a record, or permanently delete it when ``hard`` is requested."""
+
+    service = _service(session, entity, current_user)
+    if hard:
+        service.delete(item_id)
+    else:
+        service.deactivate(item_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

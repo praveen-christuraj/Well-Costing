@@ -20,6 +20,16 @@ class MasterDataCreate(BaseModel):
     cost_category_id: UUID | None = None
     cost_code_id: UUID | None = None
     default_unit_id: UUID | None = None
+    item_category_id: UUID | None = None
+    material_number: str | None = Field(default=None, max_length=100)
+    specification: str | None = Field(default=None, max_length=255)
+    manufacturer: str | None = Field(default=None, max_length=150)
+    applies_to: str | None = Field(default=None, max_length=30)
+    vendor_type: str | None = Field(default=None, max_length=20)
+    contact_person: str | None = Field(default=None, max_length=150)
+    email: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=50)
+    country: str | None = Field(default=None, max_length=100)
 
 
 class MasterDataUpdate(BaseModel):
@@ -34,6 +44,16 @@ class MasterDataUpdate(BaseModel):
     cost_category_id: UUID | None = None
     cost_code_id: UUID | None = None
     default_unit_id: UUID | None = None
+    item_category_id: UUID | None = None
+    material_number: str | None = Field(default=None, max_length=100)
+    specification: str | None = Field(default=None, max_length=255)
+    manufacturer: str | None = Field(default=None, max_length=150)
+    applies_to: str | None = Field(default=None, max_length=30)
+    vendor_type: str | None = Field(default=None, max_length=20)
+    contact_person: str | None = Field(default=None, max_length=150)
+    email: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=50)
+    country: str | None = Field(default=None, max_length=100)
 
 
 class MasterDataRead(BaseModel):
@@ -53,11 +73,23 @@ class MasterDataRead(BaseModel):
     cost_category_id: UUID | None = None
     cost_code_id: UUID | None = None
     default_unit_id: UUID | None = None
+    item_category_id: UUID | None = None
+    material_number: str | None = None
+    specification: str | None = None
+    manufacturer: str | None = None
+    applies_to: str | None = None
+    vendor_type: str | None = None
+    contact_person: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    country: str | None = None
     item_type: str | None = None
     parent_code: str | None = None
     cost_category_code: str | None = None
     cost_code: str | None = None
     default_unit_code: str | None = None
+    item_category_code: str | None = None
+    item_category_name: str | None = None
 
 
 class RateCreate(BaseModel):

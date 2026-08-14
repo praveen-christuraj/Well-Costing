@@ -13,6 +13,7 @@ from app.api.v1.routes import (
     health,
     imports,
     master_data,
+    procurement,
     rates,
     reporting,
     requirement_imports,
@@ -31,6 +32,7 @@ api_router.include_router(workflow.router)
 api_router.include_router(cost_control.router)
 api_router.include_router(reporting.router)
 api_router.include_router(estimates.router)
+api_router.include_router(procurement.router)
 api_router.include_router(rates.router)
 api_router.include_router(master_data.router)
 api_router.include_router(imports.router)

@@ -10,6 +10,7 @@ interface NavigationItem {
 const navigation: NavigationItem[] = [
   { label: 'Dashboard', icon: 'pi pi-chart-bar', enabled: true, to: '/' },
   { label: 'Requirements', icon: 'pi pi-clipboard', enabled: true, to: '/requirements' },
+  { label: 'Master Data', icon: 'pi pi-book', enabled: true, to: '/master-data/vendors' },
   { label: 'Cost Library', icon: 'pi pi-database', enabled: true, to: '/cost-library/services' },
   { label: 'Cost Builder', icon: 'pi pi-table', enabled: true, to: '/cost-builder' },
   { label: 'Estimates', icon: 'pi pi-calculator', enabled: false, phase: 5 },
