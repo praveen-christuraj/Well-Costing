@@ -109,7 +109,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="RESTRICT",
     )
-    op.drop_constraint("ck_catalog_items_valid_item_type", "catalog_items", type_="check")
+    op.drop_constraint(op.f("ck_catalog_items_valid_item_type"), "catalog_items", type_="check")
     op.create_check_constraint("valid_item_type", "catalog_items", VALID_ITEM_TYPES)
 
     # --- consumable subtype tables --------------------------------------------
@@ -381,7 +381,7 @@ def downgrade() -> None:
     op.drop_table("cement_additives")
     op.drop_table("mud_chemicals")
 
-    op.drop_constraint("ck_catalog_items_valid_item_type", "catalog_items", type_="check")
+    op.drop_constraint(op.f("ck_catalog_items_valid_item_type"), "catalog_items", type_="check")
     op.create_check_constraint("valid_item_type", "catalog_items", OLD_ITEM_TYPES)
     op.drop_constraint(
         op.f("fk_catalog_items_item_category_id_item_categories"),
@@ -397,7 +397,7 @@ def downgrade() -> None:
 
     op.drop_table("item_categories")
 
-    op.drop_constraint("ck_vendors_valid_vendor_type", "vendors", type_="check")
+    op.drop_constraint(op.f("ck_vendors_valid_vendor_type"), "vendors", type_="check")
     op.drop_index(op.f("ix_vendors_vendor_type"), table_name="vendors")
     op.drop_column("vendors", "country")
     op.drop_column("vendors", "phone")
