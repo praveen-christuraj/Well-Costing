@@ -56,7 +56,7 @@ first_time_setup() {
     # ── 1. System packages ────────────────────────────────────────────────────
     log "[1/6] Installing system packages..."
     pkg update -y
-    pkg install -y python nodejs git openssl python-numpy python-pandas
+    pkg install -y python nodejs git openssl
     ok "System packages installed"
 
     # ── 2. Python virtualenv ──────────────────────────────────────────────────

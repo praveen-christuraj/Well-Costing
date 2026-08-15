@@ -17,7 +17,7 @@ echo "Repo: $REPO_DIR"
 echo ""
 echo "[1/5] Installing system packages..."
 pkg update -y
-pkg install -y python nodejs git openssl python-numpy python-pandas
+pkg install -y python nodejs git openssl
 
 # ── 2. Python virtualenv ──────────────────────────────────────────────────────
 echo ""
