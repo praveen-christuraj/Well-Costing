@@ -62,9 +62,9 @@ first_time_setup() {
     # ── 2. Python virtualenv ──────────────────────────────────────────────────
     log "[2/6] Setting up Python environment..."
     cd "$REPO_DIR/backend"
-    python -m venv --clear --system-site-packages .venv
+    python -m venv --clear --system-site-packages .venv-debian
     # shellcheck disable=SC1091
-    source .venv/bin/activate
+    source .venv-debian/bin/activate
     pip install --upgrade pip --quiet
     # psycopg[binary] cannot be built on Termux ARM; use pure-Python psycopg.
     pip install --prefer-binary -e . --config-settings editable_mode=compat --quiet
