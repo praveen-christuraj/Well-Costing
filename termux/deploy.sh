@@ -56,7 +56,7 @@ first_time_setup() {
     # ── 1. System packages ────────────────────────────────────────────────────
     log "[1/6] Installing system packages..."
     pkg update -y
-    pkg install -y python nodejs git openssl
+    pkg install -y python nodejs git openssl rust clang make pkg-config libffi
     ok "System packages installed"
 
     # ── 2. Python virtualenv ──────────────────────────────────────────────────
