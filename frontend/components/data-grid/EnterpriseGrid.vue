@@ -21,6 +21,7 @@ import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
 import { useConfirm } from 'primevue/useconfirm'
+import ImportWizard from '~/components/cost-library/ImportWizard.vue'
 import { parseTsv } from '~/utils/tsv'
 import type { EditableRow, GridColumn, GridFilterDefinition } from '~/types/grid'
 import type { PageResponse } from '~/types/masterData'
@@ -48,6 +49,8 @@ const props = defineProps<{
   defaultSortOrder?: 'asc' | 'desc'
   /** Optional Excel import/export handlers. */
   onExport?: () => Promise<void>
+  /** Registry entity key enabling the bulk Excel/CSV import wizard, e.g. 'units'. */
+  importEntity?: string
   searchPlaceholder?: string
 }>()
 
@@ -71,6 +74,7 @@ const success = ref<string | null>(null)
 
 const pasteVisible = ref(false)
 const pasteText = ref('')
+const importVisible = ref(false)
 
 const editableColumns = computed(() => props.columns.filter(column => !column.readonly))
 const pasteColumns = computed(() => editableColumns.value.filter(column => !column.noPaste))
@@ -377,6 +381,13 @@ defineExpose({ reload: load })
 <template>
   <section class="eg">
     <ConfirmDialog />
+    <ImportWizard
+      v-if="importEntity"
+      v-model:visible="importVisible"
+      :entity="importEntity"
+      :entity-label="title"
+      @committed="load"
+    />
 
     <!-- Filter bar -->
     <div class="eg__filters">
@@ -453,6 +464,7 @@ defineExpose({ reload: load })
           :disabled="!selected.length"
           @click="confirmDeactivateSelected"
         />
+        <Button v-if="importEntity" label="Import" icon="pi pi-upload" severity="secondary" outlined @click="importVisible = true" />
         <Button v-if="onExport" label="Export" icon="pi pi-download" severity="secondary" outlined @click="onExport" />
         <slot name="actions" />
         <Button

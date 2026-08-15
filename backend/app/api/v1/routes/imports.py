@@ -65,8 +65,16 @@ def download_template(
     entity: str,
     current_user: CurrentUser,
     session: Annotated[Session, Depends(get_db)],
+    format: Annotated[str, Query(pattern="^(xlsx|csv)$")] = "xlsx",
 ) -> Response:
-    content = ExcelImportService(session, current_user.id).template(entity)
+    service = ExcelImportService(session, current_user.id)
+    if format == "csv":
+        return Response(
+            content=service.template_csv(entity),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{entity}-template.csv"'},
+        )
+    content = service.template(entity)
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

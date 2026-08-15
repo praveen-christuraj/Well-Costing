@@ -63,9 +63,9 @@ async function commit(): Promise<void> {
   }
 }
 
-async function downloadTemplate(): Promise<void> {
-  const blob = await api.downloadTemplate(props.entity)
-  downloadBlob(blob, `${props.entity}-template.xlsx`)
+async function downloadTemplate(format: 'xlsx' | 'csv' = 'xlsx'): Promise<void> {
+  const blob = await api.downloadTemplate(props.entity, format)
+  downloadBlob(blob, `${props.entity}-template.${format}`)
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -93,9 +93,9 @@ function downloadBlob(blob: Blob, filename: string): void {
 
     <div v-if="wizard.step === 'idle' || wizard.step === 'file-selected'" class="import-dropzone">
       <i class="pi pi-file-excel" aria-hidden="true" />
-      <strong>Select an Excel workbook</strong>
-      <span>.xlsx, .xlsm, or .xls — maximum 15 MB</span>
-      <input type="file" accept=".xlsx,.xlsm,.xls" data-testid="import-file" @change="selectFile">
+      <strong>Select an Excel workbook or CSV file</strong>
+      <span>.xlsx, .xlsm, .xls, or .csv — maximum 15 MB</span>
+      <input type="file" accept=".xlsx,.xlsm,.xls,.csv" data-testid="import-file" @change="selectFile">
       <small v-if="wizard.file">Selected: {{ wizard.file.name }}</small>
       <details class="mapping-override">
         <summary>Confirm or override ambiguous column mapping</summary>
@@ -103,7 +103,8 @@ function downloadBlob(blob: Blob, filename: string): void {
         <Textarea v-model="mappingJson" rows="4" fluid placeholder='{"source_to_target":{"Vendor ID":"code"}}' />
       </details>
       <div class="import-dropzone__actions">
-        <Button label="Download template" icon="pi pi-download" text @click="downloadTemplate" />
+        <Button label="Excel template" icon="pi pi-download" text @click="downloadTemplate('xlsx')" />
+        <Button label="CSV template" icon="pi pi-download" text @click="downloadTemplate('csv')" />
         <Button label="Preview and validate" icon="pi pi-search" :disabled="!wizard.file" @click="preview" />
       </div>
     </div>

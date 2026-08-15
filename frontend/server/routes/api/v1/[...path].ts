@@ -1,4 +1,4 @@
-import { getRouterParam, proxyRequest } from 'h3'
+import { getRouterParam, readRawBody, proxyRequest } from 'h3'
 
 export default defineEventHandler(async (event) => {
   const path = getRouterParam(event, 'path') ?? ''
@@ -11,8 +11,15 @@ export default defineEventHandler(async (event) => {
   const target = `${base}/api/v1/${path}${query}`
   const timeoutMs = Number(config.apiProxyTimeoutMs)
 
+  const method = event.node.req.method ?? 'GET'
+  const hasBody = ['POST', 'PUT', 'PATCH'].includes(method.toUpperCase())
+
+  if (hasBody) {
+    // Read the raw body so h3 buffers it before proxying — avoids stream-drain issues
+    await readRawBody(event)
+  }
+
   return proxyRequest(event, target, {
-    // Render Free services can take about a minute to wake after an idle spin-down.
     fetchOptions: { signal: AbortSignal.timeout(timeoutMs) },
   })
 })

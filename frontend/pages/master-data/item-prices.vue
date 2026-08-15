@@ -125,6 +125,7 @@ const blankRow = () => ({
       :bulk-create="rows => procurement.itemPrices.bulkCreate(rows)"
       :bulk-update="rows => procurement.itemPrices.bulkUpdate(rows)"
       :remove-record="(id, hard) => procurement.itemPrices.remove(id, hard)"
+      import-entity="item-prices"
       default-sort="effective_from"
       default-sort-order="desc"
       search-placeholder="Search by item code, name, or material number…"

@@ -33,7 +33,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    ENVIRONMENT: Literal["development", "test", "uat", "staging", "production"] = (
+    ENVIRONMENT: Literal["development", "test", "termux", "uat", "staging", "production"] = (
         "development"
     )
     DATABASE_URL: str = "postgresql+psycopg://drilling_costing@localhost:5432/drilling_costing"
@@ -56,11 +56,12 @@ class Settings(BaseSettings):
     def reject_unsafe_hosted_configuration(self) -> Self:
         """Fail startup rather than silently using development defaults in hosted environments."""
 
-        if self.ENVIRONMENT in {"uat", "staging", "production"}:
+        if self.ENVIRONMENT in {"termux", "uat", "staging", "production"}:
             if self.SECRET_KEY == _DEFAULT_SECRET_KEY or self.SECRET_KEY.startswith("replace-"):
-                raise ValueError("SECRET_KEY must be replaced in hosted environments")
+                raise ValueError("SECRET_KEY must be set for this environment")
             if not self.DATABASE_URL.startswith("postgresql+psycopg://"):
-                raise ValueError("Hosted environments require a PostgreSQL DATABASE_URL")
+                raise ValueError("termux/hosted environments require a PostgreSQL DATABASE_URL (use Supabase)")
+        if self.ENVIRONMENT in {"uat", "staging", "production"}:
             if any(origin.startswith("http://localhost") for origin in self.CORS_ORIGINS):
                 raise ValueError("Hosted environments cannot allow localhost CORS origins")
         return self

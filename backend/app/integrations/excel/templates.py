@@ -1,4 +1,4 @@
-"""Blank, versioned Excel templates for cost-library entities."""
+"""Blank, versioned Excel and CSV templates for cost-library entities."""
 
 from io import BytesIO
 
@@ -7,15 +7,19 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from app.core.exceptions import NotFoundError
-from app.integrations.excel.mapper import PROFILE_REGISTRY
+from app.integrations.excel.mapper import MappingProfile, PROFILE_REGISTRY
 
 
 class ExcelTemplateService:
-    def create_blank(self, entity: str) -> bytes:
+    @staticmethod
+    def _profile(entity: str) -> MappingProfile:
         try:
-            profile = PROFILE_REGISTRY[entity]
+            return PROFILE_REGISTRY[entity]
         except KeyError as exc:
-            raise NotFoundError(f"No Excel template exists for '{entity}'") from exc
+            raise NotFoundError(f"No import template exists for '{entity}'") from exc
+
+    def create_blank(self, entity: str) -> bytes:
+        profile = self._profile(entity)
         workbook = Workbook()
         sheet = workbook.active
         assert sheet is not None
@@ -37,3 +41,10 @@ class ExcelTemplateService:
         output = BytesIO()
         workbook.save(output)
         return output.getvalue()
+
+    def create_blank_csv(self, entity: str) -> bytes:
+        """UTF-8 (BOM) CSV header row so Excel opens it with correct columns."""
+
+        profile = self._profile(entity)
+        header_line = ",".join(profile.headers)
+        return ("\ufeff" + header_line + "\r\n").encode("utf-8")

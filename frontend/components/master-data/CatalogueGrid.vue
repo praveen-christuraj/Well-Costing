@@ -138,6 +138,7 @@ async function exportWorkbook(): Promise<void> {
     :bulk-update="rows => api.bulkUpdate(entity, rows as never)"
     :remove-record="(id, hard) => (hard ? api.remove(entity, id) : api.deactivate(entity, id))"
     :on-export="exportWorkbook"
+    :import-entity="entity"
     default-sort="code"
     :search-placeholder="`Search by code, name, or material number…`"
   />

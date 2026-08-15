@@ -109,8 +109,8 @@ export class MasterDataApi {
     return this.api.get('/imports/batches?page=1&page_size=100')
   }
 
-  downloadTemplate(entity: string): Promise<Blob> {
-    return this.api.download(`/import/${entity}/template`)
+  downloadTemplate(entity: string, format: 'xlsx' | 'csv' = 'xlsx'): Promise<Blob> {
+    return this.api.download(`/import/${entity}/template?format=${format}`)
   }
 
   export(entity: string): Promise<Blob> {

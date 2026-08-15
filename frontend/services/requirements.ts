@@ -19,6 +19,14 @@ export class RequirementApi {
     return this.api.post('/projects', payload)
   }
 
+  updateProject(id: string, payload: Record<string, unknown>): Promise<ProjectRecord> {
+    return this.api.patch(`/projects/${id}`, payload)
+  }
+
+  deleteProject(id: string): Promise<undefined> {
+    return this.api.delete(`/projects/${id}`)
+  }
+
   listWells(projectId?: string): Promise<PageResponse<WellRecord>> {
     const query = projectId ? `&project_id=${projectId}` : ''
     return this.api.get(`/wells?page=1&page_size=500${query}`)
@@ -26,6 +34,14 @@ export class RequirementApi {
 
   createWell(payload: Record<string, unknown>): Promise<WellRecord> {
     return this.api.post('/wells', payload)
+  }
+
+  updateWell(id: string, payload: Record<string, unknown>): Promise<WellRecord> {
+    return this.api.patch(`/wells/${id}`, payload)
+  }
+
+  deleteWell(id: string): Promise<undefined> {
+    return this.api.delete(`/wells/${id}`)
   }
 
   listRequirements(wellId?: string, status?: string): Promise<PageResponse<RequirementRecord>> {
@@ -41,6 +57,14 @@ export class RequirementApi {
 
   createRequirement(payload: Record<string, unknown>): Promise<RequirementRecord> {
     return this.api.post('/requirements', payload)
+  }
+
+  updateRequirement(id: string, payload: Record<string, unknown>): Promise<RequirementRecord> {
+    return this.api.patch(`/requirements/${id}`, payload)
+  }
+
+  deleteRequirement(id: string): Promise<undefined> {
+    return this.api.delete(`/requirements/${id}`)
   }
 
   validateItems(requirementId: string, rows: Record<string, unknown>[]): Promise<BulkValidationResult> {

@@ -1,4 +1,4 @@
-"""Safe tabular Excel workbook reader."""
+"""Safe tabular workbook reader for Excel and CSV uploads."""
 
 from dataclasses import dataclass
 from io import BytesIO
@@ -9,7 +9,9 @@ import pandas as pd
 
 from app.core.exceptions import BusinessValidationError
 
-ALLOWED_EXTENSIONS = {".xlsx", ".xlsm", ".xls"}
+EXCEL_EXTENSIONS = {".xlsx", ".xlsm", ".xls"}
+CSV_EXTENSIONS = {".csv"}
+ALLOWED_EXTENSIONS = EXCEL_EXTENSIONS | CSV_EXTENSIONS
 MAX_WORKBOOK_BYTES = 15 * 1024 * 1024
 
 
@@ -21,24 +23,29 @@ class WorkbookRows:
 
 
 class ExcelReader:
-    """Read one workbook sheet into JSON-compatible row dictionaries."""
+    """Read one workbook sheet or CSV file into JSON-compatible row dictionaries."""
 
     def read(self, content: bytes, filename: str, sheet_name: str | None = None) -> WorkbookRows:
         extension = Path(filename).suffix.lower()
         if extension not in ALLOWED_EXTENSIONS:
             raise BusinessValidationError(
-                f"Unsupported workbook extension '{extension}'. Use .xlsx, .xlsm, or .xls."
+                f"Unsupported file extension '{extension}'. Use .xlsx, .xlsm, .xls, or .csv."
             )
         if len(content) > MAX_WORKBOOK_BYTES:
-            raise BusinessValidationError("Workbook exceeds the 15 MB Phase 2 upload limit")
+            raise BusinessValidationError("Upload exceeds the 15 MB limit")
         try:
-            selected_sheet: str | int = sheet_name if sheet_name else 0
-            frame = pd.read_excel(  # pyright: ignore[reportUnknownMemberType]
-                BytesIO(content), sheet_name=selected_sheet, dtype=object
-            )
+            if extension in CSV_EXTENSIONS:
+                frame = self._read_csv(content)
+            else:
+                selected_sheet: str | int = sheet_name if sheet_name else 0
+                frame = pd.read_excel(  # pyright: ignore[reportUnknownMemberType]
+                    BytesIO(content), sheet_name=selected_sheet, dtype=object
+                )
+        except BusinessValidationError:
+            raise
         except Exception as exc:
             raise BusinessValidationError(
-                "Workbook could not be read", {"reason": str(exc)}
+                "File could not be read", {"reason": str(exc)}
             ) from exc
 
         frame.columns = [str(column).strip() for column in frame.columns]
@@ -51,6 +58,25 @@ class ExcelReader:
             columns=list(frame.columns),
             rows=records,
             sheet_name=sheet_name or "first sheet",
+        )
+
+    @staticmethod
+    def _read_csv(content: bytes) -> pd.DataFrame:
+        """Parse CSV bytes, tolerating BOM and both comma/semicolon delimiters."""
+
+        text: str | None = None
+        for encoding in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+            try:
+                text = content.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        if text is None or not text.strip():
+            raise BusinessValidationError("CSV file is empty or uses an unsupported encoding")
+        from io import StringIO
+
+        return pd.read_csv(  # pyright: ignore[reportUnknownMemberType]
+            StringIO(text), dtype=object, sep=None, engine="python"
         )
 
     @staticmethod

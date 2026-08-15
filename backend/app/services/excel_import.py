@@ -174,6 +174,10 @@ class ExcelImportService:
     def template(entity: str) -> bytes:
         return ExcelTemplateService().create_blank(entity)
 
+    @staticmethod
+    def template_csv(entity: str) -> bytes:
+        return ExcelTemplateService().create_blank_csv(entity)
+
     def export(self, entity: str) -> bytes:
         if entity in PROCUREMENT_ENTITIES:
             service_class, _, sort_field = PROCUREMENT_ENTITIES[entity]

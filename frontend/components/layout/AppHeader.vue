@@ -4,10 +4,6 @@ import Button from 'primevue/button'
 
 const { user, logout } = useAuth()
 
-defineEmits<{
-  toggleSidebar: []
-}>()
-
 const userInitials = computed(() => {
   const source = user.value?.full_name?.trim() || user.value?.email?.trim() || 'DC'
   const parts = source.split(/\s+/).filter(Boolean)
@@ -22,40 +18,20 @@ async function handleLogout(): Promise<void> {
 
 <template>
   <header class="app-header">
-    <div class="app-header__identity">
-      <Button
-        class="app-header__menu"
-        icon="pi pi-bars"
-        text
-        rounded
-        aria-label="Toggle navigation"
-        @click="$emit('toggleSidebar')"
-      />
-      <div class="app-mark" aria-hidden="true">
-        DC
-      </div>
-      <div>
-        <strong>Drilling Costing</strong>
-        <span>Cost control workspace</span>
-      </div>
+    <div class="app-header__left">
+      <div class="app-mark" aria-hidden="true">DC</div>
+      <span class="app-header__brand">Drilling Costing</span>
     </div>
-    <div class="app-header__meta">
-      <span class="environment-chip">
-        <i class="pi pi-shield" /> Foundation
-      </span>
+    <div class="app-header__right">
       <div v-if="user" class="app-header__account">
-        <div class="app-header__user-text">
-          <strong>{{ user.full_name }}</strong>
-          <span>{{ user.email }}</span>
-        </div>
-        <div class="user-avatar" :title="user.full_name">
-          {{ userInitials }}
-        </div>
+        <div class="user-avatar" :title="user.full_name ?? ''">{{ userInitials }}</div>
+        <span class="app-header__username">{{ user.full_name }}</span>
         <Button
-          label="Logout"
           icon="pi pi-sign-out"
           text
+          rounded
           severity="secondary"
+          aria-label="Logout"
           class="app-header__logout"
           @click="handleLogout"
         />

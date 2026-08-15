@@ -15,6 +15,12 @@ defineProps<{ active: string }>()
 
 const groups: NavGroup[] = [
   {
+    label: 'Configuration',
+    items: [
+      { key: 'units', label: 'Units of Measure', to: '/master-data/units' },
+    ],
+  },
+  {
     label: 'Partners',
     items: [
       { key: 'vendors', label: 'Vendors', to: '/master-data/vendors' },
@@ -32,7 +38,7 @@ const groups: NavGroup[] = [
   {
     label: 'Tangibles',
     items: [
-      { key: 'item-categories', label: 'Categories', to: '/master-data/item-categories' },
+      { key: 'item-categories', label: 'Item Categories', to: '/master-data/item-categories' },
       { key: 'tangibles', label: 'Tangibles', to: '/master-data/tangibles' },
     ],
   },
