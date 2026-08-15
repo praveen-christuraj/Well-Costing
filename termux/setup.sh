@@ -17,18 +17,18 @@ echo "Repo: $REPO_DIR"
 echo ""
 echo "[1/5] Installing system packages..."
 pkg update -y
-pkg install -y python nodejs git openssl
+pkg install -y python nodejs git openssl python-numpy python-pandas
 
 # ── 2. Python virtualenv ──────────────────────────────────────────────────────
 echo ""
 echo "[2/5] Creating Python virtualenv..."
 cd "$REPO_DIR/backend"
-python -m venv .venv
+python -m venv --clear --system-site-packages .venv
 # shellcheck disable=SC1091
 source .venv/bin/activate
 pip install --upgrade pip
 # psycopg[binary] doesn't build on Termux ARM; use the pure-Python driver instead.
-pip install -e . --config-settings editable_mode=compat
+pip install --prefer-binary -e . --config-settings editable_mode=compat
 pip install "psycopg>=3.2,<4"
 
 # ── 3. Node dependencies ──────────────────────────────────────────────────────

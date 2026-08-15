@@ -56,18 +56,18 @@ first_time_setup() {
     # ── 1. System packages ────────────────────────────────────────────────────
     log "[1/6] Installing system packages..."
     pkg update -y
-    pkg install -y python nodejs git openssl
+    pkg install -y python nodejs git openssl python-numpy python-pandas
     ok "System packages installed"
 
     # ── 2. Python virtualenv ──────────────────────────────────────────────────
     log "[2/6] Setting up Python environment..."
     cd "$REPO_DIR/backend"
-    python -m venv .venv
+    python -m venv --clear --system-site-packages .venv
     # shellcheck disable=SC1091
     source .venv/bin/activate
     pip install --upgrade pip --quiet
     # psycopg[binary] cannot be built on Termux ARM; use pure-Python psycopg.
-    pip install -e . --config-settings editable_mode=compat --quiet
+    pip install --prefer-binary -e . --config-settings editable_mode=compat --quiet
     pip install "psycopg>=3.2,<4" --quiet
     ok "Python environment ready"
 
@@ -168,7 +168,7 @@ update_code() {
     cd "$REPO_DIR/backend"
     # shellcheck disable=SC1091
     source .venv/bin/activate
-    pip install --upgrade -e . --quiet
+    pip install --prefer-binary --upgrade -e . --quiet
     pip install --upgrade "psycopg>=3.2,<4" --quiet
     ok "Python dependencies updated"
 

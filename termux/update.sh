@@ -22,7 +22,7 @@ echo ""
 echo "[2/4] Updating Python dependencies..."
 cd "$REPO_DIR/backend"
 source .venv/bin/activate
-pip install --upgrade -e .
+pip install --prefer-binary --upgrade -e .
 pip install --upgrade "psycopg>=3.2,<4"
 
 # Update Node dependencies
