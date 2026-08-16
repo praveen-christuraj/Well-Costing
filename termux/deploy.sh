@@ -125,6 +125,7 @@ main() {
     fi
 
     run_migrations
+    seed_admin
     start_all_servers
     print_access_banner
 }

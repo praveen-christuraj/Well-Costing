@@ -1,4 +1,4 @@
-#!/data/data/com.termux/files/usr/bin/bash
+﻿#!/data/data/com.termux/files/usr/bin/bash
 # lib-debian-backend.sh — shared helpers for all Termux deployment scripts.
 #
 # ── Why Debian inside proot? ─────────────────────────────────────────────────
@@ -450,6 +450,44 @@ print_access_banner() {
     echo "╚══════════════════════════════════════════════╝"
 }
 
+# ─── Admin user seeding ───────────────────────────────────────────────────────
+# Called once during first-time setup. Skipped on subsequent deploys unless
+# TERMUX_SEED_ADMIN=1 is set explicitly.
+seed_admin() {
+    local ADMIN_MARKER="$TERMUX_DIR/.admin_seeded"
+    if [ -f "$ADMIN_MARKER" ] && [ "${TERMUX_SEED_ADMIN:-0}" != "1" ]; then
+        ok "Admin user already seeded (delete termux/.admin_seeded to re-run)"
+        return 0
+    fi
+
+    echo ""
+    echo "  ┌──────────────────────────────────────────────────────────────────┐"
+    echo "  │  Create your admin user                                          │"
+    echo "  │  This is the account you will use to log in to the app.         │"
+    echo "  └──────────────────────────────────────────────────────────────────┘"
+    echo ""
+
+    local ADMIN_EMAIL ADMIN_PASSWORD ADMIN_NAME
+    read -r -p "  Admin email:     " ADMIN_EMAIL || true
+    read -r -s -p "  Admin password (min 12 chars): " ADMIN_PASSWORD || true
+    echo ""
+    read -r -p "  Full name:       " ADMIN_NAME || true
+
+    if [ -z "$ADMIN_EMAIL" ] || [ -z "$ADMIN_PASSWORD" ] || [ -z "$ADMIN_NAME" ]; then
+        warn "Skipping admin seed — run manually later:"
+        warn "  SEED_USER_EMAIL=you@example.com SEED_USER_PASSWORD=yourpassword123 \\"
+        warn "  SEED_USER_FULL_NAME='Your Name' bash termux/backend-exec.sh python scripts/seed_user.py"
+        return 0
+    fi
+
+    SEED_USER_EMAIL="$ADMIN_EMAIL" \
+    SEED_USER_PASSWORD="$ADMIN_PASSWORD" \
+    SEED_USER_FULL_NAME="$ADMIN_NAME" \
+    backend_shell "cd $BACKEND_Q && python scripts/seed_user.py"
+
+    touch "$ADMIN_MARKER"
+    ok "Admin user created: $ADMIN_EMAIL"
+}
 # ─── .env writers (shared by setup.sh and deploy.sh) ─────────────────────────
 write_backend_env() {
     if [ -f "$BACKEND_ENV" ]; then
@@ -489,7 +527,8 @@ EOF
     ok "Created frontend/.env"
 }
 
-# Prompt for the Supabase URL when backend/.env still holds the placeholder.
+# Prompt for DATABASE_URL when backend/.env still holds the placeholder.
+# Offers both Supabase and SQLite options interactively.
 # Returns non-zero (without failing the caller) when the URL is still missing.
 prompt_for_database_url() {
     if ! grep -q "postgres\.XXXX:PASSWORD" "$BACKEND_ENV" 2>/dev/null; then
@@ -497,27 +536,48 @@ prompt_for_database_url() {
         return 0
     fi
     echo ""
-    echo "  ┌─────────────────────────────────────────────────────────────┐"
-    echo "  │  ACTION REQUIRED — Paste your Supabase DATABASE_URL         │"
-    echo "  │                                                             │"
-    echo "  │  1. Open Supabase → your project                            │"
-    echo "  │  2. Settings → Database → Connection string → URI           │"
-    echo "  │  3. Pick the Transaction pooler URL (port 6543)             │"
-    echo "  │  4. The 'postgresql://' scheme is normalized automatically  │"
-    echo "  └─────────────────────────────────────────────────────────────┘"
+    echo "  ┌──────────────────────────────────────────────────────────────────┐"
+    echo "  │  ACTION REQUIRED — Choose your database                          │"
+    echo "  │                                                                  │"
+    echo "  │  1) Supabase / cloud PostgreSQL  (needs internet for data)       │"
+    echo "  │  2) SQLite on this phone         (fully offline, data on device) │"
+    echo "  └──────────────────────────────────────────────────────────────────┘"
     echo ""
-    local DB_URL=""
-    read -r -p "  Paste DATABASE_URL now (or press Enter to set it manually later): " DB_URL || true
-    if [ -z "$DB_URL" ]; then
-        warn "DATABASE_URL not set. Edit backend/.env, then re-run: bash termux/deploy.sh"
-        return 1
+    local CHOICE=""
+    read -r -p "  Enter 1 or 2 (or Enter to set DATABASE_URL manually later): " CHOICE || true
+
+    if [ "$CHOICE" = "2" ]; then
+        local SQLITE_PATH="$REPO_DIR/data/drilling.db"
+        mkdir -p "$REPO_DIR/data"
+        local DB_URL_ESCAPED
+        DB_URL_ESCAPED=$(printf '%s' "sqlite:////$SQLITE_PATH" | sed -e 's/\\/\\\\/g' -e 's/|/\\|/g' -e 's/&/\\&/g')
+        sed -i "s|^DATABASE_URL=.*|DATABASE_URL=$DB_URL_ESCAPED|" "$BACKEND_ENV"
+        sed -i 's|^# DATABASE_URL=sqlite://.*||' "$BACKEND_ENV"
+        ok "SQLite selected — database file: $SQLITE_PATH"
+        return 0
     fi
-    # Normalize scheme the app expects.
-    DB_URL="${DB_URL/postgresql:\/\//postgresql+psycopg://}"
-    DB_URL="${DB_URL/postgres:\/\//postgresql+psycopg://}"
-    # Escape sed metacharacters in the replacement (& recalls the whole match!).
-    local DB_URL_ESCAPED
-    DB_URL_ESCAPED=$(printf '%s' "$DB_URL" | sed -e 's/\\/\\\\/g' -e 's/|/\\|/g' -e 's/&/\\&/g')
-    sed -i "s|^DATABASE_URL=.*|DATABASE_URL=$DB_URL_ESCAPED|" "$BACKEND_ENV"
-    ok "DATABASE_URL saved"
+
+    if [ "$CHOICE" = "1" ]; then
+        echo ""
+        echo "  Supabase URL format:"
+        echo "  postgresql+psycopg://postgres.XXXX:PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres"
+        echo "  (Supabase → Settings → Database → Connection string → Transaction pooler)"
+        echo ""
+        local DB_URL=""
+        read -r -p "  Paste DATABASE_URL: " DB_URL || true
+        if [ -z "$DB_URL" ]; then
+            warn "DATABASE_URL not set. Edit backend/.env, then re-run: bash termux/deploy.sh"
+            return 1
+        fi
+        DB_URL="${DB_URL/postgresql:\/\//postgresql+psycopg://}"
+        DB_URL="${DB_URL/postgres:\/\//postgresql+psycopg://}"
+        local DB_URL_ESCAPED
+        DB_URL_ESCAPED=$(printf '%s' "$DB_URL" | sed -e 's/\\/\\\\/g' -e 's/|/\\|/g' -e 's/&/\\&/g')
+        sed -i "s|^DATABASE_URL=.*|DATABASE_URL=$DB_URL_ESCAPED|" "$BACKEND_ENV"
+        ok "DATABASE_URL saved"
+        return 0
+    fi
+
+    warn "No choice made. Edit backend/.env manually, then re-run: bash termux/deploy.sh"
+    return 1
 }
