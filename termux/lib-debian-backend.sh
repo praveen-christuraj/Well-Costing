@@ -21,6 +21,15 @@
 # marker so the scripts can detect (and safely replace) stale native venvs.
 #
 # The frontend stays Termux-native: Node.js works fine on Termux.
+#
+# ── Wheels-only install (why the pip step can never hang again) ──────────────
+# The pip step runs with --only-binary :all: against an EXPLICIT index (PyPI by
+# default) while ignoring any pip.conf / inherited PIP_* variables / HTTP cache
+# on the phone. If a prebuilt manylinux aarch64 wheel is missing for some
+# version, pip now FAILS FAST (seconds, with a clear message) instead of
+# compiling Rust/C for 15+ minutes. termux/requirements-constraints.txt pins
+# every native-code package to a version whose aarch64 wheel is confirmed on
+# PyPI (see that file for the verification table).
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Guard against being sourced twice.
@@ -128,7 +137,9 @@ ensure_debian_packages() {
     fi
     run_in_debian "rm -rf /tmp/.venv-probe || true"
     log "Installing Debian packages (python3, venv, pip)..."
-    run_in_debian "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends python3 python3-venv python3-pip ca-certificates curl"
+    # libpq5: psycopg (pure-Python driver) dlopens libpq at runtime for the
+    # Supabase connection; without it the app dies on the first DB request.
+    run_in_debian "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends python3 python3-venv python3-pip ca-certificates curl libpq5"
     ok "Debian packages installed"
 }
 
@@ -191,16 +202,85 @@ ensure_backend_venv() {
     ok "Virtualenv ready (backend/$VENV_NAME)"
 }
 
-# Install/upgrade all backend dependencies. Everything resolves to prebuilt
-# manylinux aarch64 wheels inside Debian — zero compilation, including
-# pydantic-core and the uvicorn[standard] extras.
+# ── Isolated, wheels-only pip ─────────────────────────────────────────────────
+
+# Default PyPI index for backend installs. A phone may have a broken/mirror
+# PIP_* environment or pip.conf (Termux env vars are inherited into the Debian
+# container) that silently makes pip download source tarballs instead of
+# wheels — that is exactly the "stuck compiling pydantic-core" symptom. Override
+# only if pypi.org is unreachable from your network:
+#   TERMUX_PIP_INDEX_URL=https://mirror.example.com/simple bash termux/deploy.sh
+PIP_INDEX_URL_DEFAULT="https://pypi.org/simple"
+
+# PIP_* variables whose inherited values could change which files pip picks
+# (index, binary policy, platform overrides) or where it caches them. The
+# trailing PIP_CONFIG_FILE=/dev/null (set AFTER the unsets, and replacing the
+# CLI --config-file flag, which pip removed) makes pip ignore every pip.conf on
+# the phone and in the container.
+PIP_ISOLATE_ENV="env -u PIP_INDEX_URL -u PIP_EXTRA_INDEX_URL -u PIP_FIND_LINKS \
+-u PIP_NO_BINARY -u PIP_ONLY_BINARY -u PIP_PREFER_BINARY -u PIP_CONFIG_FILE \
+-u PIP_CACHE_DIR -u PIP_PLATFORM -u PIP_ABI -u PIP_PYTHON_VERSION \
+PIP_CONFIG_FILE=/dev/null"
+
+# Run pip inside Debian with a deterministic configuration:
+#   PIP_CONFIG_FILE=/dev/null → ignore every pip.conf (Termux + container)
+#   env -u PIP_*              → ignore inherited PIP_* environment variables
+#   --index-url $index        → explicit index, appended AFTER the subcommand
+#                               (pip treats it as a subcommand option)
+#   --no-cache-dir            → fresh metadata/files every run (no stale cache)
+# $1 = pip subcommand + arguments, already shell-quoted by the caller.
+debian_pip() {
+    local index="${TERMUX_PIP_INDEX_URL:-$PIP_INDEX_URL_DEFAULT}"
+    # shellcheck disable=SC2086
+    backend_shell "$PIP_ISOLATE_ENV $VENV_NAME/bin/pip --no-cache-dir $1 --index-url \"$index\""
+}
+
+# Version probe — plain `pip --version` only: pip's global parser rejects any
+# extra option placed after --version.
+debian_pip_version() {
+    # shellcheck disable=SC2086
+    backend_shell "$PIP_ISOLATE_ENV $VENV_NAME/bin/pip --version"
+}
+
+# Install/upgrade all backend dependencies. Wheels only, always: with
+# --only-binary :all: pip refuses to compile anything, so a missing prebuilt
+# wheel fails in seconds with a clear message instead of a 15-minute hang.
+# termux/requirements-constraints.txt pins the native-code packages to versions
+# whose manylinux aarch64 wheels are confirmed on PyPI.
 install_python_deps() {
-    log "Installing backend dependencies (prebuilt wheels — nothing compiles)..."
+    log "Installing backend dependencies (prebuilt wheels only — nothing compiles)..."
+    local index="${TERMUX_PIP_INDEX_URL:-$PIP_INDEX_URL_DEFAULT}"
+    local constraints="$TERMUX_DIR/requirements-constraints.txt"
+    ok "pip index: $index  |  constraints: $(basename "$constraints")"
+
     if [ "$DEBIAN_PY_BOOTSTRAP" = "uv" ]; then
-        backend_shell '"$HOME/.local/bin/uv" pip install --python '"$VENV_NAME"'/bin/python --upgrade -e .'
-    else
-        backend_shell "$VENV_NAME/bin/pip install --quiet --upgrade pip"
-        backend_shell "$VENV_NAME/bin/pip install --upgrade -e ."
+        # Same wheels-only guarantee as the pip path (uv fallback uses
+        # standalone CPython 3.12, whose wheels all exist for the pins).
+        backend_shell '"$HOME/.local/bin/uv" pip install --python '"$VENV_NAME"'/bin/python --upgrade --only-binary :all: -e .'
+        verify_backend_env
+        return 0
+    fi
+
+    # Upgrade pip itself with the same isolated config, so an old pip cannot
+    # keep rejecting newer manylinux wheel tags. Not fatal: Debian's stock pip
+    # already handles every wheel in the constraints file.
+    local pip_before pip_after
+    pip_before=$(debian_pip_version 2>/dev/null | head -1 || true)
+    if ! debian_pip "install --upgrade pip"; then
+        warn "pip self-upgrade failed — continuing with: ${pip_before:-unknown}"
+    fi
+    pip_after=$(debian_pip_version 2>/dev/null | head -1 || true)
+    ok "pip: ${pip_after:-unknown}"
+
+    if ! debian_pip "install --upgrade --only-binary :all: --constraint '$constraints' -e ."; then
+        err ""
+        err "Backend dependency install FAILED (wheels-only mode — pip refused to compile,"
+        err "so it failed fast instead of hanging for 15+ minutes)."
+        err "  Current index : $index   (override with TERMUX_PIP_INDEX_URL=...)"
+        err "  Constraints   : $constraints (pins versions with confirmed aarch64 wheels)"
+        err "  If this persists, the Debian container may hold stale pip state:"
+        err "      proot-distro reset $DEBIAN_DISTRO   # then re-run: bash termux/deploy.sh"
+        die "pip install failed (see above)"
     fi
     verify_backend_env
 }

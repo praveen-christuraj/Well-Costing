@@ -174,11 +174,33 @@ rm -rf backend/.venv backend/.venv-debian termux/.setup_done
 bash termux/deploy.sh
 ```
 
-Inside Debian, `pip install` downloads wheels only — a normal step-3 run finishes
-in a couple of minutes. The deploy script also verifies the environment by
-importing `fastapi`, `pydantic` (+ `pydantic_core`), `sqlalchemy`, `uvicorn`,
-`alembic`, and `psycopg` right after install, so problems surface immediately
-instead of at first run.
+Inside Debian, `pip install` is **wheels-only** (`--only-binary :all:`): if a
+prebuilt manylinux aarch64 wheel exists, pip downloads it; if one is missing,
+pip **fails in seconds with a clear message** instead of compiling C/Rust on the
+phone. A normal step-3 run finishes in a couple of minutes. The deploy script
+also verifies the environment by importing `fastapi`, `pydantic` (+
+`pydantic_core`), `sqlalchemy`, `uvicorn`, `alembic`, and `psycopg` right after
+install, so problems surface immediately instead of at first run.
+
+If step 3 still picks `.tar.gz` files and fails:
+
+1. The install ignores your phone's pip config and uses **pypi.org** by default.
+   If your network can't reach it (or you must use a mirror), point it at one
+   that serves aarch64 wheels:
+   ```bash
+   TERMUX_PIP_INDEX_URL=https://pypi.org/simple bash termux/deploy.sh
+   ```
+2. Stale pip state can survive inside the container (it persists across
+   `rm -rf backend/.venv`). Reset it once — the deploy script rebuilds
+   everything automatically:
+   ```bash
+   proot-distro reset debian
+   bash termux/deploy.sh
+   ```
+3. Native-code package versions are pinned in `termux/requirements-constraints.txt`
+   to releases whose aarch64 wheels are confirmed on PyPI. If a future update
+   hits a missing wheel, the fix is usually to bump (or temporarily relax) the
+   pin there — the failure message will name the exact package and version.
 
 ### Python version too new/old in Debian
 

@@ -12,6 +12,8 @@
 #   bash termux/deploy.sh
 #   TERMUX_DEV=1 bash termux/deploy.sh      # dev mode (nuxt hot-reload)
 #   TERMUX_REBUILD=1 bash termux/deploy.sh  # force Nuxt rebuild
+#   TERMUX_PIP_INDEX_URL=... bash termux/deploy.sh  # alternate PyPI mirror
+#                                                (default: https://pypi.org/simple)
 #
 # The Python backend runs inside a proot-distro Debian container because PyPI
 # has no wheels for Termux's bionic Python: pydantic-core (Rust) & friends stay

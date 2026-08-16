@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Termux deployment — backend dependency pins (constraints).
+#
+# These pins force every native-code package to a version whose prebuilt
+# manylinux aarch64 wheel is CONFIRMED on PyPI, so the phone never falls back
+# to compiling C/Rust from source (the classic 15+ minute pydantic-core hang).
+# They apply ONLY to the Termux/Android deployment (termux/*.sh); the backend's
+# own pyproject.toml ranges stay broad for desktop/cloud installs.
+#
+# Verified 2026-08-16 for CPython 3.13 on linux-aarch64 (proot Debian):
+#   * pydantic-core 2.46.4            → manylinux_2_17/manylinux2014 aarch64 wheel
+#   * argon2-cffi-bindings 25.1.0     → cp39-abi3 manylinux_2_26/2_28 aarch64 wheel
+#   * uvloop 0.22.1                   → manylinux2014 + manylinux_2_28 aarch64 wheel
+#   * httptools 0.8.0                 → manylinux1/2_5 + manylinux_2_28 aarch64 wheel
+#   * watchfiles 1.2.0                → manylinux_2_17/manylinux2014 aarch64 wheel
+#   * websockets 17.0.1               → manylinux1/2_5 + manylinux_2_28 aarch64 wheel
+#   * cffi 2.1.1                      → manylinux2014 aarch64 wheel
+# Pure-Python packages (sqlalchemy, psycopg, fastapi, …) need no pin: pip can
+# only ever install their py3-none-any wheels.
+#
+# To bump: change a pin, run the deploy on-device, and confirm step [3/7] logs
+# "all wheels" (it now fails fast instead of compiling if a wheel is missing).
+# ─────────────────────────────────────────────────────────────────────────────
+pydantic==2.13.4
+pydantic-core==2.46.4
+argon2-cffi==25.1.0
+argon2-cffi-bindings==25.1.0
+uvloop==0.22.1
+httptools==0.8.0
+watchfiles==1.2.0
+websockets==17.0.1
+cffi==2.1.1
