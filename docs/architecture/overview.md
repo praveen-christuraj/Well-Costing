@@ -35,7 +35,7 @@ An AST-based test rejects FastAPI, SQLAlchemy, or Pydantic imports under `app/do
 - Pydantic settings with environment variables and cached loading
 - Structured `app` and `app.audit` loggers
 - Stable `{ "error": { "code", "message", "details" } }` failures
-- JWT access-token authentication using Argon2 password hashes
+- JWT access-token authentication using bcrypt password hashes (Argon2id where the `argon2` extra is installed)
 - SQLAlchemy naming conventions and Alembic migrations
 - Timestamp and future actor-audit mixins
 - Centralized frontend API error normalization

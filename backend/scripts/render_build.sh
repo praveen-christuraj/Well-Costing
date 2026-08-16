@@ -4,7 +4,10 @@ set -o nounset
 set -o pipefail
 
 python -m pip install --upgrade pip
-python -m pip install .
+# `.[argon2]` keeps Argon2id as the primary password hasher on cloud (its
+# aarch64 wheel limitation only affects Termux), so hashes created before the
+# bcrypt switch keep verifying here. bcrypt hashes stay verifiable everywhere.
+python -m pip install ".[argon2]"
 
 # Render's Free web service does not provide a pre-deploy command. Migrations therefore run
 # once in the serialized build step. MIGRATION_DATABASE_URL should be Neon's direct URL.

@@ -9,12 +9,26 @@
 #
 # Verified 2026-08-16 for CPython 3.13 on linux-aarch64 (proot Debian):
 #   * pydantic-core 2.46.4            → manylinux_2_17/manylinux2014 aarch64 wheel
-#   * argon2-cffi-bindings 25.1.0     → cp39-abi3 manylinux_2_26/2_28 aarch64 wheel
-#   * uvloop 0.22.1                   → manylinux2014 + manylinux_2_28 aarch64 wheel
-#   * httptools 0.8.0                 → manylinux1/2_5 + manylinux_2_28 aarch64 wheel
+#   * bcrypt 5.0.0                    → cp39-abi3 manylinux2014/2_17 aarch64 wheel
+#   * uvloop 0.22.1                   → manylinux2014/2_17 aarch64 wheel
+#   * httptools 0.8.0                 → manylinux2014/2_17 aarch64 wheel
 #   * watchfiles 1.2.0                → manylinux_2_17/manylinux2014 aarch64 wheel
-#   * websockets 17.0.1               → manylinux1/2_5 + manylinux_2_28 aarch64 wheel
-#   * cffi 2.1.1                      → manylinux2014 aarch64 wheel
+#   * websockets 17.0.1               → manylinux2014/2_17 aarch64 wheel
+#   * greenlet 3.2.5                  → manylinux2014/2_17 aarch64 wheel
+#     (3.5.x wheels need manylinux_2_24+, and SQLAlchemy hard-requires greenlet
+#     on aarch64 — pin keeps the resolver off them on old-glibc containers)
+# Every pin above resolves to a manylinux2014 (glibc 2.17) aarch64 wheel, so the
+# install works even in long-lived Debian containers with old glibc.
+#
+# Password hashing moved from argon2-cffi to bcrypt: argon2-cffi-bindings is the
+# ONLY dependency whose aarch64 wheels require manylinux_2_26/2_28, so on
+# containers with glibc < 2.26 pip found NO candidate at all and the whole
+# backend install failed with
+#   "no matching distributions available for your environment:
+#    argon2-cffi-bindings"
+# Argon2id remains available via the backend's optional `argon2` extra on
+# platforms whose wheels exist (desktop/cloud); see backend/pyproject.toml.
+#
 # Pure-Python packages (sqlalchemy, psycopg, fastapi, …) need no pin: pip can
 # only ever install their py3-none-any wheels.
 #
@@ -23,10 +37,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 pydantic==2.13.4
 pydantic-core==2.46.4
-argon2-cffi==25.1.0
-argon2-cffi-bindings==25.1.0
+bcrypt==5.0.0
 uvloop==0.22.1
 httptools==0.8.0
 watchfiles==1.2.0
 websockets==17.0.1
-cffi==2.1.1
+greenlet==3.2.5
