@@ -7,7 +7,7 @@ interface NavigationItem {
 }
 
 const navigation: NavigationItem[] = [
-  { label: 'Well Intake', icon: 'pi pi-clipboard', enabled: true, to: '/requirements' },
+  { label: 'Well Intake', icon: 'pi pi-clipboard', enabled: false, to: '/requirements' },
   { label: 'Master Data', icon: 'pi pi-book', enabled: true, to: '/master-data/vendors' },
 ]
 </script>

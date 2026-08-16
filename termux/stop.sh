@@ -5,21 +5,25 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PIDFILE="$REPO_DIR/termux/.pids"
 
-if [ ! -f "$PIDFILE" ]; then
-    echo "No PID file found — servers may not be running."
-    exit 0
-fi
-
 echo "=== Stopping servers ==="
 
-mapfile -t PIDS < "$PIDFILE"
-for PID in "${PIDS[@]}"; do
-    if kill -0 "$PID" 2>/dev/null; then
-        kill "$PID" && echo "  Stopped PID $PID"
-    else
-        echo "  PID $PID already stopped"
-    fi
-done
+# Kill by saved PIDs first
+if [ -f "$PIDFILE" ]; then
+    mapfile -t PIDS < "$PIDFILE"
+    for PID in "${PIDS[@]}"; do
+        if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+            kill "$PID" 2>/dev/null && echo "  Stopped PID $PID" || true
+        else
+            echo "  PID $PID already stopped"
+        fi
+    done
+    rm -f "$PIDFILE"
+fi
 
-rm -f "$PIDFILE"
+# Kill any orphaned uvicorn / node processes from this project
+# (failsafe in case PIDs changed between starts)
+pkill -f "uvicorn app.main:app" 2>/dev/null && echo "  Killed orphaned uvicorn process" || true
+pkill -f "nuxt dev" 2>/dev/null && echo "  Killed orphaned nuxt dev process" || true
+pkill -f ".output/server/index.mjs" 2>/dev/null && echo "  Killed orphaned Nuxt server" || true
+
 echo "=== Done ==="

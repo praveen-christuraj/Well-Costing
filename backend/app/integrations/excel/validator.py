@@ -1,5 +1,6 @@
 """Row-level Excel validation and reference resolution."""
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -176,8 +177,10 @@ class ExcelValidator:
             code = values.pop(source_field, None)
             if code in (None, ""):
                 continue
+            # Case-insensitive code lookup
+            code_str = str(code).strip()
             instance = self.session.scalar(
-                select(model).where(model.code == str(code).strip().upper())
+                select(model).where(model.code.ilike(code_str))
             )
             if instance is None:
                 raise ValueError(f"{source_field} '{code}' does not exist")
@@ -190,8 +193,10 @@ class ExcelValidator:
             code = values.pop(source_field, None)
             if code in (None, ""):
                 continue
+            # Case-insensitive lookup using ilike for flexible input matching
+            code_str = str(code).strip()
             instance = self.session.scalar(
-                select(model).where(model.code == str(code).strip().upper())
+                select(model).where(model.code.ilike(code_str))
             )
             if instance is None:
                 raise ValueError(f"{source_field} '{code}' does not exist")
@@ -203,8 +208,10 @@ class ExcelValidator:
         number = values.pop(source_field, None)
         if number in (None, ""):
             return
+        # Case-insensitive order number lookup
+        number_str = str(number).strip()
         instance = self.session.scalar(
-            select(model).where(model.order_number == str(number).strip().upper())
+            select(model).where(model.order_number.ilike(number_str))
         )
         if instance is None:
             raise ValueError(f"{source_field} '{number}' does not exist")
@@ -215,8 +222,9 @@ class ExcelValidator:
         if item_code in (None, ""):
             raise ValueError("item_code is required")
         item_type = values.pop("item_type", None)
+        # Case-insensitive lookup for item code
         statement = select(CatalogItem).where(
-            CatalogItem.code == str(item_code).strip().upper()
+            CatalogItem.code.ilike(str(item_code).strip())
         )
         if item_type:
             statement = statement.where(
@@ -231,9 +239,10 @@ class ExcelValidator:
         return items[0].id
 
     def _rate_values(self, values: dict[str, Any]) -> dict[str, Any]:
-        item_code = str(values.pop("item_code")).strip().upper()
+        item_code = str(values.pop("item_code")).strip()
         item_type = values.pop("item_type", None)
-        statement = select(CatalogItem).where(CatalogItem.code == item_code)
+        # Case-insensitive item code lookup
+        statement = select(CatalogItem).where(CatalogItem.code.ilike(item_code))
         if item_type:
             statement = statement.where(CatalogItem.item_type == str(item_type).strip().lower())
         items = list(self.session.scalars(statement).all())
@@ -248,8 +257,9 @@ class ExcelValidator:
             ("currency_code", "currency_id", Currency),
             ("unit_code", "unit_id", Unit),
         ]:
-            code = str(values.pop(source_field)).strip().upper()
-            instance = self.session.scalar(select(model).where(model.code == code))
+            code = str(values.pop(source_field)).strip()
+            # Case-insensitive code lookup
+            instance = self.session.scalar(select(model).where(model.code.ilike(code)))
             if instance is None:
                 raise ValueError(f"{source_field} '{code}' does not exist")
             values[target_field] = instance.id
@@ -275,11 +285,48 @@ class ExcelValidator:
 
     @staticmethod
     def _date(value: object) -> date:
+        """Parse a date value from Excel with relaxed format handling.
+
+        Accepts Python datetime/date objects, ISO-8601 strings, and common
+        date formats: DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, DD.MM.YYYY,
+        YYYY/MM/DD, YYYYMMDD, and date-only Excel serial numbers (as int).
+        """
         if isinstance(value, datetime):
             return value.date()
         if isinstance(value, date):
             return value
+        if isinstance(value, (int, float)):
+            # Excel serial date number – approximate from 1899-12-30 epoch
+            from datetime import timedelta
+            try:
+                return date(1899, 12, 30) + timedelta(days=int(value))
+            except (OverflowError, ValueError):
+                raise ValueError(f"'{value}' is not a valid Excel serial date") from None
+        raw = str(value).strip()
+        # Try ISO format first (YYYY-MM-DD)
         try:
-            return date.fromisoformat(str(value).strip())
-        except ValueError as exc:
-            raise ValueError(f"'{value}' is not an ISO date") from exc
+            return date.fromisoformat(raw)
+        except ValueError:
+            pass
+        # Try common date formats
+        separators = r"[/\-\.]"
+        patterns = [
+            (r"^(\d{4})" + separators + r"(\d{1,2})" + separators + r"(\d{1,2})$", "%Y-%m-%d"),
+            (r"^(\d{1,2})" + separators + r"(\d{1,2})" + separators + r"(\d{4})$", "%d-%m-%Y"),
+            (r"^(\d{4})(\d{2})(\d{2})$", "%Y-%m-%d"),
+            (r"^(\d{2})(\d{2})(\d{4})$", "%m-%d-%Y"),
+        ]
+        for pattern, fmt in patterns:
+            match = re.match(pattern, raw)
+            if match:
+                parts = match.groups()
+                reconstructed = f"{parts[0]}-{parts[1]}-{parts[2]}"
+                try:
+                    parsed = datetime.strptime(reconstructed, fmt)
+                    return parsed.date()
+                except ValueError:
+                    continue
+        raise ValueError(
+            f"'{value}' is not a recognised date format. "
+            "Use YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, or DD-MM-YYYY."
+        )
