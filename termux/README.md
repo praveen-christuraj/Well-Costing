@@ -97,6 +97,58 @@ The app is available at:
 | `bash termux/migrate.sh` | Run Alembic migrations only |
 | `bash termux/deploy.sh` | One-shot: setup or update, then migrate + start |
 | `bash termux/backend-exec.sh <cmd>` | Run any backend command inside Debian |
+| `bash termux/share.sh` | Open a public tunnel URL for testers off your Wi-Fi |
+
+## Connecting testers
+
+Once `bash termux/deploy.sh` (or `start.sh`) finishes, it prints an access banner
+with two URLs. Testers only ever need port **3000** — the frontend proxies all
+`/api/v1/*` calls to the backend internally, so nobody connects to port 8000 directly.
+
+### Testers on the same Wi-Fi network as your phone
+
+Give them the LAN URL from the banner, e.g. `http://192.168.1.42:3000`. Any
+device (laptop, tablet, another phone) on the same Wi-Fi/router can open that
+URL directly in a browser — no install needed.
+
+Requirements:
+- Your phone stays connected to that Wi-Fi network
+- Termux keeps running (don't force-close the app; see the wake-lock note below)
+- Some routers isolate devices from each other ("AP/client isolation" or "guest
+  network"); if testers can't connect, check that setting on the router or use
+  a phone hotspot instead (see below) so everyone is on your phone's own network.
+
+### Testers on a different network (mobile data, another Wi-Fi, anywhere)
+
+Your LAN IP (`192.168.1.X`) is private and cannot be reached from outside your
+router. Use one of these:
+
+**Option A — Cloudflare Tunnel (recommended, works from anywhere):**
+
+```bash
+# In a SECOND Termux session (keep the app running in the first one):
+bash termux/share.sh
+```
+
+This prints a public HTTPS URL like `https://random-words.trycloudflare.com`.
+Share that with testers on any network. Keep `share.sh` running; press Ctrl+C
+to stop sharing (the app itself keeps running).
+
+**Option B — Personal hotspot:**
+Turn on your phone's Wi-Fi hotspot and have testers join it directly — they're
+then on your phone's own network and can use the LAN URL from the banner.
+
+### Fully offline testing (no internet, no Wi-Fi at all)
+
+You (or a tester) can still use the app entirely offline as long as you're on
+the same device or a direct connection:
+- **On the phone itself**: `http://localhost:3000` always works, no network needed.
+- **Phone-to-phone/laptop with no router**: turn on the phone's hotspot (no
+  internet required for the hotspot itself) and have the other device join it;
+  then use the LAN URL. The app only needs *internet* for the Supabase database
+  calls — the frontend and backend serving pages works over local Wi-Fi alone,
+  but every API call (login, saving data, etc.) still requires the phone to
+  reach Supabase online.
 
 ## After pushing code changes from your PC
 
