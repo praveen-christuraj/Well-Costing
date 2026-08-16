@@ -9,7 +9,7 @@ description = "Backend API for the drilling costing application"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "alembic>=1.14,<2",
-  "argon2-cffi>=23.1,<26",
+  "bcrypt>=4.1.2,<6",
   "email-validator>=2.2,<3",
   "fastapi>=0.115,<1",
   "openpyxl>=3.1,<4",
@@ -19,12 +19,22 @@ dependencies = [
   "pydantic>=2.10,<3",
   "pydantic-settings>=2.7,<3",
   "PyJWT>=2.10,<3",
-  "pwdlib[argon2]>=0.2,<1",
+  "pwdlib[bcrypt]>=0.2,<1",
   "sqlalchemy>=2.0.36,<2.1",
   "uvicorn[standard]>=0.34,<1",
 ]
 
 [project.optional-dependencies]
+# Argon2id password hashing. Kept optional on purpose: argon2-cffi-bindings
+# only publishes aarch64 wheels tagged manylinux_2_26/2_28, so it cannot install
+# wheels-only inside long-lived proot Debian containers with glibc < 2.26
+# (Termux deployments). The default install therefore uses bcrypt, whose
+# manylinux2014 (glibc 2.17) wheels cover every platform the backend runs on;
+# app/core/security.py prefers Argon2id automatically whenever this extra is
+# installed (desktop/cloud) and keeps verifying bcrypt hashes everywhere.
+argon2 = [
+  "argon2-cffi>=23.1,<26",
+]
 dev = [
   "httpx>=0.28,<1",
   "pyright>=1.1.390,<2",

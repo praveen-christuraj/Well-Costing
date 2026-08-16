@@ -4,8 +4,8 @@
 # ── Why Debian inside proot? ─────────────────────────────────────────────────
 # Termux's Python is linked against Android's *bionic* libc, so PyPI serves NO
 # prebuilt wheels for it. Every C/Rust extension the backend needs
-# (pydantic-core, uvloop, watchfiles, httptools, argon2-cffi-bindings,
-# SQLAlchemy, …) falls back to a source build on the phone: 15+ minutes of
+# (pydantic-core, uvloop, watchfiles, httptools, bcrypt, …) falls back to a
+# source build on the phone: 15+ minutes of
 # Rust compilation that usually hangs, crashes for lack of memory, or fails
 # outright. That is the "stuck while setting up the Python environment"
 # symptom (pydantic-core issue #855 is the classic report).
@@ -107,7 +107,12 @@ backend_shell() {
 }
 
 debian_present() {
-    [ -d "${PREFIX:-/data/data/com.termux/files/usr}/var/lib/proot-distro/installed-rootfs/$DEBIAN_DISTRO" ]
+    local base="${PREFIX:-/data/data/com.termux/files/usr}/var/lib/proot-distro"
+    # proot-distro 4.x stores rootfs at installed-rootfs/<name>; proot-distro
+    # 5.x uses containers/<name>/rootfs (and auto-migrates the legacy path on
+    # login). Accept both so an upgraded Termux doesn't trigger a spurious
+    # reinstall ("container already exists" abort).
+    [ -d "$base/installed-rootfs/$DEBIAN_DISTRO" ] || [ -d "$base/containers/$DEBIAN_DISTRO/rootfs" ]
 }
 
 ensure_debian_installed() {
@@ -242,6 +247,17 @@ debian_pip_version() {
     backend_shell "$PIP_ISOLATE_ENV $VENV_NAME/bin/pip --version"
 }
 
+# Explain which wheel platform tags the container's pip supports. When pip
+# reports "no matching distributions available for your environment", the cause
+# is almost always visible here: the container arch is not aarch64, or its
+# glibc is older than a pin's manylinux floor (e.g. pip lists tags only up to
+# manylinux_2_24 on a Debian 9 container while a wheel needs 2_26+).
+print_guest_platform_diagnostics() {
+    warn "Container platform (supported wheel tags decide what pip accepts):"
+    run_in_debian "echo \"  arch:   \$(uname -m)\"; echo \"  libc:   \$(ldd --version 2>/dev/null | head -1)\"; echo \"  python: \$(python3 --version 2>&1)\"" || true
+    backend_shell "$VENV_NAME/bin/python -m pip debug --verbose 2>/dev/null | grep -m8 -e 'Compatible tags' -e 'manylinux' || true" || true
+}
+
 # Install/upgrade all backend dependencies. Wheels only, always: with
 # --only-binary :all: pip refuses to compile anything, so a missing prebuilt
 # wheel fails in seconds with a clear message instead of a 15-minute hang.
@@ -278,7 +294,11 @@ install_python_deps() {
         err "so it failed fast instead of hanging for 15+ minutes)."
         err "  Current index : $index   (override with TERMUX_PIP_INDEX_URL=...)"
         err "  Constraints   : $constraints (pins versions with confirmed aarch64 wheels)"
-        err "  If this persists, the Debian container may hold stale pip state:"
+        echo ""
+        print_guest_platform_diagnostics
+        echo ""
+        err "  If the tags above stop below manylinux_2_17/manylinux2014, or the container"
+        err "  holds stale pip state, reset it once (the deploy rebuilds everything):"
         err "      proot-distro reset $DEBIAN_DISTRO   # then re-run: bash termux/deploy.sh"
         die "pip install failed (see above)"
     fi
@@ -289,7 +309,7 @@ install_python_deps() {
 verify_backend_env() {
     log "Verifying backend environment..."
     local out
-    if ! out=$(backend_shell "$VENV_NAME/bin/python -c 'import fastapi, pydantic, pydantic_core, sqlalchemy, uvicorn, alembic, psycopg; print(f\"pydantic {pydantic.VERSION} (core {pydantic_core.__version__})\")'" 2>&1); then
+    if ! out=$(backend_shell "$VENV_NAME/bin/python -c 'import fastapi, pydantic, pydantic_core, sqlalchemy, uvicorn, alembic, psycopg, bcrypt, pwdlib; print(f\"pydantic {pydantic.VERSION} (core {pydantic_core.__version__})\")'" 2>&1); then
         echo "$out" >&2
         die "Backend environment verification failed (see above). Re-run with a clean venv: rm -rf backend/.venv && bash termux/deploy.sh"
     fi

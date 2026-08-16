@@ -200,7 +200,13 @@ If step 3 still picks `.tar.gz` files and fails:
 3. Native-code package versions are pinned in `termux/requirements-constraints.txt`
    to releases whose aarch64 wheels are confirmed on PyPI. If a future update
    hits a missing wheel, the fix is usually to bump (or temporarily relax) the
-   pin there — the failure message will name the exact package and version.
+   pin there — the failure message will name the exact package and version, and
+   the script prints the container's architecture, glibc version, and supported
+   wheel tags so an outdated container (glibc older than a wheel's manylinux
+   floor) is immediately recognizable. Every pinned native wheel resolves down
+   to manylinux2014 (glibc 2.17): password hashing uses bcrypt exactly because
+   `argon2-cffi-bindings` ships only manylinux_2_26/2_28 aarch64 wheels, which
+   older containers cannot accept.
 
 ### Python version too new/old in Debian
 

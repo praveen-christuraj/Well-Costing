@@ -192,7 +192,7 @@ The authentication foundation provides:
 
 - `POST /api/v1/auth/login`
 - `GET /api/v1/auth/me`
-- Argon2 password hashing
+- bcrypt password hashing (Argon2id stays primary where the optional `argon2` extra is installed, e.g. cloud; see `backend/pyproject.toml`)
 - Signed, expiring JWT access tokens
 - Minimal `users`, `roles`, and `user_roles` tables
 

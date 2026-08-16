@@ -50,7 +50,7 @@ Aura provides dense, accessible data-entry controls suitable for the future bulk
 
 ### Decision
 
-Use short-lived signed JWT bearer access tokens and Argon2 password hashes. The API exposes JSON login and current-user endpoints.
+Use short-lived signed JWT bearer access tokens and adaptive password hashing: bcrypt everywhere, with Argon2id preferred where the optional `argon2` extra is installed (it publishes no usable aarch64 wheel for the Termux deployment). The API exposes JSON login and current-user endpoints.
 
 ### Consequences
 

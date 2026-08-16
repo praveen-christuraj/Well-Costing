@@ -2,6 +2,36 @@
 
 All notable project changes are documented here.
 
+## 2026-08-16 — Termux deploy: backend install on older-glibc containers (argon2 → bcrypt)
+
+### Fixed
+
+- `pip install` failing in step [3/7] with `no matching distributions available
+  for your environment: argon2-cffi-bindings` on phones whose long-lived Debian
+  container has glibc < 2.26: `argon2-cffi-bindings` was the only dependency
+  whose aarch64 wheels require `manylinux_2_26`/`2_28`. Password hashing now
+  uses **bcrypt**, whose wheels cover `manylinux2014` (glibc 2.17) aarch64 like
+  every other pinned native wheel, so the wheels-only install resolves on
+  decade-old containers and modern ones alike.
+- proot-distro 5.x compatibility: the deploy no longer attempts a fresh
+  container install when one already exists — detection now accepts both the
+  legacy `installed-rootfs/<name>` and the 5.x `containers/<name>/rootfs`
+  layouts (previously the first deploy aborted with "container 'debian'
+  already exists").
+- A failed backend install now prints the container's architecture, glibc
+  version, and the pip-supported `manylinux` wheel tags, so wheel-platform
+  mismatches are diagnosable from the log alone.
+
+### Changed
+
+- Password hashing: bcrypt is the guaranteed baseline on every deployment.
+  Installs with the new optional `argon2` extra (`pip install .[argon2]`; wired
+  into `scripts/render_build.sh` for cloud) keep Argon2id as the primary
+  hasher, so existing Argon2-hashed accounts keep working there; bcrypt hashes
+  remain verifiable in every environment, including Termux. A stored hash whose
+  scheme is unavailable locally now yields a normal "invalid credentials" 401
+  instead of a 500.
+
 ## 2026-08-16 — Termux deployment: Debian-prooted backend (pydantic-core fix)
 
 ### Fixed
