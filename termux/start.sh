@@ -11,8 +11,9 @@ PIDFILE="$REPO_DIR/termux/.pids"
 # ── Guard: already running? ────────────────────────────────────────────────────
 if [ -f "$PIDFILE" ]; then
     echo "Servers may already be running (found $PIDFILE)."
-    echo "Run 'bash termux/stop.sh' first, or delete $PIDFILE manually."
-    exit 1
+    echo "Attempting graceful stop first..."
+    bash "$REPO_DIR/termux/stop.sh" || true
+    sleep 2
 fi
 
 # ── Detect LAN IP for display ─────────────────────────────────────────────────
