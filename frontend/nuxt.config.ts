@@ -15,7 +15,9 @@ export default defineNuxtConfig({
   css: ['primeicons/primeicons.css', '~/assets/css/main.css'],
   typescript: {
     strict: true,
-    typeCheck: true,
+    // typeCheck runs vue-tsc during every build — very slow on low-memory devices
+    // (phone/CI). Run `npm run typecheck` separately when needed.
+    typeCheck: false,
   },
   runtimeConfig: {
     apiInternalBase: process.env.NUXT_API_INTERNAL_BASE || 'http://127.0.0.1:8000',
