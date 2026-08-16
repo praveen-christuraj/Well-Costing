@@ -33,12 +33,13 @@ first_time_setup() {
     echo "╚══════════════════════════════════════════════╝"
 
     # ── 1. Termux packages ────────────────────────────────────────────────────
-    # Node.js (frontend), git, openssl (secret generation), proot-distro (the
-    # Debian container that hosts the Python backend). No rust/clang/python on
-    # the Termux side anymore — nothing compiles natively.
+    # Node.js (frontend), git, openssl-tool (secret generation), proot-distro
+    # (the Debian container that hosts the Python backend). Termux splits the
+    # OpenSSL CLI into openssl-tool; the `openssl` package alone has no command.
+    # No rust/clang/python on the Termux side — nothing compiles natively.
     log "[1/7] Installing Termux packages..."
     pkg update -y
-    pkg install -y nodejs git openssl proot-distro
+    pkg install -y nodejs git openssl-tool proot-distro
     ok "Termux packages installed"
 
     # ── 2. Debian container ───────────────────────────────────────────────────

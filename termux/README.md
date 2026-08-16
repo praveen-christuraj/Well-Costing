@@ -216,6 +216,20 @@ Neither file is committed to git.
 
 ## Troubleshooting
 
+### `openssl: command not found` while configuring `backend/.env`
+
+Termux provides the OpenSSL command in `openssl-tool` (the package named
+`openssl` contains the libraries). Updated scripts install the right package and
+can also generate the key with Node as a fallback. On an older checkout, repair
+and resume setup with:
+
+```bash
+pkg install -y openssl-tool
+bash termux/deploy.sh
+```
+
+The completed Python and Node installation steps are safe to run again.
+
 ### "Stuck" installing Python packages / pydantic-core build errors
 
 That was the old native-Termux path. Delete any half-created environments and run

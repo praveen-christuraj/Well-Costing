@@ -27,7 +27,8 @@ echo "Repo: $REPO_DIR"
 echo ""
 echo "[1/5] Installing Termux packages..."
 pkg update -y
-pkg install -y nodejs git openssl proot-distro
+# `openssl-tool` supplies the CLI; Termux's `openssl` package is libraries only.
+pkg install -y nodejs git openssl-tool proot-distro
 
 # ── 2. Python environment (Debian container) ──────────────────────────────────
 echo ""

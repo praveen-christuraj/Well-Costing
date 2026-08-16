@@ -91,6 +91,22 @@ detect_lan_ip() {
     echo "${ip:-127.0.0.1}"
 }
 
+# Generate the JWT signing key without assuming a specific Termux package
+# layout. Current Termux splits the OpenSSL CLI into `openssl-tool` while the
+# `openssl` package contains only its libraries. Node is already a required
+# frontend dependency, so it is a reliable fallback on older installations.
+generate_secret_key() {
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -hex 32
+        return
+    fi
+    if command -v node >/dev/null 2>&1; then
+        node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))"
+        return
+    fi
+    die "Cannot generate SECRET_KEY: install 'openssl-tool' or 'nodejs' in Termux."
+}
+
 # ─── Debian container plumbing ───────────────────────────────────────────────
 
 # Run a command inside the Debian container as root, returning its exit code.
@@ -495,7 +511,7 @@ write_backend_env() {
         return 0
     fi
     local SECRET LAN_IP
-    SECRET=$(openssl rand -hex 32)
+    SECRET=$(generate_secret_key)
     LAN_IP=$(detect_lan_ip)
     cat > "$BACKEND_ENV" <<EOF
 ENVIRONMENT=termux
