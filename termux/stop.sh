@@ -2,28 +2,15 @@
 # stop.sh — Stop the backend and frontend servers
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PIDFILE="$REPO_DIR/termux/.pids"
+# shellcheck source=lib-debian-backend.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib-debian-backend.sh"
 
 echo "=== Stopping servers ==="
+stop_servers
 
-# Kill by saved PIDs first
-if [ -f "$PIDFILE" ]; then
-    mapfile -t PIDS < "$PIDFILE"
-    for PID in "${PIDS[@]}"; do
-        if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
-            kill "$PID" 2>/dev/null && echo "  Stopped PID $PID" || true
-        else
-            echo "  PID $PID already stopped"
-        fi
-    done
-    rm -f "$PIDFILE"
+# Release the wake lock (best effort; harmless if absent).
+if command -v termux-wake-unlock >/dev/null 2>&1; then
+    termux-wake-unlock >/dev/null 2>&1 || true
 fi
-
-# Kill any orphaned uvicorn / node processes from this project
-# (failsafe in case PIDs changed between starts)
-pkill -f "uvicorn app.main:app" 2>/dev/null && echo "  Killed orphaned uvicorn process" || true
-pkill -f "nuxt dev" 2>/dev/null && echo "  Killed orphaned nuxt dev process" || true
-pkill -f ".output/server/index.mjs" 2>/dev/null && echo "  Killed orphaned Nuxt server" || true
 
 echo "=== Done ==="

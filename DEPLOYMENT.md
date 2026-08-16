@@ -143,10 +143,18 @@ server for the LAN.
 
 ### Prerequisites
 
-- Android 8+ device (preferably with 4+ GB RAM)
+- Android 8+ device (preferably with 4+ GB RAM, ~3 GB free storage)
 - [Termux](https://f-droid.org/repo/com.termux_118.apk) from F-Droid (NOT Google Play — it's outdated)
 - [Termux:API](https://f-droid.org/repo/com.termux.api_51.apk) (recommended for Wi-Fi detection)
 - Wi-Fi connection (LAN access) or cellular data (localhost only)
+
+> **Why Debian inside Termux?** PyPI has no wheels for Termux's bionic Python, so
+> installing the backend natively compiles `pydantic-core` (Rust) and friends from
+> source — that's the "stuck in step 2" hang. The scripts therefore run the Python
+> backend inside a `proot-distro` Debian container (installed automatically), where
+> every package in `backend/pyproject.toml` installs as a prebuilt
+> `manylinux_aarch64` wheel. The frontend stays on Termux-native Node.js. See
+> [termux/README.md](termux/README.md) for the full explanation.
 
 ### Quick start
 
@@ -160,6 +168,7 @@ git clone <repository-url> drilling-costing
 cd drilling-costing
 
 # 3. Run the Termux setup script
+#    (installs proot-distro Debian + the backend Python environment inside it)
 bash termux/setup.sh
 
 # 4. Edit backend/.env with your Supabase database URL
@@ -169,14 +178,12 @@ nano backend/.env
 # 5. Run database migrations
 bash termux/migrate.sh
 
-# 6. Seed a local user
-cd backend
-source .venv/bin/activate
-export SEED_USER_EMAIL="admin@example.com"
-export SEED_USER_PASSWORD="your-password"
-export SEED_USER_FULL_NAME="Termux Admin"
-python scripts/seed_user.py
-cd ..
+# 6. Seed a local user (the backend venv lives inside the Debian container;
+#    backend-exec.sh runs any backend command there and forwards SEED_USER_*)
+SEED_USER_EMAIL="admin@example.com" \
+SEED_USER_PASSWORD="your-password" \
+SEED_USER_FULL_NAME="Termux Admin" \
+  bash termux/backend-exec.sh python scripts/seed_user.py
 
 # 7. Start the servers
 bash termux/start.sh
@@ -187,23 +194,42 @@ on the same network.
 
 ### Termux troubleshooting
 
-#### Problem: `pip install` fails with build errors
+#### Problem: Python setup hangs on `pydantic-core` / `watchfiles` (Rust builds)
 
-Termux ARM64 does not always have pre-built wheels. Use pure-Python fallbacks:
+Termux's Python uses Android's bionic libc, for which PyPI publishes **no wheels**.
+pip then tries to compile `pydantic-core`, `watchfiles`, `uvloop`, etc. from Rust/C
+source on the phone — this runs for 15+ minutes and usually fails
+(out-of-memory or linker errors). This cannot be fixed with pip flags.
+
+**Solution (built into the scripts):** the backend runs inside a `proot-distro`
+Debian container — a real glibc Linux where every dependency installs as a
+prebuilt `manylinux_aarch64` wheel. The scripts install and manage the container
+automatically; no native compilation ever happens.
+
+If you have a broken legacy environment, clean it and redeploy:
 
 ```bash
-pip install --prefer-binary --only-binary=:all: -e .
-pip install "psycopg>=3.2,<4"   # Pure Python, no C extension
+bash termux/stop.sh || true
+rm -rf backend/.venv backend/.venv-debian termux/.setup_done
+bash termux/deploy.sh
 ```
 
-#### Problem: `psycopg[binary]` won't compile
-
-The setup script already installs pure-Python `psycopg` (not `psycopg[binary]`).
-If you see C extension build errors, ensure you have installed the system packages:
+#### Problem: `proot-distro` install fails or Debian won't start
 
 ```bash
-pkg install -y python nodejs git openssl rust clang make pkg-config libffi
+# Update Termux itself first, then retry
+pkg update -y && pkg upgrade -y
+pkg install -y proot-distro
+proot-distro install debian
+
+# If the container is corrupted, reset it and redeploy:
+proot-distro reset debian
+rm -f termux/.setup_done
+bash termux/deploy.sh
 ```
+
+The project uses the pure-Python `psycopg` driver (not `psycopg[binary]`), so no
+libpq build toolchain is needed inside the container either.
 
 #### Problem: Port 3000 or 8000 already in use
 

@@ -2,13 +2,14 @@
 # update.sh — Pull latest code, reinstall deps, migrate, and restart
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib-debian-backend.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib-debian-backend.sh"
 
 echo "=== Drilling Costing — Updating ==="
 
 # Stop running servers if any
-if [ -f "$REPO_DIR/termux/.pids" ]; then
-    bash "$REPO_DIR/termux/stop.sh"
+if [ -f "$PIDFILE" ]; then
+    bash "$TERMUX_DIR/stop.sh"
 fi
 
 # Pull latest from git
@@ -17,28 +18,26 @@ echo ""
 echo "[1/4] Pulling latest code..."
 git pull
 
-# Update Python dependencies
+# Update Python dependencies (inside the Debian container)
 echo ""
-echo "[2/4] Updating Python dependencies..."
-cd "$REPO_DIR/backend"
-source .venv/bin/activate
-pip install --prefer-binary --upgrade -e .
-pip install --upgrade "psycopg>=3.2,<4"
+echo "[2/4] Updating Python dependencies (inside Debian)..."
+ensure_backend_toolchain
 
 # Update Node dependencies
 echo ""
 echo "[3/4] Updating Node dependencies..."
-cd "$REPO_DIR/frontend"
+cd "$FRONTEND_DIR"
 npm install
+frontend_setup_env
 
 # Force Nuxt rebuild on next start
-rm -rf "$REPO_DIR/frontend/.output"
+rm -rf "$FRONTEND_DIR/.output"
 echo "  Nuxt .output cleared (will rebuild on next start)"
 
 # Run migrations
 echo ""
 echo "[4/4] Running migrations..."
-bash "$REPO_DIR/termux/migrate.sh"
+run_migrations
 
 echo ""
 echo "=== Update complete. Run 'bash termux/start.sh' to restart. ==="

@@ -2,6 +2,35 @@
 
 All notable project changes are documented here.
 
+## 2026-08-16 — Termux deployment: Debian-prooted backend (pydantic-core fix)
+
+### Fixed
+
+- Termux setup hanging while building `pydantic-core` (and later `watchfiles`) from
+  Rust/C source: the backend Python environment now runs inside a `proot-distro`
+  Debian container where every dependency in `backend/pyproject.toml` installs as a
+  prebuilt `manylinux_aarch64` wheel — nothing compiles on the phone.
+- Broken `deploy.sh` venv mismatch: setup created `backend/.venv-debian` while
+  `update_code()` / `run_migrations()` / `start_servers()` (and `start.sh`,
+  `migrate.sh`, `update.sh`) activated `backend/.venv`, so deploys crashed after
+  setup. All scripts now share `termux/lib-debian-backend.sh` and use one
+  Debian-managed venv at `backend/.venv` (stale `.venv` / `.venv-debian`
+  directories are detected via a marker file and recreated automatically).
+- Corrupted `DATABASE_URL` when a pasted Supabase password contained `&`, `|`, or
+  `\` (unescaped `sed` replacement during the deploy prompt).
+- `deploy.sh` self-heals when the setup marker exists but the Debian-managed venv
+  is missing; the Python version gate (`>=3.12,<3.14`) falls back to a uv-managed
+  CPython 3.12 if Debian's system Python ever leaves the supported window.
+- Backend startup now waits for `/api/v1/live` and reports a log hint on timeout;
+  `start.sh` takes a Termux wake lock; Nuxt production serving sources
+  `frontend/.env` (HOST/PORT/proxy settings) and falls back to Termux's `esbuild`
+  package when the bundled esbuild binary won't run.
+
+### Added
+
+- `termux/backend-exec.sh` — run any backend command inside the Debian container
+  (Alembic, pytest, seed scripts) with `SEED_USER_*`/`DATABASE_URL` forwarding.
+
 ## AFE reference data
 
 ### Added
