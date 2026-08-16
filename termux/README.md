@@ -1,25 +1,50 @@
 # Termux Deployment Guide
 
-Host the drilling-costing app on your Android phone using Termux. The backend and frontend run on the phone; the database lives in **Supabase** (free tier, PostgreSQL in the cloud).
+Host the drilling-costing app on your Android phone using Termux. The frontend runs
+natively on Termux; the Python backend runs inside a **Debian container**
+(proot-distro); the database lives in **Supabase** (free tier, PostgreSQL in the cloud).
 
 ## Architecture
 
 ```
-Your phone (Termux)               Supabase (cloud)
-┌─────────────────────┐           ┌──────────────────┐
-│  Nuxt frontend :3000│           │                  │
-│  FastAPI backend    │──────────▶│  PostgreSQL DB   │
-│          :8000      │  internet │  (free tier)     │
-└─────────────────────┘           └──────────────────┘
+Your phone                              Supabase (cloud)
+┌──────────────────────────────────┐    ┌──────────────────┐
+│ Termux                           │    │                  │
+│  ├─ Nuxt frontend  :3000  ───────┼────┼──▶ PostgreSQL    │
+│  │                               │    │   (free tier)    │
+│  └─ proot-distro Debian          │    │                  │
+│      └─ FastAPI backend :8000 ───┼────┼──▶               │
+└──────────────────────────────────┘    └──────────────────┘
          ▲
          │  Wi-Fi / USB / localhost
     Browser (phone or LAN)
 ```
 
+## Why the backend runs in Debian (pydantic-core fix)
+
+Termux's Python is linked against Android's **bionic** libc, so PyPI has **no
+prebuilt wheels** for it. Installing the backend natively makes pip compile every
+C/Rust extension from source on the phone — most visibly `pydantic-core`
+(a [known upstream issue](https://github.com/pydantic/pydantic-core/issues/855)),
+which sits compiling for 15+ minutes or crashes out of memory. **This is the
+"stuck while setting up the Python environment" symptom.** `uvicorn[standard]`
+pulls in `watchfiles` (also Rust) and `uvloop`, so the hang would repeat even if
+pydantic-core somehow succeeded.
+
+The Debian container is a real **glibc** Linux user-space, so `pip install -e .`
+inside it resolves **every** package in `backend/pyproject.toml` to an official
+`manylinux_aarch64` wheel — nothing compiles, nothing hangs, and versions stay
+exactly what the project pins. Termux's home directory is bind-mounted at the same
+path inside Debian, so the repository you cloned is shared; the resulting
+virtualenv (`backend/.venv`) is created and used **only** from inside Debian and
+carries a `.debian-managed` marker file so the scripts can detect and safely
+recreate stale native venvs (including `.venv-debian`, left behind by the old
+broken deploy script — it is removed automatically).
+
 ## Requirements
 
 - Termux (from **F-Droid**; not the Play Store version)
-- Android 10+, ~1.5 GB free storage
+- Android 10+, **~3 GB free storage** (Debian rootfs + Python + Node modules)
 - A free [Supabase](https://supabase.com) project
 - Internet connection for the initial setup and data access
 
@@ -40,17 +65,22 @@ pkg install -y git
 git clone https://github.com/praveen-christuraj/Well-Costing.git drilling-costing
 cd drilling-costing
 
-# 3. Run setup (installs Python, Node, creates .env files)
-bash termux/setup.sh
+# 3. One-shot setup + start (recommended)
+bash termux/deploy.sh
+```
 
-# 4. Edit the generated backend/.env — replace DATABASE_URL with your Supabase URL
-nano backend/.env
+`deploy.sh` installs the Termux packages and the Debian container, creates the
+Python environment inside Debian, writes both `.env` files, **prompts for your
+Supabase DATABASE_URL** (you can paste it right there), runs migrations, builds
+the frontend, and starts both servers.
 
-# 5. Run migrations against Supabase
-bash termux/migrate.sh
+Prefer the step-by-step flow? Use the individual scripts instead:
 
-# 6. Start the servers
-bash termux/start.sh
+```bash
+bash termux/setup.sh      # steps 1–6 (no server start)
+nano backend/.env         # set DATABASE_URL
+bash termux/migrate.sh    # run migrations
+bash termux/start.sh      # start servers
 ```
 
 The app is available at:
@@ -63,8 +93,10 @@ The app is available at:
 |---------|---------|
 | `bash termux/start.sh` | Start backend + frontend |
 | `bash termux/stop.sh` | Stop servers |
-| `bash termux/update.sh` | `git pull` + reinstall deps + migrate + restart |
+| `bash termux/update.sh` | `git pull` + reinstall deps + migrate |
 | `bash termux/migrate.sh` | Run Alembic migrations only |
+| `bash termux/deploy.sh` | One-shot: setup or update, then migrate + start |
+| `bash termux/backend-exec.sh <cmd>` | Run any backend command inside Debian |
 
 ## After pushing code changes from your PC
 
@@ -72,9 +104,32 @@ The app is available at:
 bash termux/update.sh
 ```
 
-This pulls the latest code, updates dependencies, rebuilds the frontend, runs any new migrations against Supabase, and restarts both servers.
+This pulls the latest code, updates Python (inside Debian) and Node dependencies,
+clears the Nuxt build output, runs any new migrations against Supabase. Restart with
+`bash termux/start.sh` (or just run `bash termux/deploy.sh` which does both).
 
-## Development mode (hot-reload)
+## Running backend commands manually (seed a user, shell, tests)
+
+The backend venv cannot run under Termux's Python — use the wrapper:
+
+```bash
+# Open a shell inside Debian, in the backend directory:
+bash termux/backend-exec.sh bash
+
+# Seed a local user (SEED_USER_* vars are forwarded into the container):
+SEED_USER_EMAIL=admin@example.com SEED_USER_PASSWORD=your-password \
+SEED_USER_FULL_NAME="Termux Admin" \
+  bash termux/backend-exec.sh python scripts/seed_user.py
+
+# Alembic / pytest:
+bash termux/backend-exec.sh alembic current
+bash termux/backend-exec.sh pytest
+```
+
+Bare tool names (`python`, `alembic`, `pytest`, `uvicorn`) are resolved against
+`backend/.venv/bin` automatically.
+
+## Development mode (hot-reload frontend)
 
 ```bash
 TERMUX_DEV=1 bash termux/start.sh
@@ -95,18 +150,79 @@ ip addr show wlan0 | grep 'inet '
 ## Logs
 
 ```
-termux/backend.log   — Uvicorn / FastAPI output
+termux/backend.log   — Uvicorn / FastAPI output (from inside Debian)
 termux/frontend.log  — Nuxt server output
 termux/build.log     — Nuxt build output (first start or rebuild)
 ```
 
 ## Environment files
 
-- `backend/.env` — auto-generated by `setup.sh`; you must set the Supabase `DATABASE_URL`
-- `frontend/.env` — auto-generated by `setup.sh`
+- `backend/.env` — auto-generated; you must set the Supabase `DATABASE_URL`
+- `frontend/.env` — auto-generated
 
 Neither file is committed to git.
 
+## Troubleshooting
+
+### "Stuck" installing Python packages / pydantic-core build errors
+
+That was the old native-Termux path. Delete any half-created environments and run
+the Debian-based deploy:
+
+```bash
+rm -rf backend/.venv backend/.venv-debian termux/.setup_done
+bash termux/deploy.sh
+```
+
+Inside Debian, `pip install` downloads wheels only — a normal step-3 run finishes
+in a couple of minutes. The deploy script also verifies the environment by
+importing `fastapi`, `pydantic` (+ `pydantic_core`), `sqlalchemy`, `uvicorn`,
+`alembic`, and `psycopg` right after install, so problems surface immediately
+instead of at first run.
+
+### Python version too new/old in Debian
+
+The backend requires Python `>=3.12,<3.14` (see `backend/pyproject.toml`). If
+Debian's system Python ever falls outside that window, the scripts automatically
+install a standalone CPython 3.12 via [uv](https://astral.sh/uv) and build the
+venv from it — no manual action needed.
+
+### Nuxt build fails with esbuild errors
+
+Some Termux/Node combinations cannot run esbuild's bundled binary. The scripts
+detect this automatically: they install Termux's `esbuild` package and export
+`ESBUILD_BINARY_PATH` so Vite uses it on subsequent builds. To force the fix
+manually: `pkg install -y esbuild`.
+
+### Port 3000 or 8000 already in use
+
+```bash
+bash termux/stop.sh
+# or find the culprit:
+ss -tlnp | grep -E ':(3000|8000)'
+```
+
+### Servers die when the phone sleeps
+
+`start.sh` takes a Termux **wake lock** automatically (best effort). Also disable
+battery optimization for Termux: Android Settings → Apps → Termux → Battery →
+Unrestricted. Release the lock via `bash termux/stop.sh` (or `termux-wake-unlock`).
+
+### Reset the Debian container completely
+
+```bash
+bash termux/stop.sh
+proot-distro reset debian        # wipes the container (venv is recreated on next deploy)
+rm -f termux/.setup_done
+bash termux/deploy.sh
+```
+
+You can inspect the container at any time: `proot-distro login debian`.
+
 ## psycopg note
 
-Termux cannot build the binary `psycopg[binary]` wheel on ARM. `setup.sh` installs the pure-Python `psycopg` driver instead, which works identically for connecting to Supabase.
+The project depends on the pure-Python `psycopg` driver (not `psycopg[binary]`), so
+no libpq toolchain is needed anywhere — it connects to Supabase identically from
+inside the Debian container. `backend/app/core/config.py` normalizes provider URLs
+(`postgresql://` / `postgres://`) to `postgresql+psycopg://` automatically; the
+deploy prompt also normalizes pasted URLs.

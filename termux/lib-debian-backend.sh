@@ -1,0 +1,423 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# lib-debian-backend.sh — shared helpers for all Termux deployment scripts.
+#
+# ── Why Debian inside proot? ─────────────────────────────────────────────────
+# Termux's Python is linked against Android's *bionic* libc, so PyPI serves NO
+# prebuilt wheels for it. Every C/Rust extension the backend needs
+# (pydantic-core, uvloop, watchfiles, httptools, argon2-cffi-bindings,
+# SQLAlchemy, …) falls back to a source build on the phone: 15+ minutes of
+# Rust compilation that usually hangs, crashes for lack of memory, or fails
+# outright. That is the "stuck while setting up the Python environment"
+# symptom (pydantic-core issue #855 is the classic report).
+#
+# proot-distro's Debian container is a real *glibc* Linux user-space, so pip
+# installs official manylinux_aarch64 wheels for EVERY dependency in
+# backend/pyproject.toml — nothing compiles, nothing hangs.
+#
+# proot-distro login bind-mounts Termux's $HOME at the same absolute path
+# inside Debian (unless --isolated is used), so this repository is shared
+# between both user-spaces. The backend's virtualenv lives at backend/.venv
+# and is created/used ONLY from inside Debian; it carries a .debian-managed
+# marker so the scripts can detect (and safely replace) stale native venvs.
+#
+# The frontend stays Termux-native: Node.js works fine on Termux.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Guard against being sourced twice.
+if [ -n "${WELL_COSTING_TERMUX_LIB:-}" ]; then
+    return 0
+fi
+WELL_COSTING_TERMUX_LIB=1
+
+TERMUX_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$TERMUX_LIB_DIR/.." && pwd)"
+BACKEND_DIR="$REPO_DIR/backend"
+FRONTEND_DIR="$REPO_DIR/frontend"
+TERMUX_DIR="$REPO_DIR/termux"
+BACKEND_ENV="$BACKEND_DIR/.env"
+FRONTEND_ENV="$FRONTEND_DIR/.env"
+PIDFILE="$TERMUX_DIR/.pids"
+SETUP_MARKER="$TERMUX_DIR/.setup_done"
+
+# proot-distro alias to use (override: TERMUX_DEBIAN_DISTRO=ubuntu bash termux/…)
+DEBIAN_DISTRO="${TERMUX_DEBIAN_DISTRO:-debian}"
+
+# Python version window the backend accepts (backend/pyproject.toml):
+#   requires-python = ">=3.12,<3.14"
+PY_MIN="3.12"
+PY_MAX_EXCLUSIVE="3.14"
+
+VENV_NAME=".venv"
+VENV_DIR="$BACKEND_DIR/$VENV_NAME"
+# Proof the venv was created INSIDE Debian (glibc). Native-Termux venvs and the
+# venvs left behind by the old broken deploy.sh (.venv-debian) lack it.
+VENV_MARKER="$VENV_DIR/.debian-managed"
+
+# Safe-quoted for embedding into guest shell command strings.
+printf -v REPO_Q '%q' "$REPO_DIR"
+printf -v BACKEND_Q '%q' "$BACKEND_DIR"
+
+# Ensures python3/pip resolve in non-login guest shells (bash -c skips profile).
+GUEST_PATH_PREFIX='export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH; '
+
+# Set by ensure_debian_python(): "system" (Debian's python3) or "uv"
+# (standalone CPython 3.12 managed by uv). Read by the venv/install helpers.
+DEBIAN_PY_BOOTSTRAP=""
+
+# ─── Logging helpers ─────────────────────────────────────────────────────────
+log()  { echo ""; echo "▶ $*"; }
+ok()   { echo "  ✓ $*"; }
+warn() { echo "  ⚠ $*"; }
+err()  { echo "  ✗ $*" >&2; }
+
+die() { err "$*"; exit 1; }
+
+# ─── Networking / misc ───────────────────────────────────────────────────────
+detect_lan_ip() {
+    local ip
+    ip=$(ip addr show wlan0 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 || true)
+    if [ -z "$ip" ]; then
+        ip=$(ip addr 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | head -1 | awk '{print $2}' | cut -d/ -f1 || true)
+    fi
+    echo "${ip:-127.0.0.1}"
+}
+
+# ─── Debian container plumbing ───────────────────────────────────────────────
+
+# Run a command inside the Debian container as root, returning its exit code.
+# Guest-side variables must be escaped (\$) by the caller when single-quoting
+# is not practical; Termux-side interpolation happens normally inside double
+# quotes at the call site.
+run_in_debian() {
+    proot-distro login "$DEBIAN_DISTRO" -- bash -c "${GUEST_PATH_PREFIX}$1"
+}
+
+# Run a backend command from $BACKEND_DIR inside Debian.
+backend_shell() {
+    run_in_debian "cd $BACKEND_Q && $1"
+}
+
+debian_present() {
+    [ -d "${PREFIX:-/data/data/com.termux/files/usr}/var/lib/proot-distro/installed-rootfs/$DEBIAN_DISTRO" ]
+}
+
+ensure_debian_installed() {
+    if ! command -v proot-distro >/dev/null 2>&1; then
+        log "Installing proot-distro..."
+        pkg install -y proot-distro
+    fi
+    if debian_present; then
+        ok "Debian container already installed ($DEBIAN_DISTRO)"
+    else
+        log "Installing Debian container (one-time download, a few hundred MB)..."
+        proot-distro install "$DEBIAN_DISTRO"
+    fi
+    # Functional probe — catches half-finished/corrupted installs early.
+    run_in_debian "true" || die "Debian container '$DEBIAN_DISTRO' failed to start. Try: proot-distro reset $DEBIAN_DISTRO"
+    ok "Debian container is working"
+}
+
+# Base packages inside Debian. python3-venv provides ensurepip; python3-pip is
+# a convenience for debugging; curl + ca-certificates support the uv fallback.
+# The quick check actually CREATES a throwaway venv: on Debian, `import venv`
+# succeeds even when python3-venv (and thus a working ensurepip) is missing.
+ensure_debian_packages() {
+    if run_in_debian "rm -rf /tmp/.venv-probe && python3 -m venv /tmp/.venv-probe >/dev/null 2>&1 && rm -rf /tmp/.venv-probe"; then
+        ok "Debian Python packages already present"
+        return 0
+    fi
+    run_in_debian "rm -rf /tmp/.venv-probe || true"
+    log "Installing Debian packages (python3, venv, pip)..."
+    run_in_debian "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends python3 python3-venv python3-pip ca-certificates curl"
+    ok "Debian packages installed"
+}
+
+debian_python_ok() {
+    run_in_debian "python3 -c 'import sys; sys.exit(0 if (3, 12) <= sys.version_info[:2] < (3, 14) else 1)'" >/dev/null 2>&1
+}
+
+# Decide which Python bootstraps the venv. Debian stable currently ships a
+# supported Python (gate: >=3.12,<3.14). If a future Debian moves outside the
+# window, fall back to a standalone CPython 3.12 via uv — no compilation.
+ensure_debian_python() {
+    local ver
+    ver=$(run_in_debian "python3 --version 2>&1" 2>/dev/null | awk '{print $2}' || true)
+    if debian_python_ok; then
+        DEBIAN_PY_BOOTSTRAP="system"
+        ok "Debian Python ${ver:-unknown} satisfies >=$PY_MIN,<$PY_MAX_EXCLUSIVE"
+        return 0
+    fi
+    warn "Debian Python (${ver:-not found}) is outside $PY_MIN – <$PY_MAX_EXCLUSIVE; installing standalone CPython 3.12 via uv"
+    run_in_debian "command -v uv >/dev/null 2>&1 || [ -x \"\$HOME/.local/bin/uv\" ] || curl -LsSf https://astral.sh/uv/install.sh | sh" \
+        || die "Failed to install uv inside Debian (check internet). Alternatively: TERMUX_DEBIAN_DISTRO=debian bash termux/deploy.sh after 'proot-distro reset debian'."
+    run_in_debian '"$HOME/.local/bin/uv" python install 3.12' \
+        || die "Failed to install standalone CPython 3.12 via uv (check internet)."
+    DEBIAN_PY_BOOTSTRAP="uv"
+    ok "Standalone CPython 3.12 ready (uv)"
+}
+
+# ─── Backend virtualenv (created and used only inside Debian) ────────────────
+
+# Wipe venvs that cannot work inside Debian. Called before ensure_backend_venv.
+clean_stale_venvs() {
+    # Legacy of the old broken deploy.sh: a venv named .venv-debian that no
+    # other script referenced. Remove it so it stops confusing users/tools.
+    if [ -d "$BACKEND_DIR/.venv-debian" ]; then
+        warn "Removing backend/.venv-debian (left behind by the old broken setup)"
+        rm -rf "$BACKEND_DIR/.venv-debian"
+    fi
+    # A .venv without our marker was created by native Termux Python (bionic)
+    # or by hand on another OS — the interpreter it points at doesn't exist or
+    # can't run inside Debian, so recreate it.
+    if [ -d "$VENV_DIR" ] && [ ! -f "$VENV_MARKER" ]; then
+        warn "Removing existing backend/.venv (not created inside Debian — it cannot run in the container)"
+        rm -rf "$VENV_DIR"
+    fi
+}
+
+ensure_backend_venv() {
+    clean_stale_venvs
+    if [ -f "$VENV_MARKER" ]; then
+        ok "Debian-managed virtualenv present (backend/$VENV_NAME)"
+        return 0
+    fi
+    log "Creating Python virtualenv inside Debian..."
+    if [ "$DEBIAN_PY_BOOTSTRAP" = "uv" ]; then
+        backend_shell '"$HOME/.local/bin/uv" venv --python 3.12 --clear '"$VENV_NAME"
+    else
+        backend_shell "python3 -m venv --clear $VENV_NAME"
+    fi
+    backend_shell "touch $VENV_NAME/.debian-managed"
+    ok "Virtualenv ready (backend/$VENV_NAME)"
+}
+
+# Install/upgrade all backend dependencies. Everything resolves to prebuilt
+# manylinux aarch64 wheels inside Debian — zero compilation, including
+# pydantic-core and the uvicorn[standard] extras.
+install_python_deps() {
+    log "Installing backend dependencies (prebuilt wheels — nothing compiles)..."
+    if [ "$DEBIAN_PY_BOOTSTRAP" = "uv" ]; then
+        backend_shell '"$HOME/.local/bin/uv" pip install --python '"$VENV_NAME"'/bin/python --upgrade -e .'
+    else
+        backend_shell "$VENV_NAME/bin/pip install --quiet --upgrade pip"
+        backend_shell "$VENV_NAME/bin/pip install --upgrade -e ."
+    fi
+    verify_backend_env
+}
+
+# Fail loudly with a useful message instead of hanging minutes later.
+verify_backend_env() {
+    log "Verifying backend environment..."
+    local out
+    if ! out=$(backend_shell "$VENV_NAME/bin/python -c 'import fastapi, pydantic, pydantic_core, sqlalchemy, uvicorn, alembic, psycopg; print(f\"pydantic {pydantic.VERSION} (core {pydantic_core.__version__})\")'" 2>&1); then
+        echo "$out" >&2
+        die "Backend environment verification failed (see above). Re-run with a clean venv: rm -rf backend/.venv && bash termux/deploy.sh"
+    fi
+    ok "Imports OK — $out"
+}
+
+# Full backend toolchain: Debian → packages → python → venv → deps.
+ensure_backend_toolchain() {
+    ensure_debian_installed
+    ensure_debian_packages
+    ensure_debian_python
+    ensure_backend_venv
+    install_python_deps
+}
+
+# ─── Migrations ──────────────────────────────────────────────────────────────
+run_migrations() {
+    log "Running database migrations (inside Debian)..."
+    backend_shell "$VENV_NAME/bin/python -m alembic upgrade head"
+    ok "Migrations applied"
+}
+
+# ─── Server lifecycle ────────────────────────────────────────────────────────
+stop_servers() {
+    if [ -f "$PIDFILE" ]; then
+        log "Stopping running servers..."
+        while read -r pid; do
+            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+                # || true: process may exit between kill -0 and kill (race).
+                kill "$pid" 2>/dev/null && ok "Stopped PID $pid" || true
+            fi
+        done < "$PIDFILE"
+        rm -f "$PIDFILE"
+    fi
+    # Failsafes for orphaned processes (PIDs change between starts). proot's
+    # --kill-on-exit normally cascades; these cover anything left behind.
+    pkill -f "uvicorn app.main:app" 2>/dev/null && ok "Killed orphaned uvicorn" || true
+    pkill -f "node .output/server/index.mjs" 2>/dev/null && ok "Killed orphaned Nuxt server" || true
+    pkill -f "nuxt dev" 2>/dev/null && ok "Killed orphaned nuxt dev" || true
+}
+
+wait_for_backend() {
+    # Skip silently if curl is unavailable.
+    command -v curl >/dev/null 2>&1 || return 0
+    local tries="${1:-45}"
+    while [ "$tries" -gt 0 ]; do
+        if curl -fsS --max-time 2 "http://127.0.0.1:8000/api/v1/live" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+        tries=$((tries - 1))
+    done
+    return 1
+}
+
+start_backend() {
+    log "Starting backend (Uvicorn inside Debian on :8000)..."
+    nohup proot-distro login "$DEBIAN_DISTRO" -- bash -c \
+        "${GUEST_PATH_PREFIX}cd $BACKEND_Q && exec $VENV_NAME/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1" \
+        >> "$TERMUX_DIR/backend.log" 2>&1 &
+    BACKEND_PID=$!
+    ok "Backend PID: $BACKEND_PID  (log: termux/backend.log)"
+}
+
+# Some Termux/Node combinations cannot execute esbuild's bundled prebuilt
+# binary. Detect that at build time and fall back to Termux's system esbuild.
+frontend_setup_env() {
+    local local_esbuild="$FRONTEND_DIR/node_modules/.bin/esbuild"
+    if [ -x "$local_esbuild" ] && "$local_esbuild" --version >/dev/null 2>&1; then
+        return 0 # bundled binary works — nothing to do
+    fi
+    if ! command -v esbuild >/dev/null 2>&1; then
+        warn "Bundled esbuild binary not usable; installing Termux's esbuild package"
+        pkg install -y esbuild
+    fi
+    export ESBUILD_BINARY_PATH="${PREFIX}/bin/esbuild"
+    warn "Using system esbuild via ESBUILD_BINARY_PATH=$ESBUILD_BINARY_PATH"
+}
+
+start_frontend() {
+    log "Starting frontend (Nuxt on :3000)..."
+    cd "$FRONTEND_DIR"
+    frontend_setup_env
+    # Propagate frontend/.env to the runtime (HOST/PORT/NITRO_* and the API
+    # proxy settings are read from real env vars by the built server too).
+    if [ -f "$FRONTEND_ENV" ]; then
+        set -a
+        # shellcheck disable=SC1090
+        . "$FRONTEND_ENV"
+        set +a
+    fi
+    export HOST="${HOST:-0.0.0.0}" PORT="${PORT:-3000}"
+    if [ "${TERMUX_DEV:-0}" = "1" ]; then
+        nohup npm run dev -- --host 0.0.0.0 --port 3000 \
+            >> "$TERMUX_DIR/frontend.log" 2>&1 &
+    else
+        if [ ! -d ".output" ] || [ "${TERMUX_REBUILD:-0}" = "1" ]; then
+            echo "  Building Nuxt (takes a few minutes on the first run)..."
+            npm run build > "$TERMUX_DIR/build.log" 2>&1 \
+                || die "Nuxt build failed — see termux/build.log"
+            ok "Nuxt build complete"
+        fi
+        nohup node .output/server/index.mjs \
+            >> "$TERMUX_DIR/frontend.log" 2>&1 &
+    fi
+    FRONTEND_PID=$!
+    ok "Frontend PID: $FRONTEND_PID  (log: termux/frontend.log)"
+}
+
+# start.sh / deploy.sh run run_migrations themselves before calling this.
+start_all_servers() {
+    start_backend
+    start_frontend
+    printf '%s\n%s\n' "$BACKEND_PID" "$FRONTEND_PID" > "$PIDFILE"
+
+    if wait_for_backend 45; then
+        ok "Backend is live (http://127.0.0.1:8000/api/v1/live)"
+    else
+        warn "Backend did not answer within 45 s — check termux/backend.log"
+    fi
+}
+
+print_access_banner() {
+    local LAN_IP
+    LAN_IP=$(detect_lan_ip)
+    echo ""
+    echo "╔══════════════════════════════════════════════╗"
+    echo "║   Servers are running!                       ║"
+    echo "╠══════════════════════════════════════════════╣"
+    echo "║  Phone (this device): http://localhost:3000  ║"
+    if [ "$LAN_IP" != "127.0.0.1" ]; then
+        printf '║  Network (LAN): http://%-19s║\n' "$LAN_IP:3000"
+    fi
+    echo "╠══════════════════════════════════════════════╣"
+    echo "║  Logs:  termux/backend.log                   ║"
+    echo "║         termux/frontend.log                  ║"
+    echo "║  Stop:  bash termux/stop.sh                  ║"
+    echo "╚══════════════════════════════════════════════╝"
+}
+
+# ─── .env writers (shared by setup.sh and deploy.sh) ─────────────────────────
+write_backend_env() {
+    if [ -f "$BACKEND_ENV" ]; then
+        ok "backend/.env already exists"
+        return 0
+    fi
+    local SECRET LAN_IP
+    SECRET=$(openssl rand -hex 32)
+    LAN_IP=$(detect_lan_ip)
+    cat > "$BACKEND_ENV" <<EOF
+ENVIRONMENT=termux
+# ── Supabase connection string ────────────────────────────────────────────────
+# Supabase → Settings → Database → Connection string → URI (Transaction pooler, port 6543)
+# Replace the placeholder below with your actual Supabase URL.
+DATABASE_URL=postgresql+psycopg://postgres.XXXX:PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres
+SECRET_KEY=$SECRET
+CORS_ORIGINS=["http://localhost:3000","http://$LAN_IP:3000"]
+LOG_LEVEL=INFO
+ACCESS_TOKEN_EXPIRE_MINUTES=120
+API_V1_PREFIX=/api/v1
+APP_VERSION=0.1.0
+EOF
+    ok "Created backend/.env (LAN IP: $LAN_IP)"
+}
+
+write_frontend_env() {
+    if [ -f "$FRONTEND_ENV" ]; then
+        ok "frontend/.env already exists"
+        return 0
+    fi
+    cat > "$FRONTEND_ENV" <<EOF
+NUXT_PUBLIC_API_BASE=/api/v1
+NUXT_API_INTERNAL_BASE=http://127.0.0.1:8000
+NUXT_API_PROXY_TIMEOUT_MS=30000
+HOST=0.0.0.0
+EOF
+    ok "Created frontend/.env"
+}
+
+# Prompt for the Supabase URL when backend/.env still holds the placeholder.
+# Returns non-zero (without failing the caller) when the URL is still missing.
+prompt_for_database_url() {
+    if ! grep -q "postgres\.XXXX:PASSWORD" "$BACKEND_ENV" 2>/dev/null; then
+        ok "DATABASE_URL already configured"
+        return 0
+    fi
+    echo ""
+    echo "  ┌─────────────────────────────────────────────────────────────┐"
+    echo "  │  ACTION REQUIRED — Paste your Supabase DATABASE_URL         │"
+    echo "  │                                                             │"
+    echo "  │  1. Open Supabase → your project                            │"
+    echo "  │  2. Settings → Database → Connection string → URI           │"
+    echo "  │  3. Pick the Transaction pooler URL (port 6543)             │"
+    echo "  │  4. The 'postgresql://' scheme is normalized automatically  │"
+    echo "  └─────────────────────────────────────────────────────────────┘"
+    echo ""
+    local DB_URL=""
+    read -r -p "  Paste DATABASE_URL now (or press Enter to set it manually later): " DB_URL || true
+    if [ -z "$DB_URL" ]; then
+        warn "DATABASE_URL not set. Edit backend/.env, then re-run: bash termux/deploy.sh"
+        return 1
+    fi
+    # Normalize scheme the app expects.
+    DB_URL="${DB_URL/postgresql:\/\//postgresql+psycopg://}"
+    DB_URL="${DB_URL/postgres:\/\//postgresql+psycopg://}"
+    # Escape sed metacharacters in the replacement (& recalls the whole match!).
+    local DB_URL_ESCAPED
+    DB_URL_ESCAPED=$(printf '%s' "$DB_URL" | sed -e 's/\\/\\\\/g' -e 's/|/\\|/g' -e 's/&/\\&/g')
+    sed -i "s|^DATABASE_URL=.*|DATABASE_URL=$DB_URL_ESCAPED|" "$BACKEND_ENV"
+    ok "DATABASE_URL saved"
+}
