@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60, ge=1, le=1440)
     API_V1_PREFIX: str = "/api/v1"
     APP_VERSION: str = "0.1.0"
+    SUPABASE_URL: str | None = None
+    SUPABASE_ANON_KEY: str | None = None
+    SUPABASE_SERVICE_ROLE_KEY: str | None = None
+
+    @field_validator("SUPABASE_URL", mode="before")
+    @classmethod
+    def normalize_supabase_url(cls, value: object) -> object:
+        """Strip trailing slashes so token-endpoint joins stay clean."""
+
+        return value.rstrip("/") if isinstance(value, str) and value else value
 
     @field_validator("DATABASE_URL", "MIGRATION_DATABASE_URL", mode="before")
     @classmethod
@@ -60,11 +70,34 @@ class Settings(BaseSettings):
             if self.SECRET_KEY == _DEFAULT_SECRET_KEY or self.SECRET_KEY.startswith("replace-"):
                 raise ValueError("SECRET_KEY must be set for this environment")
             if not self.DATABASE_URL.startswith("postgresql+psycopg://"):
-                raise ValueError("termux/hosted environments require a PostgreSQL DATABASE_URL (use Supabase)")
-        if self.ENVIRONMENT in {"uat", "staging", "production"}:
-            if any(origin.startswith("http://localhost") for origin in self.CORS_ORIGINS):
-                raise ValueError("Hosted environments cannot allow localhost CORS origins")
+                raise ValueError(
+                    "termux/hosted environments require a PostgreSQL DATABASE_URL (use Supabase)"
+                )
+        if (
+            self.ENVIRONMENT in {"uat", "staging", "production"}
+            and any(origin.startswith("http://localhost") for origin in self.CORS_ORIGINS)
+        ):
+            raise ValueError("Hosted environments cannot allow localhost CORS origins")
         return self
+
+    @property
+    def supabase_auth_enabled(self) -> bool:
+        """Whether Supabase Auth password sign-in is configured."""
+
+        return bool(
+            self.SUPABASE_URL and (self.SUPABASE_ANON_KEY or self.SUPABASE_SERVICE_ROLE_KEY)
+        )
+
+    @property
+    def supabase_api_key(self) -> str:
+        """API key used for Supabase Auth calls.
+
+        The anon/public key is preferred for password sign-in (least privilege); the
+        service-role key is used only when the anon key is absent.
+        """
+
+        key = self.SUPABASE_ANON_KEY or self.SUPABASE_SERVICE_ROLE_KEY
+        return key if key is not None else ""
 
 
 @lru_cache(maxsize=1)

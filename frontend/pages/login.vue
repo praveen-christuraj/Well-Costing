@@ -41,6 +41,9 @@ function normalizeLoginError(caught: unknown): string {
     if (apiError.code === 'network_error') {
       return 'Unable to reach the sign-in service. Check the backend deployment and try again.'
     }
+    if (apiError.code === 'auth_service_unavailable') {
+      return 'Unable to reach the Supabase sign-in service. Check the backend environment and try again.'
+    }
     return apiError.message
   }
 
@@ -110,7 +113,7 @@ async function submit(): Promise<void> {
       </div>
       <div class="login-card__footer">
         <div class="login-card__note">
-          Cloud deployments keep the same login flow for development, UAT, and production-like testing. Bootstrap admin is created once; all other users are currently managed directly in the hosted database.
+          Cloud deployments keep the same login flow for development, UAT, and production-like testing. When connected to Supabase, users created in Supabase Authentication can sign in here with the same email and password.
         </div>
         <NuxtLink to="/">Return to dashboard</NuxtLink>
       </div>

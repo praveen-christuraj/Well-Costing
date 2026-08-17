@@ -2,6 +2,30 @@
 
 All notable project changes are documented here.
 
+## 2026-08-16 — Supabase Auth sign-in
+
+### Added
+
+- Optional Supabase Auth sign-in: when `SUPABASE_URL` plus an API key
+  (`SUPABASE_ANON_KEY`, or `SUPABASE_SERVICE_ROLE_KEY` as a fallback) are set in
+  `backend/.env`, users created in Supabase Authentication can sign in through the
+  normal login page with their Supabase email and password.
+- `SupabaseAuthClient` integration that validates credentials against Supabase's
+  GoTrue password grant (`/auth/v1/token?grant_type=password`) without ever
+  storing the user's password in the application database.
+- Login fallback order: local password hash first (existing provisioned users and
+  the bootstrap administrator keep working), then Supabase Auth. A Supabase
+  identity is mirrored into `users` with `auth_provider='supabase'` and a NULL
+  password hash on first sign-in.
+- Migration `20260816_0013_add_supabase_authentication` — makes `users.hashed_password`
+  nullable and adds the `users.auth_provider` column (SQLite and PostgreSQL paths).
+
+### Changed
+
+- `users.hashed_password` is now nullable; `users.auth_provider` defaults to `local`.
+- The login page reports a dedicated message when Supabase Auth is unreachable
+  (`auth_service_unavailable`).
+
 ## 2026-08-16 — Termux deploy: OpenSSL CLI package fix
 
 ### Fixed
