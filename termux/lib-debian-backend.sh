@@ -122,6 +122,29 @@ backend_shell() {
     run_in_debian "cd $BACKEND_Q && $1"
 }
 
+# Run a backend command with selected host shell variables exported in the
+# Debian guest. proot-distro intentionally starts with a clean environment, so
+# `NAME=value backend_shell ...` alone does not make NAME available there.
+# Values are shell-quoted before they are added to the guest command.
+backend_shell_with_env() {
+    local command="$1"
+    shift
+
+    local env_prefix="" var value_q
+    for var in "$@"; do
+        if [[ ! "$var" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+            die "Invalid environment variable name: $var"
+        fi
+        if [ -z "${!var+x}" ]; then
+            die "Environment variable is not set: $var"
+        fi
+        printf -v value_q '%q' "${!var}"
+        env_prefix+="$var=$value_q "
+    done
+
+    backend_shell "${env_prefix}${command}"
+}
+
 debian_present() {
     local base="${PREFIX:-/data/data/com.termux/files/usr}/var/lib/proot-distro"
     # proot-distro 4.x stores rootfs at installed-rootfs/<name>; proot-distro
@@ -496,13 +519,15 @@ seed_admin() {
         return 0
     fi
 
-    # backend_shell does not activate the virtualenv. Use its interpreter
-    # explicitly so the editable `app` package and installed dependencies are
-    # available (plain `python` resolves to Debian's system interpreter).
-    SEED_USER_EMAIL="$ADMIN_EMAIL" \
-    SEED_USER_PASSWORD="$ADMIN_PASSWORD" \
-    SEED_USER_FULL_NAME="$ADMIN_NAME" \
-    backend_shell "$VENV_NAME/bin/python scripts/seed_user.py"
+    # proot-distro deliberately clears the host environment. Copy the answers
+    # into the names seed_user.py expects, then explicitly inject those values
+    # into the guest while invoking the venv interpreter.
+    local SEED_USER_EMAIL="$ADMIN_EMAIL"
+    local SEED_USER_PASSWORD="$ADMIN_PASSWORD"
+    local SEED_USER_FULL_NAME="$ADMIN_NAME"
+    backend_shell_with_env \
+        "$VENV_NAME/bin/python scripts/seed_user.py" \
+        SEED_USER_EMAIL SEED_USER_PASSWORD SEED_USER_FULL_NAME
 
     touch "$ADMIN_MARKER"
     ok "Admin user created: $ADMIN_EMAIL"
