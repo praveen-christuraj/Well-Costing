@@ -8,6 +8,15 @@ const apiProxyTimeoutMs = Number.isFinite(configuredProxyTimeout) && configuredP
   ? configuredProxyTimeout
   : 90000
 
+// Default: Secure auth cookie in production builds only. Explicitly set
+// NUXT_PUBLIC_SECURE_COOKIE=true|false to override — e.g. 'false' when serving
+// the production build over plain HTTP on a LAN (http://192.168.x.x:3000),
+// because browsers refuse Secure cookies from non-localhost HTTP origins.
+const secureCookieOverride = process.env.NUXT_PUBLIC_SECURE_COOKIE
+const secureCookie = secureCookieOverride === 'true' || secureCookieOverride === 'false'
+  ? secureCookieOverride === 'true'
+  : process.env.NODE_ENV === 'production'
+
 export default defineNuxtConfig({
   compatibilityDate: '2025-05-15',
   devtools: { enabled: process.env.NODE_ENV !== 'production' },
@@ -24,6 +33,7 @@ export default defineNuxtConfig({
     apiProxyTimeoutMs,
     public: {
       apiBase: process.env.NUXT_PUBLIC_API_BASE || '/api/v1',
+      secureCookie,
     },
   },
   routeRules: {
