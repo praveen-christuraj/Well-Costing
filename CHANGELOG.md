@@ -26,6 +26,15 @@ All notable project changes are documented here.
 - The login page reports a dedicated message when Supabase Auth is unreachable
   (`auth_service_unavailable`).
 
+## 2026-08-16 — Termux deploy: OpenSSL CLI package fix
+
+### Fixed
+
+- First-time setup no longer stops at step [5/7] with `openssl: command not
+  found`: Termux installers now request `openssl-tool`, which contains the CLI,
+  instead of the library-only `openssl` package. JWT key generation also falls
+  back to Node's cryptographically secure random-byte API.
+
 ## 2026-08-16 — Termux deploy: backend install on older-glibc containers (argon2 → bcrypt)
 
 ### Fixed
