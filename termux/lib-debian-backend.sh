@@ -325,7 +325,7 @@ install_python_deps() {
 verify_backend_env() {
     log "Verifying backend environment..."
     local out
-    if ! out=$(backend_shell "$VENV_NAME/bin/python -c 'import fastapi, pydantic, pydantic_core, sqlalchemy, uvicorn, alembic, psycopg, bcrypt, pwdlib; print(f\"pydantic {pydantic.VERSION} (core {pydantic_core.__version__})\")'" 2>&1); then
+    if ! out=$(backend_shell "$VENV_NAME/bin/python -c 'import app, fastapi, pydantic, pydantic_core, sqlalchemy, uvicorn, alembic, psycopg, bcrypt, pwdlib; print(f\"pydantic {pydantic.VERSION} (core {pydantic_core.__version__})\")'" 2>&1); then
         echo "$out" >&2
         die "Backend environment verification failed (see above). Re-run with a clean venv: rm -rf backend/.venv && bash termux/deploy.sh"
     fi
@@ -496,10 +496,13 @@ seed_admin() {
         return 0
     fi
 
+    # backend_shell does not activate the virtualenv. Use its interpreter
+    # explicitly so the editable `app` package and installed dependencies are
+    # available (plain `python` resolves to Debian's system interpreter).
     SEED_USER_EMAIL="$ADMIN_EMAIL" \
     SEED_USER_PASSWORD="$ADMIN_PASSWORD" \
     SEED_USER_FULL_NAME="$ADMIN_NAME" \
-    backend_shell "cd $BACKEND_Q && python scripts/seed_user.py"
+    backend_shell "$VENV_NAME/bin/python scripts/seed_user.py"
 
     touch "$ADMIN_MARKER"
     ok "Admin user created: $ADMIN_EMAIL"
