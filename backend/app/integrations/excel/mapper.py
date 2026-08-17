@@ -26,7 +26,7 @@ COMMON_ALIASES = {
     "code": frozenset({"code", "item_code", "vendor_code", "uom_code", "currency_code"}),
     "name": frozenset({"name", "description_name", "item_name"}),
     "description": frozenset({"description", "details", "remarks"}),
-    "is_active": frozenset({"is_active", "active", "status"}),
+    "is_active": frozenset({"is_active", "active"}),
 }
 CATALOG_ALIASES = {
     **COMMON_ALIASES,
@@ -342,8 +342,11 @@ class ExcelMapper:
             if target not in profile.aliases:
                 raise BusinessValidationError(f"Mapping target '{target}' is not allowed")
             if target in targets:
+                existing_source = next(s for s, t in applied.items() if t == target)
                 raise BusinessValidationError(
-                    f"Multiple source columns map to '{target}'. Confirm the mapping explicitly."
+                    f"Multiple source columns ('{existing_source}' and '{source}') both map to "
+                    f"'{target}'. Please remove one column from your workbook, or use the "
+                    f"mapping override to resolve the ambiguity."
                 )
             applied[source] = target
             targets.add(target)
