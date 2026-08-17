@@ -1053,3 +1053,108 @@
   }
 }
 
+@layer app {
+  /* ── Printable grid ──
+     The print block is rendered but hidden on screen; printing swaps it in and
+     drops the shell, toolbars, editors, and action column so the sheet shows
+     the data only. Works for both the Print button and the browser's Ctrl+P. */
+  .eg__print {
+    display: none;
+  }
+
+  @media print {
+    .app-header,
+    .app-topnav,
+    .md-nav,
+    .library-nav,
+    .page-header__actions,
+    .eg__filters,
+    .eg__actions,
+    .eg__feedback,
+    .eg__pager,
+    .eg__table,
+    .uom-tip,
+    .p-dialog-mask,
+    .p-toast {
+      display: none !important;
+    }
+
+    :root {
+      font-size: 11px;
+    }
+
+    body {
+      background: white;
+    }
+
+    .app-main,
+    .library-page,
+    .eg {
+      margin: 0;
+      padding: 0;
+      border: 0;
+      box-shadow: none;
+      width: auto;
+      max-width: none;
+      background: white;
+    }
+
+    .eg__print {
+      display: block;
+    }
+
+    .eg__print-header h2 {
+      margin: 0 0 2px;
+      font-size: 1.25rem;
+    }
+
+    .eg__print-header p {
+      margin: 0 0 10px;
+      color: #444;
+      font-size: .8rem;
+    }
+
+    .eg__print-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .72rem;
+    }
+
+    .eg__print-table th,
+    .eg__print-table td {
+      border: 1px solid #999;
+      padding: 3px 5px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .eg__print-table thead th {
+      background: #e8eef1;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+    }
+
+    .eg__print-table thead {
+      display: table-header-group;
+    }
+
+    .eg__print-table tr {
+      break-inside: avoid;
+    }
+
+    .eg__print-table .eg__num {
+      text-align: right;
+    }
+
+    .eg__print-empty {
+      margin-top: 10px;
+      font-size: .8rem;
+    }
+
+    @page {
+      size: A4 landscape;
+      margin: 12mm;
+    }
+  }
+}

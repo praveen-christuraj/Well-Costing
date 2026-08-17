@@ -25,7 +25,7 @@ test('imports a validated vendor workbook into the cost library', async ({ page,
   await page.getByLabel('Email').fill(process.env.E2E_EMAIL ?? '')
   await page.getByLabel('Password').fill(process.env.E2E_PASSWORD ?? '')
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page).toHaveURL(/cost-library\/services/)
+  await expect(page).toHaveURL(/master-data\/vendors/)
 
   await page.goto('/cost-library/vendors')
   await expect(page.getByRole('heading', { name: 'Vendors' })).toBeVisible()

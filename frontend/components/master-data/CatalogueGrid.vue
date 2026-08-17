@@ -111,16 +111,6 @@ const blankRow = () => ({
   description: '',
   is_active: true,
 })
-
-async function exportWorkbook(): Promise<void> {
-  const blob = await api.export(props.entity)
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = `${props.entity}-export.xlsx`
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
 </script>
 
 <template>
@@ -137,8 +127,8 @@ async function exportWorkbook(): Promise<void> {
     :bulk-create="rows => api.bulkCreate(entity, rows as never)"
     :bulk-update="rows => api.bulkUpdate(entity, rows as never)"
     :remove-record="(id, hard) => (hard ? api.remove(entity, id) : api.deactivate(entity, id))"
-    :on-export="exportWorkbook"
     :import-entity="entity"
+    :export-entity="entity"
     default-sort="code"
     :search-placeholder="`Search by code, name, or material number…`"
   />

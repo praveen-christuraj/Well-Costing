@@ -115,6 +115,7 @@ const blankRow = () => ({
       :bulk-update="rows => procurement.purchaseOrders.bulkUpdate(rows)"
       :remove-record="(id, hard) => procurement.purchaseOrders.remove(id, hard)"
       import-entity="purchase-orders"
+      export-entity="purchase-orders"
       default-sort="order_number"
       search-placeholder="Search by order number or title…"
     />

@@ -140,6 +140,26 @@ GET  /export/{entity}            current data as .xlsx
 
 Bumping a profile's columns bumps its version; `vendors` is now `1.1`.
 
+Because export and import share one mapping profile, an exported workbook can be
+edited and re-imported unchanged — the round trip is covered by
+`backend/tests/integration/test_excel_import.py::test_export_reimport_round_trip`.
+
+## Export and print
+
+Every Master Data grid exposes **Export** and **Print** in its action bar.
+
+- **Export** downloads `GET /export/{entity}` as `{entity}-export.xlsx`. The grid
+  supplies the entity through `export-entity`, so a page only names its registry
+  key; `on-export` remains available when a page needs a bespoke handler.
+- **Print** opens the browser print dialog against a print-only rendering of the
+  loaded rows — a plain table without editors, toolbars, filters, or the actions
+  column, printed A4 landscape with repeating headers. `Ctrl+P` produces the same
+  sheet, and select values, numeric formatting, unit/currency suffixes, and
+  active/inactive states all render as text.
+
+Export reflects the whole entity; print reflects the rows currently loaded in the
+grid, so filters and page size narrow what is printed.
+
 ## Migration
 
 `20260814_0012_add_procurement_and_consumable_master_data` creates the new tables

@@ -78,16 +78,6 @@ const blankRow = () => ({
 const description = computed(
   () => 'Maintain every service and material provider, classified as third-party or in-house, with the contacts used across service orders, purchase orders, and rates.',
 )
-
-async function exportWorkbook(): Promise<void> {
-  const blob = await api.export(entity)
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = 'vendors-export.xlsx'
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
 </script>
 
 <template>
@@ -107,8 +97,8 @@ async function exportWorkbook(): Promise<void> {
       :bulk-create="rows => api.bulkCreate(entity, rows as never)"
       :bulk-update="rows => api.bulkUpdate(entity, rows as never)"
       :remove-record="(id, hard) => (hard ? api.remove(entity, id) : api.deactivate(entity, id))"
-      :on-export="exportWorkbook"
       import-entity="vendors"
+      export-entity="vendors"
       default-sort="code"
       search-placeholder="Search by vendor code or name…"
     />

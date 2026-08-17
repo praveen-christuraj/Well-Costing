@@ -71,6 +71,7 @@ const blankRow = () => ({ code: '', name: '', symbol: '', description: '', is_ac
       :bulk-update="rows => api.bulkUpdate(entity, rows as never)"
       :remove-record="(id, hard) => (hard ? api.remove(entity, id) : api.deactivate(entity, id))"
       import-entity="currencies"
+      export-entity="currencies"
       default-sort="code"
       search-placeholder="Search currencies…"
     />

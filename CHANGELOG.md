@@ -2,6 +2,45 @@
 
 All notable project changes are documented here.
 
+## 2026-08-17 — Master Data export/print, and landing on enabled pages only
+
+### Added
+
+- **Export** on every Master Data tab, including Service Orders and Purchase
+  Orders, which previously had none. The grid now takes an `export-entity` key
+  and downloads `GET /export/{entity}` as `{entity}-export.xlsx`; because export
+  and import share one mapping profile, an exported workbook re-imports
+  unchanged. Service Rates, Item Prices, Currencies, and Item Categories gained
+  the button too, so all twelve tabs behave the same.
+- **Print** on every Master Data tab. A print-only rendering of the loaded rows
+  is emitted as a plain table — no editors, toolbars, filters, or actions column
+  — printed A4 landscape with repeating headers. `Ctrl+P` yields the same sheet.
+- `frontend/utils/navigation.ts`: one source of truth for which top-level
+  modules are enabled, consumed by the navigation bar, the `/` landing route,
+  and the post-login redirect.
+- `frontend/utils/download.ts`: shared blob-download helper replacing the
+  handler that was copy-pasted across pages.
+- Unit tests for the navigation model, the sidebar, the grid's export and print
+  behaviour, and the login redirect.
+
+### Fixed
+
+- The application no longer opens the **Cost Library**, which is not an enabled
+  page. Signing in and visiting `/` now land on the first enabled module (Master
+  Data). Previously both paths were hard-coded to `/cost-library/services`, and
+  `/` rendered a foundation dashboard advertising unreleased modules, so the app
+  always started somewhere the user could not act.
+
+### Changed
+
+- Export button labels use the Excel icon and report success or a readable
+  failure message in the grid's existing feedback area.
+- The navigation bar renders only enabled modules rather than filtering a list
+  that also carried disabled entries; releasing a module is now a one-line flag
+  change that updates the nav, landing route, and redirect together.
+- Per-page `exportWorkbook` handlers in Vendors, Units, and `CatalogueGrid` were
+  removed in favour of the shared grid implementation.
+
 ## 2026-08-16 — Supabase Auth sign-in
 
 ### Added

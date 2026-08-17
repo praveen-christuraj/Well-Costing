@@ -5,10 +5,13 @@ import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Password from 'primevue/password'
 import { NormalizedApiError } from '~/types/api'
+import { defaultLandingRoute } from '~/utils/navigation'
 
 definePageMeta({ layout: false })
 
-const defaultRedirectPath = '/cost-library/services'
+// Sign-in always lands on the first enabled module so the application never
+// opens a page that has not been released yet.
+const defaultRedirectPath = defaultLandingRoute
 
 const email = ref('')
 const password = ref('')
@@ -115,7 +118,7 @@ async function submit(): Promise<void> {
         <div class="login-card__note">
           Cloud deployments keep the same login flow for development, UAT, and production-like testing. When connected to Supabase, users created in Supabase Authentication can sign in here with the same email and password.
         </div>
-        <NuxtLink to="/">Return to dashboard</NuxtLink>
+        <NuxtLink :to="defaultRedirectPath">Return to the workspace</NuxtLink>
       </div>
     </form>
   </div>

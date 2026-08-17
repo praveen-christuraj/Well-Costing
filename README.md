@@ -125,15 +125,24 @@ npm install
 npm run dev -- --host 0.0.0.0
 ```
 
-Open http://localhost:3000, sign in with the local user you seeded, and select **Cost Library**. Nuxt calls the backend through the relative `/api/v1` server proxy, so browser code does not hard-code `localhost` API URLs.
+Open http://localhost:3000 and sign in with the local user you seeded. Nuxt calls the backend through the relative `/api/v1` server proxy, so browser code does not hard-code `localhost` API URLs.
+
+The application always opens on an enabled module. `frontend/utils/navigation.ts`
+is the single source of truth for which top-level modules are released; the
+navigation bar, the `/` landing route, and the post-login redirect all read from
+it, so nothing can route users to a page that is not enabled yet. **Master Data**
+is currently the only enabled module — flip an entry's `enabled` flag to release
+the next one.
 
 **Master Data** (`/master-data/vendors`) maintains the raw reference data the AFE is
 built from: vendors classified as third-party or in-house, service orders and
 purchase orders, item categories, services, tangibles, mud chemicals, cement
 additives, column-based service rate cards (operating, standby, mobilisation,
 demobilisation, and section-wise), and effective-dated item prices. Every page has
-server-side pagination, filters, Excel-style bulk entry, clipboard paste, and
-per-row edit and delete actions. See
+server-side pagination, filters, Excel-style bulk entry, clipboard paste, per-row
+edit and delete actions, an **Export** button that downloads the entity as an Excel
+workbook (re-importable unchanged), and a **Print** button that renders the loaded
+rows as a clean printable sheet. See
 [AFE reference data](docs/master-data/afe-reference-data.md).
 
 The Cost Library supports spreadsheet-style multi-row editing, selection, duplicate, bulk edit/deactivation, TSV paste from Excel, versioned workbook templates, validation previews, all-or-nothing commits, exports, and import history. The Cost Builder supports versioned estimate grids, Excel round trips, audited recalculation attempts, pending-rule status, nullable total cards, future category/line breakdown views, immutable review notes, and blocked transition traces.
