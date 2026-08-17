@@ -1,4 +1,4 @@
-﻿#!/data/data/com.termux/files/usr/bin/bash
+#!/data/data/com.termux/files/usr/bin/bash
 # lib-debian-backend.sh — shared helpers for all Termux deployment scripts.
 #
 # ── Why Debian inside proot? ─────────────────────────────────────────────────
