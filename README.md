@@ -215,6 +215,19 @@ python scripts/provision_user.py
 
 Use a direct Neon or Supabase PostgreSQL connection string when running the provisioning script locally.
 
+### Supabase Auth sign-in
+
+When the backend is connected to a Supabase project, users created in **Supabase Authentication** can sign in through the normal login page without a local password hash. Set the following in `backend/.env`:
+
+```text
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_ANON_KEY=<project settings → API → anon public key>
+```
+
+On login, the application first checks the password hash stored in its own `users` table (existing provisioned users and the bootstrap administrator keep working). If that does not match — or the user has no local hash because it was created in Supabase — the backend validates the email and password against Supabase Auth's password grant and mirrors the identity into the application `users` table with `auth_provider='supabase'`. The password itself never touches the application database.
+
+To let a Supabase user administer the application, assign the `admin` role to the mirrored `users` row directly in the database. The mirrored row is created on that user's first successful sign-in.
+
 ## Environment variables
 
 | Variable | Purpose |
@@ -227,6 +240,9 @@ Use a direct Neon or Supabase PostgreSQL connection string when running the prov
 | `LOG_LEVEL` | Application/audit logger level |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Access-token lifetime |
 | `API_V1_PREFIX` | Versioned API prefix |
+| `SUPABASE_URL` | Optional Supabase project URL; enables Supabase Auth sign-in when set with an API key |
+| `SUPABASE_ANON_KEY` | Optional Supabase anon/public key used for password sign-in |
+| `SUPABASE_SERVICE_ROLE_KEY` | Optional service-role key; used for sign-in when the anon key is absent |
 | `NUXT_PUBLIC_API_BASE` | Browser-visible relative API prefix |
 | `NUXT_API_INTERNAL_BASE` | Server-only Nuxt API proxy target |
 | `NUXT_API_PROXY_TIMEOUT_MS` | Server-proxy timeout; 90 seconds supports Render Free cold starts |

@@ -33,6 +33,13 @@ class AuthenticationError(AppException):
     code = "authentication_failed"
 
 
+class AuthServiceUnavailableError(AppException):
+    """A configured external identity provider could not be reached."""
+
+    status_code = 503
+    code = "auth_service_unavailable"
+
+
 class AuthorizationError(AppException):
     """The current actor lacks permission for an operation."""
 

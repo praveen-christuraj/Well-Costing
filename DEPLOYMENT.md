@@ -372,6 +372,24 @@ postgresql+psycopg://postgres.xxxx:password@aws-0-region.pooler.supabase.com:654
 sqlite:///./dev.db
 ```
 
+### Supabase Auth sign-in (optional)
+
+When the backend database is a Supabase project, users created in **Supabase
+Authentication** can sign in through the normal login page with their Supabase
+email and password. Add to `backend/.env`:
+
+```text
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_ANON_KEY=<project settings → API → anon public key>
+```
+
+Login still checks the application's own `users` table first, so provisioned
+users and the bootstrap administrator keep working. When the local check does not
+match — or the user has no local password hash because it was created in Supabase —
+the backend validates the credentials against Supabase Auth and mirrors the
+identity into `users` with `auth_provider='supabase'`. The password itself is
+never stored in the application database.
+
 ---
 
 ## 5. CI/CD

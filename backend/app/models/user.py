@@ -39,7 +39,12 @@ class User(TimestampMixin, Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
-    hashed_password: Mapped[str] = mapped_column(String(255))
+    # Nullable for users authenticated exclusively through Supabase Auth, whose
+    # password is stored by Supabase rather than in the application database.
+    hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # "local" users verify against ``hashed_password``; "supabase" users sign in
+    # through Supabase Auth and are only mirrored here for application roles.
+    auth_provider: Mapped[str] = mapped_column(String(20), default="local", server_default="local")
     full_name: Mapped[str] = mapped_column(String(200))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
