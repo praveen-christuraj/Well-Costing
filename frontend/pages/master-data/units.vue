@@ -86,16 +86,6 @@ const blankRow = () => ({
 const description = computed(
   () => 'Define every unit of measure used across the application — services, tangibles, mud chemicals, cement additives, rates, and item prices. Once saved here, the UOM appears in all dropdown lists.',
 )
-
-async function exportWorkbook(): Promise<void> {
-  const blob = await api.export(entity)
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = 'units-export.xlsx'
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
 </script>
 
 <template>
@@ -117,8 +107,8 @@ async function exportWorkbook(): Promise<void> {
       :bulk-create="rows => api.bulkCreate(entity, rows as never)"
       :bulk-update="rows => api.bulkUpdate(entity, rows as never)"
       :remove-record="(id, hard) => (hard ? api.remove(entity, id) : api.deactivate(entity, id))"
-      :on-export="exportWorkbook"
       import-entity="units"
+      export-entity="units"
       default-sort="code"
       search-placeholder="Search by code, name, or symbol…"
     />

@@ -29,7 +29,7 @@ test('creates a well requirement and bulk-pastes a validated line item', async (
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page).toHaveURL(/cost-library\/services/)
+  await expect(page).toHaveURL(/master-data\/vendors/)
   await page.goto('/requirements')
   await page.waitForLoadState('networkidle')
 

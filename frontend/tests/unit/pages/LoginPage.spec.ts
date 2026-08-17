@@ -74,6 +74,25 @@ describe('Login page', () => {
     expect(wrapper.text()).toContain('Unable to reach the sign-in service. Check the backend deployment and try again.')
   })
 
+  it('lands on the first enabled module instead of a disabled page after sign in', async () => {
+    const { wrapper, navigateTo } = await mountPage()
+
+    await wrapper.get('input[type="email"]').setValue('admin@example.com')
+    await wrapper.get('input[type="password"]').setValue('LocalAdminPass2026!')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(navigateTo).toHaveBeenCalledWith('/master-data/vendors')
+    expect(navigateTo).not.toHaveBeenCalledWith('/cost-library/services')
+  })
+
+  it('redirects an already-authenticated visitor to the first enabled module', async () => {
+    const { navigateTo } = await mountPage({ authenticated: true })
+    await flushPromises()
+
+    expect(navigateTo).toHaveBeenCalledWith('/master-data/vendors')
+  })
+
   it('shows the placeholder password-recovery links and database provisioning notice', async () => {
     const { wrapper } = await mountPage()
 

@@ -142,6 +142,7 @@ const blankRow = () => ({
       :bulk-update="rows => procurement.serviceRates.bulkUpdate(rows)"
       :remove-record="(id, hard) => procurement.serviceRates.remove(id, hard)"
       import-entity="service-rates"
+      export-entity="service-rates"
       default-sort="effective_from"
       default-sort-order="desc"
       search-placeholder="Search by service code or name…"

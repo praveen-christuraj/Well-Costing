@@ -2,8 +2,8 @@
  * Reusable enterprise data grid.
  *
  * Provides server-side pagination, a filter bar, an Excel-like inline editing
- * mode for bulk entry, TSV paste, per-row Edit/Delete actions, and feedback
- * messages rendered directly beneath the action bar.
+ * mode for bulk entry, TSV paste, per-row Edit/Delete actions, Excel export,
+ * a printable view, and feedback messages rendered beneath the action bar.
  */
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
@@ -22,6 +22,7 @@ import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
 import { useConfirm } from 'primevue/useconfirm'
 import ImportWizard from '~/components/cost-library/ImportWizard.vue'
+import { downloadBlob, exportFilename } from '~/utils/download'
 import { parseTsv } from '~/utils/tsv'
 import type { EditableRow, GridColumn, GridFilterDefinition } from '~/types/grid'
 import type { PageResponse } from '~/types/masterData'
@@ -47,7 +48,13 @@ const props = defineProps<{
   removeRecord: (id: string, hard: boolean) => Promise<unknown>
   defaultSort?: string
   defaultSortOrder?: 'asc' | 'desc'
-  /** Optional Excel import/export handlers. */
+  /**
+   * Registry entity key enabling the built-in Excel export, e.g. 'service-orders'.
+   * Downloads `/export/{entity}` with the same headers the import template uses,
+   * so an exported workbook can be edited and re-imported unchanged.
+   */
+  exportEntity?: string
+  /** Custom export handler; overrides `exportEntity` when both are supplied. */
   onExport?: () => Promise<void>
   /** Registry entity key enabling the bulk Excel/CSV import wizard, e.g. 'units'. */
   importEntity?: string
@@ -55,6 +62,7 @@ const props = defineProps<{
 }>()
 
 const confirm = useConfirm()
+const masterData = useMasterData()
 
 const rows = ref<EditableRow[]>([])
 const selected = ref<EditableRow[]>([])
@@ -75,6 +83,7 @@ const success = ref<string | null>(null)
 const pasteVisible = ref(false)
 const pasteText = ref('')
 const importVisible = ref(false)
+const exporting = ref(false)
 
 const editableColumns = computed(() => props.columns.filter(column => !column.readonly))
 const pasteColumns = computed(() => editableColumns.value.filter(column => !column.noPaste))
@@ -316,6 +325,56 @@ function applyPaste(): void {
   success.value = `${created.length} row(s) added from the clipboard. Review them, then choose Save changes.`
 }
 
+const canExport = computed(() => Boolean(props.onExport || props.exportEntity))
+
+/** Download the entity workbook, preferring a page-supplied handler. */
+async function exportWorkbook(): Promise<void> {
+  clearFeedback()
+  exporting.value = true
+  try {
+    if (props.onExport) {
+      await props.onExport()
+    }
+    else if (props.exportEntity) {
+      const blob = await masterData.export(props.exportEntity)
+      downloadBlob(blob, exportFilename(props.exportEntity))
+    }
+    else {
+      return
+    }
+    success.value = `${props.title} exported to Excel.`
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error
+      ? `The export failed: ${caught.message}`
+      : 'The export could not be generated.'
+  }
+  finally {
+    exporting.value = false
+  }
+}
+
+/**
+ * Print the rows currently on screen. A print-only block (hidden on screen,
+ * revealed by the print stylesheet) mirrors the grid as a plain table, so the
+ * output is a clean sheet without editors, toolbars, or the actions column.
+ * It is always rendered, so Ctrl+P produces the same result as this button.
+ */
+function printGrid(): void {
+  clearFeedback()
+  if (typeof window !== 'undefined' && typeof window.print === 'function') window.print()
+}
+
+/** Render one cell as plain text for the printable table. */
+function printCell(row: EditableRow, column: GridColumn): string {
+  if (column.type === 'checkbox') return row[column.field] ? 'Active' : 'Inactive'
+  const rendered = displayValue(row, column)
+  const suffix = column.suffixField ? row[column.suffixField] : ''
+  return suffix ? `${rendered} ${String(suffix)}` : rendered
+}
+
+const printedAt = computed(() => new Date().toLocaleString())
+
 function resetFilters(): void {
   search.value = ''
   filterValues.value = {}
@@ -465,7 +524,22 @@ defineExpose({ reload: load })
           @click="confirmDeactivateSelected"
         />
         <Button v-if="importEntity" label="Import" icon="pi pi-upload" severity="secondary" outlined @click="importVisible = true" />
-        <Button v-if="onExport" label="Export" icon="pi pi-download" severity="secondary" outlined @click="onExport" />
+        <Button
+          v-if="canExport"
+          label="Export"
+          icon="pi pi-file-excel"
+          severity="secondary"
+          outlined
+          :loading="exporting"
+          @click="exportWorkbook"
+        />
+        <Button
+          label="Print"
+          icon="pi pi-print"
+          severity="secondary"
+          outlined
+          @click="printGrid"
+        />
         <slot name="actions" />
         <Button
           :label="pendingCount ? `Save changes (${pendingCount})` : 'Save changes'"
@@ -678,6 +752,33 @@ defineExpose({ reload: load })
         <Button icon="pi pi-angle-right" text :disabled="page >= totalPages" aria-label="Next page" @click="goToPage(page + 1)" />
         <Button icon="pi pi-angle-double-right" text :disabled="page >= totalPages" aria-label="Last page" @click="goToPage(totalPages)" />
       </div>
+    </div>
+
+    <!-- Print-only rendering: hidden on screen, used by the browser print dialog -->
+    <div class="eg__print" aria-hidden="true">
+      <header class="eg__print-header">
+        <h2>{{ title }}</h2>
+        <p>
+          {{ total }} record(s) · page {{ page }} of {{ totalPages }} · printed {{ printedAt }}
+        </p>
+      </header>
+      <table class="eg__print-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th v-for="column in columns" :key="column.field">{{ column.header }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(row, index) in rows" :key="String(row.id ?? index)">
+            <td>{{ (page - 1) * pageSize + index + 1 }}</td>
+            <td v-for="column in columns" :key="column.field" :class="{ 'eg__num': column.numeric }">
+              {{ printCell(row, column) }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="!rows.length" class="eg__print-empty">No {{ title.toLowerCase() }} matched the current filters.</p>
     </div>
 
     <Dialog v-model:visible="pasteVisible" modal header="Paste rows from Excel" :style="{ width: '760px' }">

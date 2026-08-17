@@ -1,23 +1,13 @@
+/** Primary navigation. Only modules enabled in `utils/navigation` are shown. */
 <script setup lang="ts">
-interface NavigationItem {
-  label: string
-  icon: string
-  enabled: boolean
-  to?: string
-}
-
-const navigation: NavigationItem[] = [
-  { label: 'Well Intake', icon: 'pi pi-clipboard', enabled: false, to: '/requirements' },
-  { label: 'Master Data', icon: 'pi pi-book', enabled: true, to: '/master-data/vendors' },
-]
+import { enabledNavigation } from '~/utils/navigation'
 </script>
 
 <template>
   <nav class="app-topnav" aria-label="Primary navigation">
     <ul class="app-topnav__list">
-      <li v-for="item in navigation" :key="item.label">
+      <li v-for="item in enabledNavigation" :key="item.key">
         <NuxtLink
-          v-if="item.enabled && item.to"
           :to="item.to"
           class="app-topnav__item"
         >

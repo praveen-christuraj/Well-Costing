@@ -74,6 +74,7 @@ const blankRow = () => ({ code: '', name: '', applies_to: 'tangible', descriptio
       :bulk-update="rows => api.bulkUpdate(entity, rows as never)"
       :remove-record="(id, hard) => (hard ? api.remove(entity, id) : api.deactivate(entity, id))"
       import-entity="item-categories"
+      export-entity="item-categories"
       default-sort="code"
       search-placeholder="Search categories…"
     />
