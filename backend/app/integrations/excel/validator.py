@@ -61,7 +61,7 @@ class ExcelValidator:
                         if self.session.scalar(statement) is not None:
                             raise ValueError(f"Code '{code}' already exists")
                 valid.append(normalized)
-            except (ValueError, ValidationError) as exc:
+            except (ValueError, ValidationError, TypeError, InvalidOperation) as exc:
                 errors.append(
                     BulkRowError(
                         row_index=excel_row,
@@ -86,6 +86,9 @@ class ExcelValidator:
                     ("currency_code", "currency_id", Currency),
                 ],
             )
+            self._stringify(values, ("order_number", "title", "status", "description"))
+            self._coerce_dates(values, ("valid_from", "valid_to"))
+            self._coerce_decimal(values, "contract_value")
             return ServiceOrderCreate.model_validate(values).model_dump(
                 mode="json", exclude_none=True
             )
@@ -97,6 +100,9 @@ class ExcelValidator:
                     ("currency_code", "currency_id", Currency),
                 ],
             )
+            self._stringify(values, ("order_number", "title", "status", "description"))
+            self._coerce_dates(values, ("order_date", "expected_delivery_date"))
+            self._coerce_decimal(values, "order_value")
             return PurchaseOrderCreate.model_validate(values).model_dump(
                 mode="json", exclude_none=True
             )
@@ -122,6 +128,15 @@ class ExcelValidator:
             if service is None:
                 raise ValueError(f"service_code '{service_code}' does not exist")
             values["service_id"] = service.id
+            self._stringify(values, ("hole_section", "description"))
+            self._coerce_dates(values, ("effective_from", "effective_to"))
+            for rate_field in (
+                "operating_rate",
+                "standby_rate",
+                "mobilisation_rate",
+                "demobilisation_rate",
+            ):
+                self._coerce_decimal(values, rate_field)
             return ServiceRateCardCreate.model_validate(values).model_dump(
                 mode="json", exclude_none=True
             )
@@ -138,6 +153,9 @@ class ExcelValidator:
                 values, "purchase_order_number", "purchase_order_id", PurchaseOrder
             )
             values["item_id"] = self._resolve_item(values)
+            self._stringify(values, ("item_type", "description"))
+            self._coerce_dates(values, ("effective_from", "effective_to"))
+            self._coerce_decimal(values, "unit_price")
             return ItemPriceCreate.model_validate(values).model_dump(
                 mode="json", exclude_none=True
             )
@@ -271,6 +289,35 @@ class ExcelValidator:
             if field in values:
                 values[field] = self._date(values[field])
         return values
+
+    def _coerce_dates(self, values: dict[str, Any], fields: tuple[str, ...]) -> None:
+        for field in fields:
+            if field in values:
+                values[field] = self._date(values[field])
+
+    @staticmethod
+    def _coerce_decimal(values: dict[str, Any], field: str) -> None:
+        if field not in values:
+            return
+        value = values[field]
+        if isinstance(value, Decimal):
+            return
+        raw = str(value).strip().replace(",", "")
+        try:
+            values[field] = Decimal(raw)
+        except InvalidOperation as exc:
+            raise ValueError(f"{field} must be numeric") from exc
+
+    @staticmethod
+    def _stringify(values: dict[str, Any], fields: tuple[str, ...]) -> None:
+        for field in fields:
+            if field not in values:
+                continue
+            value = values[field]
+            if isinstance(value, float) and value.is_integer():
+                values[field] = str(int(value))
+            else:
+                values[field] = str(value).strip()
 
     @staticmethod
     def _boolean(value: object) -> bool:
