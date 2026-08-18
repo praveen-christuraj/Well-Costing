@@ -46,6 +46,7 @@ class ExcelValidator:
         valid: list[dict[str, Any]] = []
         errors: list[BulkRowError] = []
         seen_codes: set[str] = set()
+        seen_order_numbers: set[str] = set()
         for index, source in enumerate(rows):
             excel_row = index + 2
             try:
@@ -60,6 +61,21 @@ class ExcelValidator:
                         statement = select(config.model).where(config.model.code == code)  # type: ignore[attr-defined]
                         if self.session.scalar(statement) is not None:
                             raise ValueError(f"Code '{code}' already exists")
+                # Relaxation: procurement entities use order_number as unique key
+                if entity in {"service-orders", "purchase-orders"}:
+                    order_no = normalized.get("order_number")
+                    if isinstance(order_no, str):
+                        key = order_no.strip().upper()
+                        if key in seen_order_numbers:
+                            raise ValueError(f"Duplicate order_number '{order_no}' within workbook (row {excel_row})")
+                        seen_order_numbers.add(key)
+                        # DB duplicate check – case-insensitive, friendly error instead of DB IntegrityError
+                        model = ServiceOrder if entity == "service-orders" else PurchaseOrder
+                        exists = self.session.scalar(
+                            select(model).where(model.order_number.ilike(key))
+                        )
+                        if exists is not None:
+                            raise ValueError(f"order_number '{order_no}' already exists in database – will be skipped on import")
                 valid.append(normalized)
             except (ValueError, ValidationError, TypeError, InvalidOperation) as exc:
                 errors.append(
@@ -87,8 +103,20 @@ class ExcelValidator:
                 ],
             )
             self._stringify(values, ("order_number", "title", "status", "description"))
+            # Relaxation: normalize order_number and status for bulk tolerance
+            if "order_number" in values:
+                values["order_number"] = str(values["order_number"]).strip().upper()
+                if not values["order_number"]:
+                    raise ValueError("order_number is required")
+            if "status" in values:
+                values["status"] = self._normalize_status(values["status"], "service")
+            else:
+                values["status"] = "draft"
             self._coerce_dates(values, ("valid_from", "valid_to"))
             self._coerce_decimal(values, "contract_value")
+            # Empty string decimals should be treated as not set
+            if values.get("contract_value") == "":
+                values.pop("contract_value", None)
             return ServiceOrderCreate.model_validate(values).model_dump(
                 mode="json", exclude_none=True
             )
@@ -101,8 +129,18 @@ class ExcelValidator:
                 ],
             )
             self._stringify(values, ("order_number", "title", "status", "description"))
+            if "order_number" in values:
+                values["order_number"] = str(values["order_number"]).strip().upper()
+                if not values["order_number"]:
+                    raise ValueError("order_number is required")
+            if "status" in values:
+                values["status"] = self._normalize_status(values["status"], "purchase")
+            else:
+                values["status"] = "draft"
             self._coerce_dates(values, ("order_date", "expected_delivery_date"))
             self._coerce_decimal(values, "order_value")
+            if values.get("order_value") == "":
+                values.pop("order_value", None)
             return PurchaseOrderCreate.model_validate(values).model_dump(
                 mode="json", exclude_none=True
             )
@@ -302,11 +340,21 @@ class ExcelValidator:
         value = values[field]
         if isinstance(value, Decimal):
             return
-        raw = str(value).strip().replace(",", "")
+        if value in (None, ""):
+            values.pop(field, None)
+            return
+        raw = str(value).strip().replace(",", "").replace("$", "").replace("₹", "").replace("€", "").replace("£", "")
+        # Handle accounting parentheses: (1234.50) -> -1234.50
+        if raw.startswith("(") and raw.endswith(")"):
+            raw = "-" + raw[1:-1]
+        raw = raw.strip()
+        if raw == "" or raw == "-":
+            values.pop(field, None)
+            return
         try:
             values[field] = Decimal(raw)
         except InvalidOperation as exc:
-            raise ValueError(f"{field} must be numeric") from exc
+            raise ValueError(f"{field} must be numeric (got '{value}')") from exc
 
     @staticmethod
     def _stringify(values: dict[str, Any], fields: tuple[str, ...]) -> None:
@@ -318,6 +366,29 @@ class ExcelValidator:
                 values[field] = str(int(value))
             else:
                 values[field] = str(value).strip()
+
+    @staticmethod
+    def _normalize_status(value: object, kind: str) -> str:
+        """Relaxed status normalization: case-insensitive, whitespace-tolerant, defaults to draft."""
+        raw = str(value).strip().lower().replace(" ", "_").replace("-", "_")
+        service_allowed = {"draft", "active", "expired", "cancelled"}
+        purchase_allowed = {"draft", "open", "partially_received", "closed", "cancelled"}
+        allowed = service_allowed if kind == "service" else purchase_allowed
+        # Common synonyms for relaxation
+        synonyms = {
+            "activated": "active",
+            "enabled": "active",
+            "in_progress": "open",
+            "partial": "partially_received",
+            "partiallyreceived": "partially_received",
+            "closed_done": "closed",
+            "canceled": "cancelled",
+        }
+        normalized = synonyms.get(raw, raw)
+        if normalized in allowed:
+            return normalized
+        # Relaxation: unknown status coerced to draft/open instead of hard failure
+        return "draft" if kind == "service" else "draft"
 
     @staticmethod
     def _boolean(value: object) -> bool:
