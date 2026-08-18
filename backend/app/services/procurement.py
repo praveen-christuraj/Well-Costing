@@ -164,9 +164,24 @@ class _BaseService(Generic[ModelT, ReadT]):  # noqa: UP046
 
     def validate_bulk(self, rows: list[Any]) -> BulkValidationResult:
         errors: list[BulkRowError] = []
+        seen: set[str] = set()
         for index, row in enumerate(rows):
             try:
-                self._validate(row.model_dump(exclude_unset=True))
+                data = row.model_dump(exclude_unset=True)
+                # Relaxation: normalize order_number for duplicate detection (trim + upper)
+                order_no = data.get("order_number")
+                if isinstance(order_no, str):
+                    key = order_no.strip().upper()
+                    if key in seen:
+                        raise BusinessValidationError(f"Duplicate order_number '{order_no.strip()}' within bulk payload (row {index + 1})")
+                    seen.add(key)
+                    # DB duplicate check – friendly error before attempting insert
+                    model = getattr(self, "model", None)
+                    if model is not None and hasattr(model, "order_number") and key:
+                        exists = self.session.scalar(select(model).where(model.order_number.ilike(key)))  # type: ignore
+                        if exists is not None:
+                            raise BusinessValidationError(f"order_number '{key}' already exists – row will be skipped; remove or change it for bulk import")
+                self._validate(data)
             except BusinessValidationError as exc:
                 errors.append(
                     BulkRowError(row_index=index, code="invalid_reference", message=exc.message)
@@ -184,9 +199,12 @@ class _BaseService(Generic[ModelT, ReadT]):  # noqa: UP046
         if not validation.valid:
             raise BusinessValidationError("Bulk validation failed", validation.model_dump())
         created: list[ReadT] = []
+        BULK_CHUNK = 500
         try:
             for row in rows:
                 created.append(self.create(row, commit=False))
+                if len(created) % BULK_CHUNK == 0:
+                    self.session.flush()
             self.session.commit()
         except Exception:
             self.session.rollback()
@@ -259,6 +277,14 @@ class ServiceOrderService(_BaseService[ServiceOrder, ServiceOrderRead]):
     def _validate(self, values: dict[str, Any], record: ServiceOrder | None = None) -> None:
         if values.get("order_number"):
             values["order_number"] = str(values["order_number"]).strip().upper()
+        # Relaxation: status case-insensitive and synonym tolerant
+        if values.get("status"):
+            raw = str(values["status"]).strip().lower().replace(" ", "_").replace("-", "_")
+            synonyms = {"activated": "active", "enabled": "active", "canceled": "cancelled", "cancelled": "cancelled"}
+            raw = synonyms.get(raw, raw)
+            if raw not in {"draft", "active", "expired", "cancelled"}:
+                raw = "draft"
+            values["status"] = raw
         self._check_references(values, {"vendor_id": Vendor, "currency_id": Currency})
         _date_range_guard(values, record, "valid_from", "valid_to")
 
@@ -294,6 +320,13 @@ class PurchaseOrderService(_BaseService[PurchaseOrder, PurchaseOrderRead]):
     def _validate(self, values: dict[str, Any], record: PurchaseOrder | None = None) -> None:
         if values.get("order_number"):
             values["order_number"] = str(values["order_number"]).strip().upper()
+        if values.get("status"):
+            raw = str(values["status"]).strip().lower().replace(" ", "_").replace("-", "_")
+            synonyms = {"activated": "open", "partial": "partially_received", "partiallyreceived": "partially_received", "canceled": "cancelled"}
+            raw = synonyms.get(raw, raw)
+            if raw not in {"draft", "open", "partially_received", "closed", "cancelled"}:
+                raw = "draft"
+            values["status"] = raw
         self._check_references(values, {"vendor_id": Vendor, "currency_id": Currency})
         _date_range_guard(values, record, "order_date", "expected_delivery_date")
 
