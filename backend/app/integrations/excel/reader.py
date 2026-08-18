@@ -1,6 +1,7 @@
 """Safe tabular workbook reader for Excel and CSV uploads."""
 
 import csv
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO, StringIO
@@ -17,6 +18,9 @@ EXCEL_EXTENSIONS = {".xlsx", ".xlsm", ".xls"}
 CSV_EXTENSIONS = {".csv"}
 ALLOWED_EXTENSIONS = EXCEL_EXTENSIONS | CSV_EXTENSIONS
 MAX_WORKBOOK_BYTES = 15 * 1024 * 1024
+MAX_IMPORT_ROWS = 10_000
+MAX_HEADER_COLUMNS = 200
+MAX_CONSECUTIVE_EMPTY_ROWS = 200
 
 
 @dataclass(frozen=True)
@@ -82,16 +86,8 @@ class ExcelReader:
         if not rows:
             raise BusinessValidationError("CSV file is empty")
 
-        columns = [str(column).strip() for column in rows[0]]
-        records = [
-            {
-                str(key): ExcelReader._python_value(value)
-                for key, value in zip_longest(columns, row, fillvalue=None)
-                if key is not None
-            }
-            for row in rows[1:]
-        ]
-        return columns, records
+        columns = ExcelReader._headers_from_row(rows[0])
+        return columns, ExcelReader._collect_records(columns, rows[1:])
 
     @staticmethod
     def _read_xlsx_like(
@@ -115,15 +111,8 @@ class ExcelReader:
             if header_row is None:
                 raise BusinessValidationError("Workbook sheet is empty")
 
-            columns = [str(column).strip() for column in header_row]
-            records = [
-                {
-                    str(key): ExcelReader._python_value(value)
-                    for key, value in zip_longest(columns, row, fillvalue=None)
-                    if key is not None
-                }
-                for row in iterator
-            ]
+            columns = ExcelReader._headers_from_row(header_row)
+            records = ExcelReader._collect_records(columns, iterator)
             return columns, records, selected_sheet_name
         finally:
             workbook.close()
@@ -151,18 +140,56 @@ class ExcelReader:
         if sheet.nrows == 0:
             raise BusinessValidationError("Workbook sheet is empty")
 
-        columns = [str(column).strip() for column in sheet.row_values(0)]
-        records: list[dict[str, Any]] = []
-        for row_index in range(1, sheet.nrows):
-            row_values = sheet.row_values(row_index)
-            record: dict[str, Any] = {}
-            for key, value in zip_longest(columns, row_values, fillvalue=None):
-                if key is None:
-                    continue
-                record[str(key)] = ExcelReader._python_value(value)
-            records.append(record)
+        columns = ExcelReader._headers_from_row(sheet.row_values(0))
+        data_rows = (sheet.row_values(row_index) for row_index in range(1, sheet.nrows))
+        return columns, ExcelReader._collect_records(columns, data_rows), selected_sheet_name
 
-        return columns, records, selected_sheet_name
+    @staticmethod
+    def _headers_from_row(header_row: Iterable[object]) -> list[str]:
+        """Keep named headers only; drop the trailing empty used-range padding Excel adds."""
+
+        columns: list[str] = []
+        last_named = -1
+        for index, column in enumerate(header_row):
+            if index >= MAX_HEADER_COLUMNS:
+                break
+            label = "" if column is None else str(column).strip()
+            columns.append(label)
+            if label:
+                last_named = index
+        if last_named < 0:
+            raise BusinessValidationError("Workbook sheet is empty")
+        return columns[: last_named + 1]
+
+    @staticmethod
+    def _record_from_row(columns: list[str], row: object) -> dict[str, Any]:
+        values = row if isinstance(row, (list, tuple)) else ()
+        return {
+            key: ExcelReader._python_value(value)
+            for key, value in zip_longest(columns, values, fillvalue=None)
+            if key
+        }
+
+    @staticmethod
+    def _collect_records(columns: list[str], rows: Iterable[object]) -> list[dict[str, Any]]:
+        """Skip blank rows and stop before Excel's padded used-range can exhaust memory."""
+
+        records: list[dict[str, Any]] = []
+        empty_streak = 0
+        for row in rows:
+            record = ExcelReader._record_from_row(columns, row)
+            if not any(value not in (None, "") for value in record.values()):
+                empty_streak += 1
+                if empty_streak >= MAX_CONSECUTIVE_EMPTY_ROWS:
+                    break
+                continue
+            empty_streak = 0
+            if len(records) >= MAX_IMPORT_ROWS:
+                raise BusinessValidationError(
+                    f"Workbook exceeds the {MAX_IMPORT_ROWS:,} data-row import limit"
+                )
+            records.append(record)
+        return records
 
     @staticmethod
     def _python_value(value: object) -> object:

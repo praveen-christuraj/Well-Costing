@@ -1,9 +1,12 @@
 """Excel preview, validation, commit, history, and round-trip tests."""
 
+from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 
 from app.models.master_data import Vendor
 from fastapi.testclient import TestClient
+from openpyxl import Workbook
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
@@ -122,3 +125,90 @@ def test_export_reimport_round_trip(client: TestClient, db_session: Session) -> 
     assert commit.status_code == 200
     listing = client.get("/api/v1/master-data/vendors", headers=headers)
     assert listing.json()["items"][0]["code"] == "ROUND-1"
+
+
+def _service_order_workbook(rows: list[list[object]]) -> bytes:
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    headers = [
+        "order_number",
+        "title",
+        "vendor_code",
+        "currency_code",
+        "valid_from",
+        "valid_to",
+        "status",
+        "is_active",
+        "contract_value",
+    ]
+    sheet.append(headers)
+    for row in rows:
+        sheet.append(row)
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def test_service_order_workbook_preview_and_commit(client: TestClient) -> None:
+    headers = auth_headers(client)
+    vendor = client.post(
+        "/api/v1/master-data/vendors",
+        headers=headers,
+        json={"code": "SLB", "name": "Schlumberger"},
+    )
+    currency = client.post(
+        "/api/v1/master-data/currencies",
+        headers=headers,
+        json={"code": "USD", "name": "US Dollar"},
+    )
+    assert vendor.status_code == 201, vendor.text
+    assert currency.status_code == 201, currency.text
+
+    content = _service_order_workbook(
+        [
+            [
+                "SO-2026-001",
+                "Directional drilling",
+                "slb",
+                "usd",
+                datetime(2026, 1, 1),
+                "31/12/2026",
+                "active",
+                True,
+                "125000.50",
+            ]
+        ]
+    )
+    preview = client.post(
+        "/api/v1/import/service-orders/preview",
+        headers=headers,
+        files={
+            "file": (
+                "service-orders.xlsx",
+                content,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["status"] == "validated"
+    assert body["valid_rows"] == 1
+    assert body["error_rows"] == 0
+    assert body["mapping_profile"] == "service-orders-default"
+    assert body["sample"][0]["order_number"] == "SO-2026-001"
+    assert body["sample"][0]["valid_from"] == "2026-01-01"
+    assert body["sample"][0]["valid_to"] == "2026-12-31"
+
+    commit = client.post(
+        "/api/v1/import/service-orders/commit",
+        headers=headers,
+        json={"batch_id": body["batch_id"]},
+    )
+    assert commit.status_code == 200, commit.text
+    listing = client.get("/api/v1/procurement/service-orders", headers=headers)
+    assert listing.status_code == 200, listing.text
+    assert listing.json()["total"] == 1
+    assert listing.json()["items"][0]["order_number"] == "SO-2026-001"

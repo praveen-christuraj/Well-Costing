@@ -2,6 +2,27 @@
 
 All notable project changes are documented here.
 
+## 2026-08-18 — Service-order Excel preview 502
+
+### Fixed
+
+- Excel uploads through the Nuxt `/api/v1` proxy no longer decode the multipart
+  body as UTF-8. That corruption made Content-Length no longer match the bytes
+  sent to FastAPI, so the API hung or reset and the UI showed
+  `[POST] "/api/v1/import/service-orders/preview": 502 Bad Gateway`.
+- Nitro's default 1 MB request body limit is raised to 16 MB so typical
+  workbooks are not rejected before they reach the import pipeline.
+- The workbook reader now drops Excel's padded used range (blank header cells
+  and long runs of empty rows) and caps imports at 10,000 data rows, which
+  previously could exhaust memory and crash the API worker — another 502.
+- Service-order and purchase-order preview now coerce Excel dates, serials, and
+  common `DD/MM/YYYY` strings, plus numeric order numbers, before validation.
+
+### Changed
+
+- Proxy timeouts and upstream connection failures return the standard API error
+  envelope (`gateway_timeout` / `bad_gateway`) instead of an opaque 502 string.
+
 ## 2026-08-17 — Master Data export/print, and landing on enabled pages only
 
 ### Added
