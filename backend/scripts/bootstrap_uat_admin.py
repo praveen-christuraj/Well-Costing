@@ -5,6 +5,13 @@ non-empty user stores, and it never rotates an existing account's password.
 """
 
 import os
+import sys
+from pathlib import Path
+
+# Allow running as `python scripts/bootstrap_uat_admin.py` from any directory:
+# Python only puts the script's own folder (backend/scripts) on sys.path, so
+# point at the backend root to make `app` importable without an editable install.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import get_settings
 from app.core.security import hash_password
