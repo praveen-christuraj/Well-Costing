@@ -7,13 +7,19 @@ Use it for Neon/Supabase-hosted environments when self-service signup is disable
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
-from sqlalchemy import select
+# Allow running as `python scripts/provision_user.py` from any directory: Python
+# only puts the script's own folder (backend/scripts) on sys.path, so point at
+# the backend root to make `app` importable without an editable install.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.models.role import Role
 from app.models.user import User
+from sqlalchemy import select
 
 
 def required(name: str) -> str:

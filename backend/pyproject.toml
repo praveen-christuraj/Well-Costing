@@ -58,6 +58,9 @@ select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "alembic/versions/*.py" = ["E501"]
+# Runnable ops scripts bootstrap sys.path before importing `app`, so imports
+# intentionally follow a statement.
+"scripts/*.py" = ["E402"]
 
 [tool.pyright]
 include = ["app"]

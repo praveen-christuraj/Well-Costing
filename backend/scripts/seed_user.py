@@ -4,6 +4,13 @@ This script never contains or prints a password. It is not an application endpoi
 """
 
 import os
+import sys
+from pathlib import Path
+
+# Allow running as `python scripts/seed_user.py` from any directory: Python only
+# puts the script's own folder (backend/scripts) on sys.path, so point at the
+# backend root to make `app` importable without an editable install.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.security import hash_password
 from app.db.session import SessionLocal
