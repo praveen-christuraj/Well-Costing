@@ -1,4 +1,4 @@
-"""Integration tests for vendors, catalogues, orders, rate cards, and item prices."""
+"""Integration tests for vendors, catalogues, orders, and master item rates."""
 
 from typing import Any
 
@@ -157,70 +157,26 @@ def test_tangibles_filter_by_item_category(
     assert response.json()["items"][0]["item_category_code"] == "BITS"
 
 
-def test_service_rate_card_stores_each_rate_type_as_a_column(
+def test_master_rates_reject_services(
     client: TestClient, reference_data: dict[str, Any]
 ) -> None:
-    headers = reference_data["headers"]
-    order = post(
-        client,
-        "/api/v1/procurement/service-orders",
-        {
-            "order_number": "SO-2026-001",
-            "title": "Directional Drilling",
-            "vendor_id": reference_data["vendor"]["id"],
-            "currency_id": reference_data["currency"]["id"],
-            "valid_from": "2026-01-01",
-            "valid_to": "2026-12-31",
-            "status": "active",
-        },
-        headers,
-    )
+    """Services are priced per well, so master data refuses a service rate."""
 
-    card = post(
-        client,
-        "/api/v1/procurement/service-rates",
-        {
-            "service_id": reference_data["service"]["id"],
-            "vendor_id": reference_data["vendor"]["id"],
-            "service_order_id": order["id"],
-            "currency_id": reference_data["currency"]["id"],
-            "unit_id": reference_data["day"]["id"],
-            "hole_section": '12-1/4"',
-            "operating_rate": "12500.00",
-            "standby_rate": "6250.00",
-            "mobilisation_rate": "40000.00",
-            "demobilisation_rate": "35000.00",
-            "effective_from": "2026-01-01",
-        },
-        headers,
-    )
-
-    assert card["service_code"] == "MWD"
-    assert card["service_order_number"] == "SO-2026-001"
-    assert card["operating_rate"] == "12500.0000"
-    assert card["standby_rate"] == "6250.0000"
-    assert card["mobilisation_rate"] == "40000.0000"
-    assert card["demobilisation_rate"] == "35000.0000"
-
-
-def test_service_rate_rejects_a_non_service_catalogue_item(
-    client: TestClient, reference_data: dict[str, Any]
-) -> None:
     response = client.post(
-        "/api/v1/procurement/service-rates",
+        "/api/v1/procurement/item-prices",
         json={
-            "service_id": reference_data["tangible"]["id"],
+            "item_id": reference_data["service"]["id"],
             "vendor_id": reference_data["vendor"]["id"],
             "currency_id": reference_data["currency"]["id"],
             "unit_id": reference_data["day"]["id"],
-            "operating_rate": "100",
+            "unit_price": "12500",
             "effective_from": "2026-01-01",
         },
         headers=reference_data["headers"],
     )
 
     assert response.status_code == 422
-    assert "service catalogue item" in response.json()["error"]["message"]
+    assert "well" in response.json()["error"]["message"]
 
 
 def test_effective_on_filter_excludes_out_of_window_rates(
@@ -229,41 +185,39 @@ def test_effective_on_filter_excludes_out_of_window_rates(
     headers = reference_data["headers"]
     post(
         client,
-        "/api/v1/procurement/service-rates",
+        "/api/v1/procurement/item-prices",
         {
-            "service_id": reference_data["service"]["id"],
+            "item_id": reference_data["tangible"]["id"],
             "vendor_id": reference_data["vendor"]["id"],
             "currency_id": reference_data["currency"]["id"],
             "unit_id": reference_data["day"]["id"],
-            "operating_rate": "100",
+            "unit_price": "100",
             "effective_from": "2026-01-01",
             "effective_to": "2026-06-30",
         },
         headers,
     )
 
-    inside = client.get(
-        "/api/v1/procurement/service-rates?effective_on=2026-03-01", headers=headers
-    )
+    inside = client.get("/api/v1/procurement/item-prices?effective_on=2026-03-01", headers=headers)
     outside = client.get(
-        "/api/v1/procurement/service-rates?effective_on=2026-09-01", headers=headers
+        "/api/v1/procurement/item-prices?effective_on=2026-09-01", headers=headers
     )
 
     assert inside.json()["total"] == 1
     assert outside.json()["total"] == 0
 
 
-def test_service_rate_rejects_inverted_effective_dates(
+def test_item_price_rejects_inverted_effective_dates(
     client: TestClient, reference_data: dict[str, Any]
 ) -> None:
     response = client.post(
-        "/api/v1/procurement/service-rates",
+        "/api/v1/procurement/item-prices",
         json={
-            "service_id": reference_data["service"]["id"],
+            "item_id": reference_data["tangible"]["id"],
             "vendor_id": reference_data["vendor"]["id"],
             "currency_id": reference_data["currency"]["id"],
             "unit_id": reference_data["day"]["id"],
-            "operating_rate": "100",
+            "unit_price": "100",
             "effective_from": "2026-06-01",
             "effective_to": "2026-01-01",
         },
@@ -338,29 +292,29 @@ def test_bulk_create_is_all_or_nothing(
     headers = reference_data["headers"]
     rows = [
         {
-            "service_id": reference_data["service"]["id"],
+            "item_id": reference_data["tangible"]["id"],
             "vendor_id": reference_data["vendor"]["id"],
             "currency_id": reference_data["currency"]["id"],
             "unit_id": reference_data["day"]["id"],
-            "operating_rate": "100",
+            "unit_price": "100",
             "effective_from": "2026-01-01",
         },
         {
-            "service_id": reference_data["tangible"]["id"],
+            "item_id": reference_data["service"]["id"],
             "vendor_id": reference_data["vendor"]["id"],
             "currency_id": reference_data["currency"]["id"],
             "unit_id": reference_data["day"]["id"],
-            "operating_rate": "200",
+            "unit_price": "200",
             "effective_from": "2026-01-01",
         },
     ]
 
     response = client.post(
-        "/api/v1/procurement/service-rates/bulk/create", json={"rows": rows}, headers=headers
+        "/api/v1/procurement/item-prices/bulk/create", json={"rows": rows}, headers=headers
     )
 
     assert response.status_code == 422
-    listed = client.get("/api/v1/procurement/service-rates", headers=headers)
+    listed = client.get("/api/v1/procurement/item-prices", headers=headers)
     assert listed.json()["total"] == 0
 
 

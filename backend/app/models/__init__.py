@@ -37,9 +37,9 @@ from app.models.master_data import (
     MudChemical,
     PurchaseOrder,
     Rate,
+    RateRevision,
     Service,
     ServiceOrder,
-    ServiceRateCard,
     Tangible,
     Unit,
     Vendor,
@@ -48,6 +48,12 @@ from app.models.reporting import ReportExportAttempt
 from app.models.requirements import Project, RequirementItem, Well, WellRequirement
 from app.models.role import Role
 from app.models.user import User, user_roles
+from app.models.well_costing import (
+    WellRateRevision,
+    WellServiceRate,
+    WellTangibleRate,
+    WellUnplannedItem,
+)
 from app.models.workflow import (
     EstimateReviewComment,
     EstimateWorkflowInstance,
@@ -98,6 +104,7 @@ __all__ = [
     "PurchaseOrder",
     "Rate",
     "RateBook",
+    "RateRevision",
     "RateBookEntry",
     "ReportExportAttempt",
     "ReportingMapping",
@@ -105,13 +112,16 @@ __all__ = [
     "Role",
     "Service",
     "ServiceOrder",
-    "ServiceRateCard",
     "Tangible",
     "Unit",
     "User",
     "Vendor",
     "Well",
+    "WellRateRevision",
     "WellRequirement",
+    "WellServiceRate",
+    "WellTangibleRate",
+    "WellUnplannedItem",
     "WorkflowProfile",
     "WorkflowState",
     "WorkflowTransitionAttempt",

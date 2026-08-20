@@ -3,8 +3,8 @@ import type { BulkValidationResult, PageResponse } from '~/types/masterData'
 import type {
   ItemPriceRecord,
   PurchaseOrderRecord,
+  RateRevisionRecord,
   ServiceOrderRecord,
-  ServiceRateRecord,
 } from '~/types/procurement'
 
 export type QueryValue = string | number | boolean | null | undefined
@@ -56,16 +56,39 @@ export class ProcurementResource<TRecord> {
   }
 }
 
+/** Supersede a master rate rather than overwrite it. */
+export type ItemPriceRevision = {
+  unit_price: string
+  effective_from: string
+  change_reason: string
+  effective_to?: string | null
+  vendor_id?: string | null
+  currency_id?: string | null
+  unit_id?: string | null
+  description?: string | null
+} & Record<string, unknown>
+
 export class ProcurementApi {
   readonly serviceOrders: ProcurementResource<ServiceOrderRecord>
   readonly purchaseOrders: ProcurementResource<PurchaseOrderRecord>
-  readonly serviceRates: ProcurementResource<ServiceRateRecord>
   readonly itemPrices: ProcurementResource<ItemPriceRecord>
 
   constructor(private readonly api: ApiClient) {
     this.serviceOrders = new ProcurementResource(api, 'service-orders')
     this.purchaseOrders = new ProcurementResource(api, 'purchase-orders')
-    this.serviceRates = new ProcurementResource(api, 'service-rates')
     this.itemPrices = new ProcurementResource(api, 'item-prices')
+  }
+
+  /**
+   * Close the current master rate and open its next revision. Wells that already
+   * copied the old rate into their rate book keep it until completion.
+   */
+  reviseItemPrice(id: string, payload: ItemPriceRevision): Promise<ItemPriceRecord> {
+    return this.api.post(`/procurement/item-prices/${id}/revise`, payload)
+  }
+
+  /** The master rate change log: who changed which rate, when, and why. */
+  rateRevisions(params: Record<string, QueryValue> = {}): Promise<PageResponse<RateRevisionRecord>> {
+    return this.api.get(`/procurement/rate-revisions?${buildQuery(params)}`)
   }
 }

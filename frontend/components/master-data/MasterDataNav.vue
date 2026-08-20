@@ -35,7 +35,6 @@ const groups: NavGroup[] = [
     label: 'Services',
     items: [
       { key: 'services', label: 'Services', to: '/master-data/services' },
-      { key: 'service-rates', label: 'Service Rates', to: '/master-data/service-rates' },
     ],
   },
   {
@@ -52,8 +51,11 @@ const groups: NavGroup[] = [
     ],
   },
   {
-    label: 'Pricing',
-    items: [{ key: 'item-prices', label: 'Item Prices', to: '/master-data/item-prices' }],
+    label: 'Rates',
+    items: [
+      { key: 'item-prices', label: 'Tangible Rates', to: '/master-data/item-prices' },
+      { key: 'rate-revisions', label: 'Rate Revisions', to: '/master-data/rate-revisions' },
+    ],
   },
 ]
 </script>

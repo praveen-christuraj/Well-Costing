@@ -144,35 +144,6 @@ PROFILE_REGISTRY: dict[str, MappingProfile] = {
             "is_active": COMMON_ALIASES["is_active"],
         },
     ),
-    "service-rates": MappingProfile(
-        "service-rates-default",
-        "1.0",
-        frozenset(
-            {"service_code", "vendor_code", "currency_code", "unit_code", "effective_from"}
-        ),
-        {
-            "service_code": frozenset({"service_code", "item_code", "service"}),
-            "vendor_code": frozenset({"vendor_code", "vendor"}),
-            "service_order_number": frozenset(
-                {"service_order_number", "so_number", "service_order"}
-            ),
-            "currency_code": frozenset({"currency_code", "currency"}),
-            "unit_code": frozenset({"unit_code", "unit", "uom"}),
-            "hole_section": frozenset({"hole_section", "section", "hole_size"}),
-            "operating_rate": frozenset({"operating_rate", "operating", "day_rate"}),
-            "standby_rate": frozenset({"standby_rate", "standby"}),
-            "mobilisation_rate": frozenset(
-                {"mobilisation_rate", "mobilization_rate", "mob_rate", "mob"}
-            ),
-            "demobilisation_rate": frozenset(
-                {"demobilisation_rate", "demobilization_rate", "demob_rate", "demob"}
-            ),
-            "effective_from": frozenset({"effective_from", "start_date", "effective_date"}),
-            "effective_to": frozenset({"effective_to", "end_date", "expiry_date"}),
-            "description": COMMON_ALIASES["description"],
-            "is_active": COMMON_ALIASES["is_active"],
-        },
-    ),
     "item-prices": MappingProfile(
         "item-prices-default",
         "1.0",
@@ -192,6 +163,7 @@ PROFILE_REGISTRY: dict[str, MappingProfile] = {
             "unit_price": frozenset({"unit_price", "price", "rate", "amount"}),
             "effective_from": frozenset({"effective_from", "start_date", "effective_date"}),
             "effective_to": frozenset({"effective_to", "end_date", "expiry_date"}),
+            "change_reason": frozenset({"change_reason", "revision_reason", "reason"}),
             "description": COMMON_ALIASES["description"],
             "is_active": COMMON_ALIASES["is_active"],
         },

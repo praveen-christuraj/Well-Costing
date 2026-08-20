@@ -1,6 +1,6 @@
 """Phase 2 configurable cost-library models."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -8,7 +8,9 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Date,
+    DateTime,
     ForeignKey,
+    Integer,
     Numeric,
     String,
     Text,
@@ -312,82 +314,15 @@ class Rate(TimestampMixin, AuditMixin, Base):
     unit: Mapped[Unit] = relationship(lazy="joined")
 
 
-class ServiceRateCard(TimestampMixin, AuditMixin, Base):
-    """Effective-dated service rate card holding each operational rate as a column."""
-
-    __tablename__ = "service_rate_cards"
-    __table_args__ = (
-        CheckConstraint(
-            "effective_to IS NULL OR effective_to >= effective_from",
-            name="valid_service_rate_range",
-        ),
-        CheckConstraint(
-            "operating_rate >= 0 AND standby_rate >= 0 "
-            "AND mobilisation_rate >= 0 AND demobilisation_rate >= 0 "
-            "AND personnel_operating_rate >= 0 AND personnel_standby_rate >= 0 "
-            "AND other_rate >= 0",
-            name="non_negative_service_rates",
-        ),
-        CheckConstraint(
-            "rate_basis IN ('daily','per_service','per_section','fixed')",
-            name="valid_service_rate_basis",
-        ),
-    )
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    service_id: Mapped[UUID] = mapped_column(
-        ForeignKey("catalog_items.id", ondelete="RESTRICT"), index=True
-    )
-    vendor_id: Mapped[UUID] = mapped_column(
-        ForeignKey("vendors.id", ondelete="RESTRICT"), index=True
-    )
-    currency_id: Mapped[UUID] = mapped_column(
-        ForeignKey("currencies.id", ondelete="RESTRICT"), index=True
-    )
-    unit_id: Mapped[UUID] = mapped_column(ForeignKey("units.id", ondelete="RESTRICT"), index=True)
-    hole_section_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("hole_sections.id", ondelete="RESTRICT"), nullable=True, index=True
-    )
-    rate_basis: Mapped[str] = mapped_column(
-        String(20), default="daily", server_default="daily", index=True
-    )
-    operating_rate: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4), default=Decimal("0"), server_default="0"
-    )
-    standby_rate: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4), default=Decimal("0"), server_default="0"
-    )
-    mobilisation_rate: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4), default=Decimal("0"), server_default="0"
-    )
-    demobilisation_rate: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4), default=Decimal("0"), server_default="0"
-    )
-    personnel_operating_rate: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4), default=Decimal("0"), server_default="0"
-    )
-    personnel_standby_rate: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4), default=Decimal("0"), server_default="0"
-    )
-    other_rate: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4), default=Decimal("0"), server_default="0"
-    )
-    effective_from: Mapped[date] = mapped_column(Date, index=True)
-    effective_to: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, default=True, server_default="true", index=True
-    )
-
-    service: Mapped[CatalogItem] = relationship(lazy="joined")
-    vendor: Mapped[Vendor] = relationship(lazy="joined")
-    hole_section: Mapped[HoleSection | None] = relationship(lazy="joined")
-    currency: Mapped[Currency] = relationship(lazy="joined")
-    unit: Mapped[Unit] = relationship(lazy="joined")
-
-
 class ItemPrice(TimestampMixin, AuditMixin, Base):
-    """Effective-dated purchase price for a tangible or consumable catalogue item."""
+    """Effective-dated master rate for a tangible or consumable catalogue item.
+
+    Services deliberately have no master rate: their price is negotiated per
+    well and lives in the well rate book. Tangible rates are revised centrally
+    and periodically, so a rate is never edited in place — ``revise`` closes the
+    current row and inserts the next revision, keeping ``supersedes_id``
+    lineage and appending a :class:`RateRevision` audit entry.
+    """
 
     __tablename__ = "item_prices"
     __table_args__ = (
@@ -396,14 +331,15 @@ class ItemPrice(TimestampMixin, AuditMixin, Base):
             "effective_to IS NULL OR effective_to >= effective_from",
             name="valid_item_price_range",
         ),
+        CheckConstraint("revision_number >= 1", name="positive_item_price_revision"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     item_id: Mapped[UUID] = mapped_column(
         ForeignKey("catalog_items.id", ondelete="RESTRICT"), index=True
     )
-    vendor_id: Mapped[UUID] = mapped_column(
-        ForeignKey("vendors.id", ondelete="RESTRICT"), index=True
+    vendor_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("vendors.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     purchase_order_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("purchase_orders.id", ondelete="RESTRICT"), nullable=True, index=True
@@ -415,13 +351,78 @@ class ItemPrice(TimestampMixin, AuditMixin, Base):
     unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 4))
     effective_from: Mapped[date] = mapped_column(Date, index=True)
     effective_to: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    revision_number: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    supersedes_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("item_prices.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    change_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", index=True
     )
 
     item: Mapped[CatalogItem] = relationship(lazy="joined")
-    vendor: Mapped[Vendor] = relationship(lazy="joined")
+    vendor: Mapped[Vendor | None] = relationship(lazy="joined")
     purchase_order: Mapped[PurchaseOrder | None] = relationship(lazy="joined")
     currency: Mapped[Currency] = relationship(lazy="joined")
     unit: Mapped[Unit] = relationship(lazy="joined")
+    supersedes: Mapped["ItemPrice | None"] = relationship(remote_side="ItemPrice.id")
+
+
+class RateRevision(TimestampMixin, AuditMixin, Base):
+    """Append-only log of every master rate change.
+
+    One row per creation, revision, or withdrawal of a master rate, holding the
+    amount before and after, the date the change takes effect, the actor, and
+    the stated reason. Wells already drilling are unaffected by these rows —
+    their rates were copied into the well rate book when the item was picked —
+    so this log answers "what did the catalogue say, when, and who changed it".
+    """
+
+    __tablename__ = "rate_revisions"
+    __table_args__ = (
+        CheckConstraint("scope IN ('item_price')", name="valid_rate_revision_scope"),
+        CheckConstraint(
+            "change_type IN ('created','revised','withdrawn')",
+            name="valid_rate_revision_change_type",
+        ),
+        CheckConstraint("revision_number >= 1", name="positive_rate_revision_number"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    scope: Mapped[str] = mapped_column(
+        String(20), default="item_price", server_default="item_price", index=True
+    )
+    item_id: Mapped[UUID] = mapped_column(
+        ForeignKey("catalog_items.id", ondelete="CASCADE"), index=True
+    )
+    item_price_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("item_prices.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    previous_price_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("item_prices.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    vendor_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("vendors.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    currency_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("currencies.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    unit_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("units.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    change_type: Mapped[str] = mapped_column(String(20), index=True)
+    revision_number: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    previous_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    new_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    effective_from: Mapped[date | None] = mapped_column(Date, index=True, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    item: Mapped[CatalogItem] = relationship(lazy="joined")
+    vendor: Mapped[Vendor | None] = relationship(lazy="joined")
+    currency: Mapped[Currency | None] = relationship(lazy="joined")
+    unit: Mapped[Unit | None] = relationship(lazy="joined")
+    item_price: Mapped[ItemPrice | None] = relationship(
+        lazy="joined", foreign_keys=[item_price_id]
+    )

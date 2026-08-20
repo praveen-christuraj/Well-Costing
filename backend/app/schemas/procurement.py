@@ -1,4 +1,9 @@
-"""Schemas for service orders, purchase orders, service rate cards, and item prices."""
+"""Schemas for service orders, purchase orders, and master item rates.
+
+Master rates exist for tangibles and consumables only. Services are priced per
+well (see ``app.schemas.well_costing``) so that a central revision cannot move
+the cost basis of a well that is already drilling.
+"""
 
 from datetime import date, datetime
 from decimal import Decimal
@@ -131,97 +136,11 @@ class PurchaseOrderRead(_AuditRead):
     currency_code: str | None = None
 
 
-class ServiceRateCardCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    service_id: UUID
-    vendor_id: UUID
-    currency_id: UUID
-    unit_id: UUID
-    hole_section_id: UUID | None = None
-    rate_basis: str = "daily"
-    operating_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    standby_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    mobilisation_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    demobilisation_rate: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
-    )
-    personnel_operating_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    personnel_standby_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    other_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    effective_from: date
-    effective_to: date | None = None
-    description: str | None = None
-    is_active: bool = True
-
-    @model_validator(mode="after")
-    def check(self) -> "ServiceRateCardCreate":
-        if self.effective_to is not None and self.effective_to < self.effective_from:
-            raise ValueError("effective_to must be on or after effective_from")
-        if self.rate_basis not in {"daily", "per_service", "per_section", "fixed"}:
-            raise ValueError("rate_basis must be daily, per_service, per_section, or fixed")
-        if self.rate_basis == "per_section" and self.hole_section_id is None:
-            raise ValueError("hole_section_id is required for per-section rates")
-        return self
-
-
-class ServiceRateCardUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    service_id: UUID | None = None
-    vendor_id: UUID | None = None
-    currency_id: UUID | None = None
-    unit_id: UUID | None = None
-    hole_section_id: UUID | None = None
-    rate_basis: str | None = None
-    operating_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
-    standby_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
-    mobilisation_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
-    demobilisation_rate: Decimal | None = Field(
-        default=None, ge=0, max_digits=18, decimal_places=4
-    )
-    personnel_operating_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
-    personnel_standby_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
-    other_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
-    effective_from: date | None = None
-    effective_to: date | None = None
-    description: str | None = None
-    is_active: bool | None = None
-
-
-class ServiceRateCardRead(_AuditRead):
-    service_id: UUID
-    vendor_id: UUID
-    currency_id: UUID
-    unit_id: UUID
-    hole_section_id: UUID | None
-    hole_section_code: str | None = None
-    hole_section_name: str | None = None
-    rate_basis: str
-    operating_rate: Decimal
-    standby_rate: Decimal
-    mobilisation_rate: Decimal
-    demobilisation_rate: Decimal
-    personnel_operating_rate: Decimal
-    personnel_standby_rate: Decimal
-    other_rate: Decimal
-    effective_from: date
-    effective_to: date | None
-    description: str | None
-    is_active: bool
-    service_code: str | None = None
-    service_name: str | None = None
-    vendor_code: str | None = None
-    vendor_name: str | None = None
-    currency_code: str | None = None
-    unit_code: str | None = None
-
-
 class ItemPriceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_id: UUID
-    vendor_id: UUID
+    vendor_id: UUID | None = None
     purchase_order_id: UUID | None = None
     currency_id: UUID
     unit_id: UUID
@@ -255,13 +174,17 @@ class ItemPriceUpdate(BaseModel):
 
 class ItemPriceRead(_AuditRead):
     item_id: UUID
-    vendor_id: UUID
+    vendor_id: UUID | None
     purchase_order_id: UUID | None
     currency_id: UUID
     unit_id: UUID
     unit_price: Decimal
     effective_from: date
     effective_to: date | None
+    revision_number: int = 1
+    supersedes_id: UUID | None = None
+    change_reason: str | None = None
+    superseded_at: datetime | None = None
     description: str | None
     is_active: bool
     item_code: str | None = None
@@ -298,18 +221,6 @@ class PurchaseOrderBulkUpdateRequest(BaseModel):
     rows: list[PurchaseOrderBulkUpdateRow] = Field(min_length=1, max_length=5000)
 
 
-class ServiceRateCardBulkCreateRequest(BaseModel):
-    rows: list[ServiceRateCardCreate] = Field(min_length=1, max_length=5000)
-
-
-class ServiceRateCardBulkUpdateRow(ServiceRateCardUpdate):
-    id: UUID
-
-
-class ServiceRateCardBulkUpdateRequest(BaseModel):
-    rows: list[ServiceRateCardBulkUpdateRow] = Field(min_length=1, max_length=5000)
-
-
 class ItemPriceBulkCreateRequest(BaseModel):
     rows: list[ItemPriceCreate] = Field(min_length=1, max_length=5000)
 
@@ -320,3 +231,55 @@ class ItemPriceBulkUpdateRow(ItemPriceUpdate):
 
 class ItemPriceBulkUpdateRequest(BaseModel):
     rows: list[ItemPriceBulkUpdateRow] = Field(min_length=1, max_length=5000)
+
+
+class ItemPriceReviseRequest(BaseModel):
+    """Supersede a master rate with the next revision.
+
+    The superseded row is closed automatically the day before
+    ``effective_from``, so the history stays gap-free and every past date still
+    resolves to exactly one rate.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    unit_price: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
+    effective_from: date
+    effective_to: date | None = None
+    change_reason: str = Field(min_length=1)
+    vendor_id: UUID | None = None
+    purchase_order_id: UUID | None = None
+    currency_id: UUID | None = None
+    unit_id: UUID | None = None
+    description: str | None = None
+
+    @model_validator(mode="after")
+    def check(self) -> "ItemPriceReviseRequest":
+        if self.effective_to is not None and self.effective_to < self.effective_from:
+            raise ValueError("effective_to must be on or after effective_from")
+        return self
+
+
+class RateRevisionRead(_AuditRead):
+    """One entry in the master rate change log."""
+
+    scope: str
+    item_id: UUID
+    item_price_id: UUID | None
+    previous_price_id: UUID | None
+    vendor_id: UUID | None
+    currency_id: UUID | None
+    unit_id: UUID | None
+    change_type: str
+    revision_number: int
+    previous_amount: Decimal | None
+    new_amount: Decimal | None
+    effective_from: date | None
+    reason: str | None
+    item_code: str | None = None
+    item_name: str | None = None
+    item_type: str | None = None
+    vendor_code: str | None = None
+    currency_code: str | None = None
+    unit_code: str | None = None
+    delta_amount: Decimal | None = None

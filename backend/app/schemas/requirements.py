@@ -1,6 +1,6 @@
 """Phase 3 project, well, and requirement API schemas."""
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -36,12 +36,32 @@ class ProjectRead(BaseModel):
     updated_by: UUID | None
 
 
+#: A well's lifecycle. The rate book is locked at AFE issue and stays locked for
+#: the rest of these states, which is what keeps concurrently drilling rigs on
+#: the rates they were planned with.
+WellStatus = Literal["planning", "active", "suspended", "completed", "abandoned"]
+
+
 class WellCreate(BaseModel):
     project_id: UUID
     code: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
+    rig_name: str | None = Field(default=None, max_length=150)
+    status: WellStatus = "planning"
+    spud_date: date | None = None
+    completion_date: date | None = None
     is_active: bool = True
+
+    @model_validator(mode="after")
+    def check_dates(self) -> "WellCreate":
+        if (
+            self.spud_date is not None
+            and self.completion_date is not None
+            and self.completion_date < self.spud_date
+        ):
+            raise ValueError("completion_date must be on or after spud_date")
+        return self
 
 
 class WellUpdate(BaseModel):
@@ -49,6 +69,10 @@ class WellUpdate(BaseModel):
     code: str | None = Field(default=None, min_length=1, max_length=100)
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
+    rig_name: str | None = Field(default=None, max_length=150)
+    status: WellStatus | None = None
+    spud_date: date | None = None
+    completion_date: date | None = None
     is_active: bool | None = None
 
 
@@ -61,6 +85,12 @@ class WellRead(BaseModel):
     code: str
     name: str
     description: str | None
+    rig_name: str | None
+    status: str
+    spud_date: date | None
+    completion_date: date | None
+    rates_locked_at: datetime | None
+    rate_lock_reference: str | None
     is_active: bool
     created_at: datetime
     updated_at: datetime

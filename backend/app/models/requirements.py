@@ -1,12 +1,13 @@
 """Phase 3 project, well, requirement, and requirement-item models."""
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -37,7 +38,13 @@ class Project(TimestampMixin, AuditMixin, Base):
 
 class Well(TimestampMixin, AuditMixin, Base):
     __tablename__ = "wells"
-    __table_args__ = (UniqueConstraint("project_id", "code", name="uq_wells_project_code"),)
+    __table_args__ = (
+        UniqueConstraint("project_id", "code", name="uq_wells_project_code"),
+        CheckConstraint(
+            "status IN ('planning','active','suspended','completed','abandoned')",
+            name="valid_well_status",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     project_id: Mapped[UUID] = mapped_column(
@@ -46,6 +53,16 @@ class Well(TimestampMixin, AuditMixin, Base):
     code: Mapped[str] = mapped_column(String(100), index=True)
     name: Mapped[str] = mapped_column(String(255), index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rig_name: Mapped[str | None] = mapped_column(String(150), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(
+        String(20), default="planning", server_default="planning", index=True
+    )
+    spud_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    completion_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    rates_locked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    rate_lock_reference: Mapped[str | None] = mapped_column(String(150), nullable=True)
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", index=True
     )

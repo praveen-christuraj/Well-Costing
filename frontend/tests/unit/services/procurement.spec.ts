@@ -28,11 +28,11 @@ describe('buildQuery', () => {
 describe('ProcurementResource', () => {
   it('requests a filtered page from the resource path', async () => {
     const client = stubClient()
-    const resource = new ProcurementResource(client, 'service-rates')
+    const resource = new ProcurementResource(client, 'item-prices')
 
-    await resource.list({ page: 3, vendor_id: 'v-1', hole_section: null })
+    await resource.list({ page: 3, vendor_id: 'v-1', purchase_order_id: null })
 
-    expect(client.get).toHaveBeenCalledWith('/procurement/service-rates?page=3&vendor_id=v-1')
+    expect(client.get).toHaveBeenCalledWith('/procurement/item-prices?page=3&vendor_id=v-1')
   })
 
   it('posts bulk validation and creation payloads', async () => {
@@ -66,12 +66,38 @@ describe('ProcurementApi', () => {
 
     await api.serviceOrders.list()
     await api.purchaseOrders.list()
-    await api.serviceRates.list()
     await api.itemPrices.list()
 
     expect(client.get).toHaveBeenCalledWith('/procurement/service-orders?')
     expect(client.get).toHaveBeenCalledWith('/procurement/purchase-orders?')
-    expect(client.get).toHaveBeenCalledWith('/procurement/service-rates?')
     expect(client.get).toHaveBeenCalledWith('/procurement/item-prices?')
+  })
+
+  it('revises a master rate instead of overwriting it', async () => {
+    const client = stubClient()
+    const api = new ProcurementApi(client)
+
+    await api.reviseItemPrice('price-1', {
+      unit_price: '56750',
+      effective_from: '2026-03-01',
+      change_reason: 'Contract renegotiation',
+    })
+
+    expect(client.post).toHaveBeenCalledWith('/procurement/item-prices/price-1/revise', {
+      unit_price: '56750',
+      effective_from: '2026-03-01',
+      change_reason: 'Contract renegotiation',
+    })
+  })
+
+  it('reads the master rate change log', async () => {
+    const client = stubClient()
+    const api = new ProcurementApi(client)
+
+    await api.rateRevisions({ item_id: 'item-1', change_type: 'revised' })
+
+    expect(client.get).toHaveBeenCalledWith(
+      '/procurement/rate-revisions?item_id=item-1&change_type=revised',
+    )
   })
 })

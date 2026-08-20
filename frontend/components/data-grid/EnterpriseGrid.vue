@@ -2,7 +2,8 @@
  * Reusable enterprise data grid.
  *
  * Provides server-side pagination, a filter bar, an Excel-like inline editing
- * mode for bulk entry, TSV paste, per-row Edit/Delete actions, Excel export,
+ * mode for bulk entry, TSV paste, per-row Edit/Delete actions, an optional
+ * `row-actions` slot for entity-specific row buttons, Excel export,
  * a printable view, and feedback messages rendered beneath the action bar.
  */
 <script setup lang="ts">
@@ -690,6 +691,8 @@ defineExpose({ reload: load })
               />
             </template>
             <template v-else>
+              <!-- Entity-specific actions, e.g. "Revise rate" on master rates. -->
+              <slot name="row-actions" :row="data" />
               <Button
                 v-tooltip.top="'Edit'"
                 icon="pi pi-pencil"

@@ -10,23 +10,34 @@ Excel-style inline entry, clipboard paste, and per-row Edit/Delete actions.
 | --- | --- | --- |
 | Companies providing services (3rd party and in-house) | **Vendors** | `vendor_type` distinguishes `third_party` from `inhouse`. |
 | Service order numbers and contract validity | **Service Orders** | Contract number, vendor, validity window, contract value, status. |
-| Service day rates — operating, standby, mob, demob | **Service Rates** | One row per service/vendor holds all four rates as columns. |
-| Section-wise rates | **Service Rates** | Set `hole_section` (for example `12-1/4"`) on the rate row. |
-| Services catalogue | **Services** | Directional, cementing, logging, surveys, and support services. |
+| Service day rates — operating, standby, mob, demob | **Well rate book**, not master data | A service is priced per well: see [well-scoped rate governance](../architecture/well-rate-governance.md). |
+| Section-wise service rates | **Well rate book** | Set `hole_section_id` on the well's service rate. |
+| Services catalogue | **Services** | Directional, cementing, logging, surveys, and support services — identity only, no rate. |
 | Tangible categories (bits, casings, shoes, wellheads…) | **Item Categories** | Scoped by `applies_to`. |
 | Tangibles (bits, casings, centralisers, plugs, pup joints…) | **Tangibles** | Includes material number, specification, and manufacturer. |
 | Mud chemicals with UOM and unique numbers | **Mud Chemicals** | `material_number` carries the vendor/SAP unique number. |
 | Cement additives with UOM and unique numbers | **Cement Additives** | Same shape as mud chemicals. |
-| Tangible and consumable rates, with purchase orders | **Item Prices** | Effective-dated unit price per item, vendor, and PO. |
+| Tangible and consumable rates, with purchase orders | **Tangible Rates** | Effective-dated master rate per item, vendor, and PO. |
+| History of every master rate change | **Rate Revisions** | Read-only log: amount before and after, effective date, actor, reason. |
 
 ## Data model
 
 ```text
-vendors ──────────────┬─< service_orders ──< service_rate_cards >── catalog_items (item_type='service')
-                      └─< purchase_orders ──< item_prices        >── catalog_items (tangible / mud_chemical / cement_additive)
+vendors ──────────────┬─< service_orders
+                      └─< purchase_orders ──< item_prices ──< rate_revisions
+                                                   │
+                                                   └── catalog_items (tangible / mud_chemical / cement_additive)
 
 item_categories ──< catalog_items
+
+catalog_items (item_type='service') ── priced per well in well_service_rates
 ```
+
+Services deliberately hold no master rate. The same crew is quoted differently
+per well, per rig, and per campaign, and a central revision must never move the
+cost basis of a well that is already drilling — so the rate is entered on the
+well and frozen there. Tangible rates *are* held centrally, and a well copies
+the rate in force when the item is picked.
 
 ### Vendors
 
@@ -95,8 +106,14 @@ POST             /procurement/service-orders/bulk/{validate,create}
 PATCH            /procurement/service-orders/bulk/update
 ```
 
-The same shape applies to `/procurement/purchase-orders`, `/procurement/service-rates`,
-and `/procurement/item-prices`.
+The same shape applies to `/procurement/purchase-orders` and
+`/procurement/item-prices`. Master rates are additionally revised, never
+overwritten:
+
+```text
+POST /procurement/item-prices/{id}/revise    supersede with the next revision
+GET  /procurement/rate-revisions             the master rate change log
+```
 
 ### Filters
 
@@ -107,7 +124,7 @@ and `/procurement/item-prices`.
 | `master-data/item-categories` | `search`, `is_active`, `applies_to` |
 | `procurement/service-orders` | `search`, `is_active`, `vendor_id`, `status`, `valid_on` |
 | `procurement/purchase-orders` | `search`, `is_active`, `vendor_id`, `status` |
-| `procurement/service-rates` | `search`, `is_active`, `service_id`, `vendor_id`, `service_order_id`, `hole_section`, `effective_on` |
+| `procurement/rate-revisions` | `item_id`, `change_type` |
 | `procurement/item-prices` | `search`, `is_active`, `item_id`, `item_type`, `vendor_id`, `purchase_order_id`, `effective_on` |
 
 `valid_on` and `effective_on` return only records whose date window covers the

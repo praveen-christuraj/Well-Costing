@@ -1,6 +1,13 @@
-"""Application services for service orders, purchase orders, rate cards, and prices."""
+"""Application services for service orders, purchase orders, and master rates.
 
-from datetime import date
+Services carry no master rate: they are priced per well in the well rate book,
+because the same crew is quoted differently per well and per campaign. Only
+tangibles and consumables hold a master rate here, and that rate is revised —
+never overwritten — so a well that copied it earlier keeps its own number.
+"""
+
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from math import ceil
 from typing import Any, Generic, TypeVar
 from uuid import UUID
@@ -15,20 +22,20 @@ from app.db.base import Base
 from app.models.master_data import (
     CatalogItem,
     Currency,
-    HoleSection,
     ItemPrice,
     PurchaseOrder,
+    RateRevision,
     ServiceOrder,
-    ServiceRateCard,
     Unit,
     Vendor,
 )
 from app.schemas.master_data import BulkRowError, BulkValidationResult, PageResponse
 from app.schemas.procurement import (
     ItemPriceRead,
+    ItemPriceReviseRequest,
     PurchaseOrderRead,
+    RateRevisionRead,
     ServiceOrderRead,
-    ServiceRateCardRead,
 )
 
 # ``Generic`` is used instead of PEP 695 type parameters so the module also imports
@@ -341,83 +348,6 @@ class PurchaseOrderService(_BaseService[PurchaseOrder, PurchaseOrderRead]):
         )
 
 
-class ServiceRateCardService(_BaseService[ServiceRateCard, ServiceRateCardRead]):
-    model = ServiceRateCard
-    read_model = ServiceRateCardRead
-    label = "Service rate"
-    sortable = frozenset(
-        {"effective_from", "effective_to", "operating_rate", "created_at", "updated_at"}
-    )
-    default_sort = "effective_from"
-
-    def _apply_filters(self, statement: Select[Any], filters: dict[str, Any]) -> Select[Any]:
-        search = filters.get("search")
-        if search:
-            pattern = f"%{str(search).strip()}%"
-            statement = statement.join(
-                CatalogItem, ServiceRateCard.service_id == CatalogItem.id
-            ).where(or_(CatalogItem.code.ilike(pattern), CatalogItem.name.ilike(pattern)))
-        if filters.get("is_active") is not None:
-            statement = statement.where(ServiceRateCard.is_active == filters["is_active"])
-        return self._apply_entity_filters(statement, filters)
-
-    def _apply_entity_filters(
-        self, statement: Select[Any], filters: dict[str, Any]
-    ) -> Select[Any]:
-        if filters.get("service_id"):
-            statement = statement.where(ServiceRateCard.service_id == filters["service_id"])
-        if filters.get("vendor_id"):
-            statement = statement.where(ServiceRateCard.vendor_id == filters["vendor_id"])
-        if filters.get("hole_section_id"):
-            statement = statement.where(ServiceRateCard.hole_section_id == filters["hole_section_id"])
-        if filters.get("rate_basis"):
-            statement = statement.where(ServiceRateCard.rate_basis == filters["rate_basis"])
-        if filters.get("effective_on"):
-            on = filters["effective_on"]
-            statement = statement.where(
-                ServiceRateCard.effective_from <= on,
-                or_(ServiceRateCard.effective_to.is_(None), ServiceRateCard.effective_to >= on),
-            )
-        return statement
-
-    def _validate(self, values: dict[str, Any], record: ServiceRateCard | None = None) -> None:
-        self._check_references(
-            values,
-            {
-                "service_id": CatalogItem,
-                "vendor_id": Vendor,
-                "hole_section_id": HoleSection,
-                "currency_id": Currency,
-                "unit_id": Unit,
-            },
-        )
-        service_id = values.get("service_id")
-        if service_id is not None:
-            item = self.session.get(CatalogItem, service_id)
-            if item is not None and item.item_type != "service":
-                raise BusinessValidationError("service_id must reference a service catalogue item")
-        rate_basis = self._resolve(values, record, "rate_basis")
-        if rate_basis not in {"daily", "per_service", "per_section", "fixed"}:
-            raise BusinessValidationError("rate_basis must be daily, per_service, per_section, or fixed")
-        if rate_basis == "per_section" and self._resolve(values, record, "hole_section_id") is None:
-            raise BusinessValidationError("hole_section_id is required for per-section rates")
-        _date_range_guard(values, record, "effective_from", "effective_to")
-
-    def _serialize(self, record: ServiceRateCard) -> ServiceRateCardRead:
-        return ServiceRateCardRead.model_validate(record).model_copy(
-            update={
-                "service_code": record.service.code if record.service else None,
-                "service_name": record.service.name if record.service else None,
-                "vendor_code": record.vendor.code if record.vendor else None,
-                "vendor_name": record.vendor.name if record.vendor else None,
-                "hole_section_code": record.hole_section.code if record.hole_section else None,
-                "hole_section_name": record.hole_section.name if record.hole_section else None,
-                "currency_code": record.currency.code if record.currency else None,
-                "unit_code": record.unit.code if record.unit else None,
-            }
-        )
-
-
 class ItemPriceService(_BaseService[ItemPrice, ItemPriceRead]):
     model = ItemPrice
     read_model = ItemPriceRead
@@ -477,7 +407,187 @@ class ItemPriceService(_BaseService[ItemPrice, ItemPriceRead]):
                 "unit_id": Unit,
             },
         )
+        item_id = self._resolve(values, record, "item_id")
+        if item_id is not None:
+            item = self.session.get(CatalogItem, item_id)
+            if item is not None and item.item_type == "service":
+                raise BusinessValidationError(
+                    "Services have no master rate. Price the service on the well's "
+                    "rate book instead."
+                )
         _date_range_guard(values, record, "effective_from", "effective_to")
+
+    # -- revision tracking ------------------------------------------------
+    def create(self, payload: BaseModel, *, commit: bool = True) -> ItemPriceRead:
+        """Create a master rate and open its revision history."""
+
+        created = super().create(payload, commit=commit)
+        record = self.session.get(ItemPrice, created.id)
+        if record is not None:
+            self._log_revision(record, change_type="created", previous=None)
+            if commit:
+                self.session.commit()
+        return created
+
+    def revise(self, record_id: UUID, payload: ItemPriceReviseRequest) -> ItemPriceRead:
+        """Supersede a master rate with its next revision.
+
+        The current row is closed the day before the new rate takes effect and a
+        new row is inserted carrying ``revision_number + 1`` and a link back to
+        the row it replaces. Wells that already copied the old rate are
+        untouched — that is the whole point of the copy.
+        """
+
+        current = self._require(record_id)
+        if current.effective_to is not None and payload.effective_from <= current.effective_to:
+            raise BusinessValidationError(
+                "effective_from must fall after the current rate's effective_to"
+            )
+        if payload.effective_from <= current.effective_from:
+            raise BusinessValidationError(
+                "A revision must take effect after the rate it supersedes "
+                f"({current.effective_from.isoformat()})"
+            )
+        previous_amount = current.unit_price
+        current.effective_to = payload.effective_from - timedelta(days=1)
+        current.superseded_at = datetime.now(UTC)
+        current.updated_by = self.actor_id
+
+        revision = ItemPrice(
+            item_id=current.item_id,
+            vendor_id=payload.vendor_id if payload.vendor_id is not None else current.vendor_id,
+            purchase_order_id=(
+                payload.purchase_order_id
+                if payload.purchase_order_id is not None
+                else current.purchase_order_id
+            ),
+            currency_id=(
+                payload.currency_id if payload.currency_id is not None else current.currency_id
+            ),
+            unit_id=payload.unit_id if payload.unit_id is not None else current.unit_id,
+            unit_price=payload.unit_price,
+            effective_from=payload.effective_from,
+            effective_to=payload.effective_to,
+            revision_number=current.revision_number + 1,
+            supersedes_id=current.id,
+            change_reason=payload.change_reason,
+            description=(
+                payload.description if payload.description is not None else current.description
+            ),
+            is_active=True,
+            created_by=self.actor_id,
+            updated_by=self.actor_id,
+        )
+        self.session.add(revision)
+        try:
+            self.session.flush()
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise ConflictError("This rate revision conflicts with an existing record") from exc
+        self._log_revision(
+            revision,
+            change_type="revised",
+            previous=previous_amount,
+            previous_price_id=current.id,
+            reason=payload.change_reason,
+        )
+        self.session.commit()
+        self.session.refresh(revision)
+        return self._serialize(revision)
+
+    def deactivate(self, record_id: UUID) -> None:
+        record = self._require(record_id)
+        super().deactivate(record_id)
+        self._log_revision(
+            record, change_type="withdrawn", previous=record.unit_price, withdrawn=True
+        )
+        self.session.commit()
+
+    def revisions(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        item_id: UUID | None = None,
+        change_type: str | None = None,
+    ) -> PageResponse:
+        """The master rate change log, newest first."""
+
+        statement = select(RateRevision)
+        if item_id:
+            statement = statement.where(RateRevision.item_id == item_id)
+        if change_type:
+            statement = statement.where(RateRevision.change_type == change_type)
+        total = int(
+            self.session.scalar(select(func.count()).select_from(statement.subquery())) or 0
+        )
+        records = (
+            self.session.scalars(
+                statement.order_by(
+                    RateRevision.created_at.desc(), RateRevision.revision_number.desc()
+                )
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+            .unique()
+            .all()
+        )
+        return PageResponse(
+            items=[self._serialize_revision(record) for record in records],
+            page=page,
+            page_size=page_size,
+            total=total,
+            pages=ceil(total / page_size) if total else 0,
+        )
+
+    def _log_revision(
+        self,
+        record: ItemPrice,
+        *,
+        change_type: str,
+        previous: Decimal | None,
+        withdrawn: bool = False,
+        previous_price_id: UUID | None = None,
+        reason: str | None = None,
+    ) -> None:
+        """Append one entry to the master rate change log."""
+
+        amount = None if withdrawn else record.unit_price
+        self.session.add(
+            RateRevision(
+                scope="item_price",
+                item_id=record.item_id,
+                item_price_id=record.id,
+                previous_price_id=previous_price_id,
+                vendor_id=record.vendor_id,
+                currency_id=record.currency_id,
+                unit_id=record.unit_id,
+                change_type=change_type,
+                revision_number=record.revision_number,
+                previous_amount=previous,
+                new_amount=amount,
+                effective_from=record.effective_from,
+                reason=reason or record.change_reason,
+                created_by=self.actor_id,
+                updated_by=self.actor_id,
+            )
+        )
+
+    @staticmethod
+    def _serialize_revision(record: RateRevision) -> RateRevisionRead:
+        return RateRevisionRead.model_validate(record).model_copy(
+            update={
+                "item_code": record.item.code if record.item else None,
+                "item_name": record.item.name if record.item else None,
+                "item_type": record.item.item_type if record.item else None,
+                "vendor_code": record.vendor.code if record.vendor else None,
+                "currency_code": record.currency.code if record.currency else None,
+                "unit_code": record.unit.code if record.unit else None,
+                "delta_amount": (
+                    (record.new_amount or Decimal("0")) - (record.previous_amount or Decimal("0"))
+                ),
+            }
+        )
 
     def _serialize(self, record: ItemPrice) -> ItemPriceRead:
         return ItemPriceRead.model_validate(record).model_copy(
