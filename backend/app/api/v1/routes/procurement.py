@@ -241,8 +241,8 @@ def list_service_rates(
     is_active: bool | None = None,
     service_id: UUID | None = None,
     vendor_id: UUID | None = None,
-    service_order_id: UUID | None = None,
-    hole_section: str | None = None,
+    hole_section_id: UUID | None = None,
+    rate_basis: str | None = None,
     effective_on: date | None = None,
     sort_by: str = "effective_from",
     sort_order: str = "desc",
@@ -256,8 +256,8 @@ def list_service_rates(
         is_active=is_active,
         service_id=service_id,
         vendor_id=vendor_id,
-        service_order_id=service_order_id,
-        hole_section=hole_section,
+        hole_section_id=hole_section_id,
+        rate_basis=rate_basis,
         effective_on=effective_on,
     )
 

@@ -14,6 +14,7 @@ export function useReferenceOptions() {
   const currencies = ref<GridSelectOption[]>([])
   const units = ref<GridSelectOption[]>([])
   const services = ref<GridSelectOption[]>([])
+  const holeSections = ref<GridSelectOption[]>([])
   const itemCategories = ref<GridSelectOption[]>([])
   const serviceOrders = ref<GridSelectOption[]>([])
   const purchaseOrders = ref<GridSelectOption[]>([])
@@ -47,6 +48,9 @@ export function useReferenceOptions() {
     }
     if (kinds.includes('units')) {
       jobs.push(loadMaster('units').then((options) => { units.value = options }))
+    }
+    if (kinds.includes('hole-sections')) {
+      jobs.push(loadMaster('hole-sections').then((options) => { holeSections.value = options }))
     }
     if (kinds.includes('services')) {
       jobs.push(loadMaster('services').then((options) => { services.value = options }))
@@ -101,6 +105,7 @@ export function useReferenceOptions() {
     currencies,
     units,
     services,
+    holeSections,
     itemCategories,
     serviceOrders,
     purchaseOrders,

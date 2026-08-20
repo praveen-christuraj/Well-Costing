@@ -17,6 +17,7 @@ from app.models.master_data import (
     CostCode,
     Currency,
     Equipment,
+    HoleSection,
     ItemCategory,
     Material,
     MudChemical,
@@ -67,6 +68,7 @@ CATALOG_FIELDS = COMMON_FIELDS | {
 ENTITY_CONFIGS: dict[str, EntityConfig] = {
     "units": EntityConfig(Unit, COMMON_FIELDS | {"symbol"}),
     "currencies": EntityConfig(Currency, COMMON_FIELDS | {"symbol"}),
+    "hole-sections": EntityConfig(HoleSection, COMMON_FIELDS),
     "cost-categories": EntityConfig(CostCategory, COMMON_FIELDS | {"parent_id"}),
     "cost-codes": EntityConfig(CostCode, COMMON_FIELDS | {"cost_category_id"}),
     "vendors": EntityConfig(Vendor, VENDOR_FIELDS),

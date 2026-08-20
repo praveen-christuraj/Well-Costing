@@ -15,6 +15,7 @@ from app.db.base import Base
 from app.models.master_data import (
     CatalogItem,
     Currency,
+    HoleSection,
     ItemPrice,
     PurchaseOrder,
     ServiceOrder,
@@ -367,12 +368,10 @@ class ServiceRateCardService(_BaseService[ServiceRateCard, ServiceRateCardRead])
             statement = statement.where(ServiceRateCard.service_id == filters["service_id"])
         if filters.get("vendor_id"):
             statement = statement.where(ServiceRateCard.vendor_id == filters["vendor_id"])
-        if filters.get("service_order_id"):
-            statement = statement.where(
-                ServiceRateCard.service_order_id == filters["service_order_id"]
-            )
-        if filters.get("hole_section"):
-            statement = statement.where(ServiceRateCard.hole_section == filters["hole_section"])
+        if filters.get("hole_section_id"):
+            statement = statement.where(ServiceRateCard.hole_section_id == filters["hole_section_id"])
+        if filters.get("rate_basis"):
+            statement = statement.where(ServiceRateCard.rate_basis == filters["rate_basis"])
         if filters.get("effective_on"):
             on = filters["effective_on"]
             statement = statement.where(
@@ -387,7 +386,7 @@ class ServiceRateCardService(_BaseService[ServiceRateCard, ServiceRateCardRead])
             {
                 "service_id": CatalogItem,
                 "vendor_id": Vendor,
-                "service_order_id": ServiceOrder,
+                "hole_section_id": HoleSection,
                 "currency_id": Currency,
                 "unit_id": Unit,
             },
@@ -397,6 +396,11 @@ class ServiceRateCardService(_BaseService[ServiceRateCard, ServiceRateCardRead])
             item = self.session.get(CatalogItem, service_id)
             if item is not None and item.item_type != "service":
                 raise BusinessValidationError("service_id must reference a service catalogue item")
+        rate_basis = self._resolve(values, record, "rate_basis")
+        if rate_basis not in {"daily", "per_service", "per_section", "fixed"}:
+            raise BusinessValidationError("rate_basis must be daily, per_service, per_section, or fixed")
+        if rate_basis == "per_section" and self._resolve(values, record, "hole_section_id") is None:
+            raise BusinessValidationError("hole_section_id is required for per-section rates")
         _date_range_guard(values, record, "effective_from", "effective_to")
 
     def _serialize(self, record: ServiceRateCard) -> ServiceRateCardRead:
@@ -406,9 +410,8 @@ class ServiceRateCardService(_BaseService[ServiceRateCard, ServiceRateCardRead])
                 "service_name": record.service.name if record.service else None,
                 "vendor_code": record.vendor.code if record.vendor else None,
                 "vendor_name": record.vendor.name if record.vendor else None,
-                "service_order_number": (
-                    record.service_order.order_number if record.service_order else None
-                ),
+                "hole_section_code": record.hole_section.code if record.hole_section else None,
+                "hole_section_name": record.hole_section.name if record.hole_section else None,
                 "currency_code": record.currency.code if record.currency else None,
                 "unit_code": record.unit.code if record.unit else None,
             }
