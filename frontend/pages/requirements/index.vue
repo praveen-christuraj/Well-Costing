@@ -360,9 +360,9 @@ onMounted(() => void loadAll())
     <Dialog v-model:visible="wellDialog" modal :header="wellForm.id ? 'Edit well' : 'Add well'" :style="{ width: '520px' }">
       <div class="form-stack">
         <label>Project<Select v-model="wellForm.project_id" :options="activeProjectOptions" option-label="code" option-value="id" placeholder="Select project" filter fluid /></label>
-        <label>Well code<InputText v-model="wellForm.code" fluid placeholder="e.g. W-101" /></label>
-        <label>Well name<InputText v-model="wellForm.name" fluid placeholder="e.g. Well 101 (Alpha)" /></label>
-        <label>Rig name<InputText v-model="wellForm.rig_name" fluid placeholder="e.g. Rig 9" /></label>
+        <label>Code<InputText v-model="wellForm.code" fluid placeholder="e.g. W-101" /></label>
+        <label>Name<InputText v-model="wellForm.name" fluid placeholder="e.g. Well 101 (Alpha)" /></label>
+        <label>Rig<InputText v-model="wellForm.rig_name" fluid placeholder="e.g. Rig 9" /></label>
         <label>Status<Select v-model="wellForm.status" :options="WELL_STATUSES" option-label="label" option-value="value" fluid /></label>
         <div class="form-row">
           <label>Spud date<DatePicker v-model="wellForm.spud_date" date-format="yy-mm-dd" show-icon fluid /></label>
