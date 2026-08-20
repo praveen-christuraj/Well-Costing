@@ -25,20 +25,17 @@ from app.schemas.procurement import (
     ItemPriceCreate,
     PurchaseOrderCreate,
     ServiceOrderCreate,
-    ServiceRateCardCreate,
 )
 from app.services.master_data import MasterDataService, RateService, get_entity_config
 from app.services.procurement import (
     ItemPriceService,
     PurchaseOrderService,
     ServiceOrderService,
-    ServiceRateCardService,
 )
 
 PROCUREMENT_ENTITIES = {
     "service-orders": (ServiceOrderService, ServiceOrderCreate, "order_number"),
     "purchase-orders": (PurchaseOrderService, PurchaseOrderCreate, "order_number"),
-    "service-rates": (ServiceRateCardService, ServiceRateCardCreate, "effective_from"),
     "item-prices": (ItemPriceService, ItemPriceCreate, "effective_from"),
 }
 

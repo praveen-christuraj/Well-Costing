@@ -18,6 +18,7 @@ from app.api.v1.routes import (
     reporting,
     requirement_imports,
     requirements,
+    well_costing,
     workflow,
 )
 
@@ -38,3 +39,4 @@ api_router.include_router(master_data.router)
 api_router.include_router(imports.router)
 api_router.include_router(requirement_imports.router)
 api_router.include_router(requirements.router)
+api_router.include_router(well_costing.router)

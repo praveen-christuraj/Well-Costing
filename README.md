@@ -137,8 +137,10 @@ the next one.
 **Master Data** (`/master-data/vendors`) maintains the raw reference data the AFE is
 built from: vendors classified as third-party or in-house, service orders and
 purchase orders, item categories, services, tangibles, mud chemicals, cement
-additives, column-based service rate cards (operating, standby, mobilisation,
-demobilisation, and section-wise), and effective-dated item prices. Every page has
+additives, and effective-dated tangible rates with a full revision log. Services
+carry no master rate: they are priced per well in the well rate book, so a
+central revision never moves a well that is already drilling — see
+[well-scoped rate governance](docs/architecture/well-rate-governance.md). Every page has
 server-side pagination, filters, Excel-style bulk entry, clipboard paste, per-row
 edit and delete actions, an **Export** button that downloads the entity as an Excel
 workbook (re-importable unchanged), and a **Print** button that renders the loaded

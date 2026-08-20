@@ -26,7 +26,6 @@ from app.schemas.procurement import (
     ItemPriceCreate,
     PurchaseOrderCreate,
     ServiceOrderCreate,
-    ServiceRateCardCreate,
 )
 from app.services.master_data import ENTITY_CONFIGS
 
@@ -142,40 +141,6 @@ class ExcelValidator:
             if values.get("order_value") == "":
                 values.pop("order_value", None)
             return PurchaseOrderCreate.model_validate(values).model_dump(
-                mode="json", exclude_none=True
-            )
-        if entity == "service-rates":
-            self._resolve_codes(
-                values,
-                [
-                    ("vendor_code", "vendor_id", Vendor),
-                    ("currency_code", "currency_id", Currency),
-                    ("unit_code", "unit_id", Unit),
-                ],
-            )
-            self._resolve_order(values, "service_order_number", "service_order_id", ServiceOrder)
-            service_code = values.pop("service_code", None)
-            if service_code in (None, ""):
-                raise ValueError("service_code is required")
-            service = self.session.scalar(
-                select(CatalogItem).where(
-                    CatalogItem.code == str(service_code).strip().upper(),
-                    CatalogItem.item_type == "service",
-                )
-            )
-            if service is None:
-                raise ValueError(f"service_code '{service_code}' does not exist")
-            values["service_id"] = service.id
-            self._stringify(values, ("hole_section", "description"))
-            self._coerce_dates(values, ("effective_from", "effective_to"))
-            for rate_field in (
-                "operating_rate",
-                "standby_rate",
-                "mobilisation_rate",
-                "demobilisation_rate",
-            ):
-                self._coerce_decimal(values, rate_field)
-            return ServiceRateCardCreate.model_validate(values).model_dump(
                 mode="json", exclude_none=True
             )
         if entity == "item-prices":

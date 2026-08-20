@@ -2,6 +2,77 @@
 
 All notable project changes are documented here.
 
+## 2026-08-20 — Well-scoped rate governance
+
+Rates are renegotiated periodically while twenty rigs drill at once. A revision
+must not move a well that is already drilling, and an approved AFE must not be
+edited when the field consumes something nobody planned. Three layers now carry
+that: master data, a per-well rate book, and an out-of-AFE register. See
+[well-scoped rate governance](docs/architecture/well-rate-governance.md) and the
+[API reference](docs/api/well-rate-governance.md).
+
+### Added
+
+- **Well rate book.** `well_service_rates` and `well_tangible_rates` hold the
+  rates one well will use. Services are typed in per well; tangibles copy the
+  master rate in force when the item is picked (`master_unit_rate`,
+  `master_price_id`, `master_effective_from`) and may be overridden with a
+  reason, which surfaces as `is_overridden` and `variance_to_master`.
+  Isolation between rigs is structural: after the copy there is no live link to
+  the master rate, so no cut-off date or as-of query can get it wrong.
+- **Rate locking.** `POST /wells/{id}/rate-book/lock` freezes the book when the
+  AFE baseline is issued. Repricing a locked row returns
+  `well_rate_book_locked` and points at the out-of-AFE register; notes and
+  contract references stay editable.
+- **Well rate change log.** `well_rate_revisions` appends every add, revision,
+  lock, and withdrawal with before/after rate snapshots, the reason, and the
+  actor. A reason is mandatory for any rate change after a row is created.
+- **Out-of-AFE register.** `well_unplanned_items` records services, tangibles,
+  and items absent from master data that were consumed outside the approved AFE:
+  quantity × rate, `reason_code`, mandatory justification, and a
+  `draft → submitted → approved | rejected` workflow. Approving a catalogue item
+  adds it to the well rate book already locked, so the rest of the well uses one
+  consistent rate. The AFE itself is never touched.
+- **Cost exposure.** `GET /wells/{id}/cost-exposure` reports the approved AFE
+  total, approved and pending out-of-AFE spend, and the resulting variance.
+- **Master rate revisions.** `POST /procurement/item-prices/{id}/revise` closes
+  the current rate the day before the new one takes effect and inserts the next
+  revision (`revision_number`, `supersedes_id`, `change_reason`). Every change is
+  appended to the new `rate_revisions` log, exposed at
+  `GET /procurement/rate-revisions` and on the new **Rate Revisions** page. The
+  log is backfilled for rates that already existed.
+- **Well operating context.** `wells` gained `rig_name`, `status`, `spud_date`,
+  `completion_date`, `rates_locked_at`, and `rate_lock_reference`.
+- `app/domain/well_costing/rate_lock.py`: the lock, reason, transition, and
+  variance rules as pure functions, with unit tests.
+- An optional `row-actions` slot on the enterprise grid, used for **Revise rate**.
+
+### Changed
+
+- **Master data holds a rate for tangibles and consumables only.** Master
+  service rate cards are retired: the `service_rate_cards` table, its
+  `/procurement/service-rates` endpoints, its Excel mapping profile, and the
+  Service Rates page are removed, because a service is priced per well.
+  Creating a master rate for a service now returns a `422` explaining where the
+  rate belongs.
+- **Item Prices** is now **Tangible Rates**, showing the revision number and the
+  reason for the current revision, with a **Revise** action per row.
+- `item_prices.vendor_id` is nullable: a catalogue rate can exist before the
+  supplying vendor is fixed.
+
+### Fixed
+
+- `npm ci` in the frontend job: the lockfile was missing two transitive
+  `@nuxt/cli` entries (`cac`, `commander`), so a clean install refused to run.
+
+### Migration
+
+`20260820_0015_well_scoped_rate_governance` drops `service_rate_cards`, extends
+`item_prices` and `wells`, and creates `rate_revisions`, `well_service_rates`,
+`well_tangible_rates`, `well_rate_revisions`, and `well_unplanned_items`. Any
+master service rate card is removed by this upgrade; re-enter those rates on the
+wells that use them.
+
 ## 2026-08-18 — Service-order Excel preview 502
 
 ### Fixed

@@ -1,4 +1,8 @@
-"""Routes for service orders, purchase orders, service rate cards, and item prices."""
+"""Routes for service orders, purchase orders, and master item rates.
+
+Master rates cover tangibles and consumables. Services are priced per well on
+``/wells/{well_id}/rate-book/services``.
+"""
 
 from datetime import date
 from typing import Annotated, Any
@@ -15,6 +19,7 @@ from app.schemas.procurement import (
     ItemPriceBulkUpdateRequest,
     ItemPriceCreate,
     ItemPriceRead,
+    ItemPriceReviseRequest,
     ItemPriceUpdate,
     PurchaseOrderBulkCreateRequest,
     PurchaseOrderBulkUpdateRequest,
@@ -26,17 +31,11 @@ from app.schemas.procurement import (
     ServiceOrderCreate,
     ServiceOrderRead,
     ServiceOrderUpdate,
-    ServiceRateCardBulkCreateRequest,
-    ServiceRateCardBulkUpdateRequest,
-    ServiceRateCardCreate,
-    ServiceRateCardRead,
-    ServiceRateCardUpdate,
 )
 from app.services.procurement import (
     ItemPriceService,
     PurchaseOrderService,
     ServiceOrderService,
-    ServiceRateCardService,
 )
 
 router = APIRouter(prefix="/procurement", tags=["procurement"])
@@ -230,99 +229,6 @@ def delete_purchase_order(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# --------------------------------------------------------------------------- service rates
-@router.get("/service-rates", response_model=PageResponse)
-def list_service_rates(
-    current_user: CurrentUser,
-    session: SessionDep,
-    page: PageQuery = 1,
-    page_size: SizeQuery = 25,
-    search: str | None = None,
-    is_active: bool | None = None,
-    service_id: UUID | None = None,
-    vendor_id: UUID | None = None,
-    hole_section_id: UUID | None = None,
-    rate_basis: str | None = None,
-    effective_on: date | None = None,
-    sort_by: str = "effective_from",
-    sort_order: str = "desc",
-) -> PageResponse:
-    return ServiceRateCardService(session, current_user.id).list_page(
-        page=page,
-        page_size=page_size,
-        sort_by=sort_by,
-        sort_order=sort_order,
-        search=search,
-        is_active=is_active,
-        service_id=service_id,
-        vendor_id=vendor_id,
-        hole_section_id=hole_section_id,
-        rate_basis=rate_basis,
-        effective_on=effective_on,
-    )
-
-
-@router.post("/service-rates", response_model=ServiceRateCardRead, status_code=201)
-def create_service_rate(
-    payload: ServiceRateCardCreate, current_user: CurrentUser, session: SessionDep
-) -> ServiceRateCardRead:
-    return ServiceRateCardService(session, current_user.id).create(payload)
-
-
-@router.post("/service-rates/bulk/validate", response_model=BulkValidationResult)
-def validate_service_rates(
-    payload: ServiceRateCardBulkCreateRequest, current_user: CurrentUser, session: SessionDep
-) -> BulkValidationResult:
-    return ServiceRateCardService(session, current_user.id).validate_bulk(payload.rows)
-
-
-@router.post(
-    "/service-rates/bulk/create", response_model=list[ServiceRateCardRead], status_code=201
-)
-def bulk_create_service_rates(
-    payload: ServiceRateCardBulkCreateRequest, current_user: CurrentUser, session: SessionDep
-) -> list[ServiceRateCardRead]:
-    return ServiceRateCardService(session, current_user.id).bulk_create(payload.rows)
-
-
-@router.patch("/service-rates/bulk/update", response_model=list[ServiceRateCardRead])
-def bulk_update_service_rates(
-    payload: ServiceRateCardBulkUpdateRequest, current_user: CurrentUser, session: SessionDep
-) -> list[ServiceRateCardRead]:
-    return ServiceRateCardService(session, current_user.id).bulk_update(
-        _bulk_rows(payload.rows, ServiceRateCardUpdate)
-    )
-
-
-@router.get("/service-rates/{record_id}", response_model=ServiceRateCardRead)
-def get_service_rate(
-    record_id: UUID, current_user: CurrentUser, session: SessionDep
-) -> ServiceRateCardRead:
-    return ServiceRateCardService(session, current_user.id).get(record_id)
-
-
-@router.patch("/service-rates/{record_id}", response_model=ServiceRateCardRead)
-def update_service_rate(
-    record_id: UUID,
-    payload: ServiceRateCardUpdate,
-    current_user: CurrentUser,
-    session: SessionDep,
-) -> ServiceRateCardRead:
-    return ServiceRateCardService(session, current_user.id).update(record_id, payload)
-
-
-@router.delete("/service-rates/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_service_rate(
-    record_id: UUID,
-    current_user: CurrentUser,
-    session: SessionDep,
-    hard: bool = False,
-) -> Response:
-    service = ServiceRateCardService(session, current_user.id)
-    service.delete(record_id) if hard else service.deactivate(record_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
 # --------------------------------------------------------------------------- item prices
 @router.get("/item-prices", response_model=PageResponse)
 def list_item_prices(
@@ -412,3 +318,35 @@ def delete_item_price(
     service = ItemPriceService(session, current_user.id)
     service.delete(record_id) if hard else service.deactivate(record_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/item-prices/{record_id}/revise", response_model=ItemPriceRead, status_code=201)
+def revise_item_price(
+    record_id: UUID,
+    payload: ItemPriceReviseRequest,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> ItemPriceRead:
+    """Supersede a master rate, keeping the superseded row and its history.
+
+    Wells that already copied the previous rate into their rate book are not
+    affected: they keep the number they were planned with until completion.
+    """
+
+    return ItemPriceService(session, current_user.id).revise(record_id, payload)
+
+
+@router.get("/rate-revisions", response_model=PageResponse)
+def list_rate_revisions(
+    current_user: CurrentUser,
+    session: SessionDep,
+    page: PageQuery = 1,
+    page_size: SizeQuery = 25,
+    item_id: UUID | None = None,
+    change_type: str | None = None,
+) -> PageResponse:
+    """The master rate change log: who changed which rate, when, and why."""
+
+    return ItemPriceService(session, current_user.id).revisions(
+        page=page, page_size=page_size, item_id=item_id, change_type=change_type
+    )

@@ -1,5 +1,4 @@
 export type RowState = 'clean' | 'new' | 'dirty'
-export type ServiceRateBasis = 'daily' | 'per_service' | 'per_section' | 'fixed'
 
 export interface AuditFields {
   id: string
@@ -41,43 +40,23 @@ export interface PurchaseOrderRecord extends AuditFields {
   currency_code: string | null
 }
 
-export interface ServiceRateRecord extends AuditFields {
-  service_id: string
-  vendor_id: string
-  currency_id: string
-  unit_id: string
-  hole_section_id: string | null
-  hole_section_code: string | null
-  hole_section_name: string | null
-  rate_basis: ServiceRateBasis
-  operating_rate: string
-  standby_rate: string
-  mobilisation_rate: string
-  demobilisation_rate: string
-  personnel_operating_rate: string
-  personnel_standby_rate: string
-  other_rate: string
-  effective_from: string
-  effective_to: string | null
-  description: string | null
-  is_active: boolean
-  service_code: string | null
-  service_name: string | null
-  vendor_code: string | null
-  vendor_name: string | null
-  currency_code: string | null
-  unit_code: string | null
-}
-
+/**
+ * A master rate. Tangibles and consumables have one; services do not, because a
+ * service is priced per well in the well rate book.
+ */
 export interface ItemPriceRecord extends AuditFields {
   item_id: string
-  vendor_id: string
+  vendor_id: string | null
   purchase_order_id: string | null
   currency_id: string
   unit_id: string
   unit_price: string
   effective_from: string
   effective_to: string | null
+  revision_number: number
+  supersedes_id: string | null
+  change_reason: string | null
+  superseded_at: string | null
   description: string | null
   is_active: boolean
   item_code: string | null
@@ -117,9 +96,32 @@ export const ITEM_CATEGORY_SCOPES = [
   { label: 'Cement additive', value: 'cement_additive' },
 ]
 
-export const SERVICE_RATE_BASES = [
-  { label: 'Daily rate', value: 'daily' },
-  { label: 'Per service', value: 'per_service' },
-  { label: 'Per section', value: 'per_section' },
-  { label: 'Fixed rate', value: 'fixed' },
+/** One entry in the master rate change log. */
+export interface RateRevisionRecord extends AuditFields {
+  scope: string
+  item_id: string
+  item_price_id: string | null
+  previous_price_id: string | null
+  vendor_id: string | null
+  currency_id: string | null
+  unit_id: string | null
+  change_type: 'created' | 'revised' | 'withdrawn'
+  revision_number: number
+  previous_amount: string | null
+  new_amount: string | null
+  effective_from: string | null
+  reason: string | null
+  item_code: string | null
+  item_name: string | null
+  item_type: string | null
+  vendor_code: string | null
+  currency_code: string | null
+  unit_code: string | null
+  delta_amount: string | null
+}
+
+export const RATE_CHANGE_TYPES = [
+  { label: 'Created', value: 'created' },
+  { label: 'Revised', value: 'revised' },
+  { label: 'Withdrawn', value: 'withdrawn' },
 ]
