@@ -45,12 +45,12 @@ class MasterDataRepository(Generic[ModelT]):  # noqa: UP046
         clauses: list[Any] = []
         if search:
             pattern = f"%{search.strip()}%"
-            searchable = [
+            searchable: list[Any] = [
                 self.model.code.ilike(pattern),  # type: ignore[attr-defined]
                 self.model.name.ilike(pattern),  # type: ignore[attr-defined]
             ]
             for optional in ("material_number", "specification", "manufacturer"):
-                column = getattr(self.model, optional, None)
+                column: Any = getattr(self.model, optional, None)
                 if column is not None:
                     searchable.append(column.ilike(pattern))
             clauses.append(or_(*searchable))
@@ -105,8 +105,9 @@ class RateRepository(MasterDataRepository[Rate]):
         is_active: bool | None,
         sort_by: str,
         sort_order: str,
+        filters: dict[str, Any] | None = None,
     ) -> tuple[Sequence[Rate], int]:
-        del search
+        del search, filters
         statement = select(Rate)
         count_statement = select(func.count()).select_from(Rate)
         if is_active is not None:

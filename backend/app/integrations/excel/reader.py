@@ -1,13 +1,13 @@
 """Safe tabular workbook reader for Excel and CSV uploads."""
 
 import csv
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO, StringIO
 from itertools import zip_longest
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import xlrd
 from openpyxl import load_workbook
@@ -163,7 +163,9 @@ class ExcelReader:
 
     @staticmethod
     def _record_from_row(columns: list[str], row: object) -> dict[str, Any]:
-        values = row if isinstance(row, (list, tuple)) else ()
+        values: Sequence[object] = (
+            cast(Sequence[object], row) if isinstance(row, (list, tuple)) else ()
+        )
         return {
             key: ExcelReader._python_value(value)
             for key, value in zip_longest(columns, values, fillvalue=None)

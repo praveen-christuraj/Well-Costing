@@ -6,8 +6,8 @@ Revises: 20260816_0013
 from collections.abc import Sequence
 from uuid import uuid4
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision: str = "20260820_0014"
 down_revision: str | None = "20260816_0013"
