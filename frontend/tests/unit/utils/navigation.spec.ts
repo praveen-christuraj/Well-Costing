@@ -18,8 +18,8 @@ describe('application navigation', () => {
     expect(enabledNavigation.length).toBe(appNavigation.length)
   })
 
-  it('lands on the first enabled module, never a locked one', () => {
-    expect(defaultLandingRoute).toBe('/requirements')
+  it('lands on Master Data, the established post-login entry point', () => {
+    expect(defaultLandingRoute).toBe('/master-data/vendors')
     expect(enabledNavigation.some(item => item.to === defaultLandingRoute)).toBe(true)
   })
 })

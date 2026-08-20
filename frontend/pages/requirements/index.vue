@@ -166,10 +166,16 @@ async function saveRequirement(): Promise<void> {
   error.value = null
   try {
     const payload = { well_id: requirementForm.value.well_id, code: requirementForm.value.code, title: requirementForm.value.title, description: requirementForm.value.description || null }
-    if (requirementForm.value.id) await api.updateRequirement(requirementForm.value.id, payload)
-    else await api.createRequirement(payload)
-    requirementDialog.value = false
-    await loadAll()
+    if (requirementForm.value.id) {
+      await api.updateRequirement(requirementForm.value.id, payload)
+      requirementDialog.value = false
+      await loadAll()
+    }
+    else {
+      const created = await api.createRequirement(payload)
+      requirementDialog.value = false
+      await navigateTo(`/requirements/${created.id}`)
+    }
   }
   catch (caught: unknown) {
     error.value = caught instanceof Error ? caught.message : 'The requirement could not be saved.'
@@ -238,7 +244,7 @@ onMounted(() => void loadAll())
       <div class="grid-toolbar">
         <div><strong>Projects</strong><small class="toolbar-note">The top-level grouping every well belongs to.</small></div>
         <div class="grid-toolbar__actions">
-          <Button label="New project" icon="pi pi-plus" @click="openProjectDialog()" />
+          <Button label="Add project" icon="pi pi-plus" @click="openProjectDialog()" />
         </div>
       </div>
       <DataTable :value="projects" data-key="id" striped-rows show-gridlines size="small" :rows="10" paginator class="wi-table">
@@ -268,7 +274,7 @@ onMounted(() => void loadAll())
           <Select v-model="projectFilter" :options="projects" option-label="code" option-value="id" placeholder="All projects" show-clear filter style="width: 180px; margin-left: 1rem" />
         </div>
         <div class="grid-toolbar__actions">
-          <Button label="New well" icon="pi pi-plus" @click="openWellDialog()" />
+          <Button label="Add well" icon="pi pi-plus" @click="openWellDialog()" />
         </div>
       </div>
       <DataTable :value="filteredWells" data-key="id" striped-rows show-gridlines size="small" :rows="10" paginator class="wi-table">
@@ -307,7 +313,7 @@ onMounted(() => void loadAll())
           <Select v-model="statusFilter" :options="[{ label: 'Draft', value: 'draft' }, { label: 'Submitted', value: 'submitted' }]" option-label="label" option-value="value" placeholder="All statuses" show-clear style="width: 160px; margin-left: 0.5rem" />
         </div>
         <div class="grid-toolbar__actions">
-          <Button label="New requirement" icon="pi pi-plus" @click="openRequirementDialog()" />
+          <Button label="New" icon="pi pi-plus" @click="openRequirementDialog()" />
         </div>
       </div>
       <DataTable :value="filteredRequirements" data-key="id" striped-rows show-gridlines size="small" :rows="10" paginator class="wi-table">
@@ -336,7 +342,7 @@ onMounted(() => void loadAll())
     </section>
 
     <!-- Project dialog -->
-    <Dialog v-model:visible="projectDialog" modal :header="projectForm.id ? 'Edit project' : 'New project'" :style="{ width: '480px' }">
+    <Dialog v-model:visible="projectDialog" modal :header="projectForm.id ? 'Edit project' : 'Add project'" :style="{ width: '480px' }">
       <div class="form-stack">
         <label>Code<InputText v-model="projectForm.code" fluid placeholder="e.g. PG-2026-01" /></label>
         <label>Name<InputText v-model="projectForm.name" fluid placeholder="e.g. North Sea Campaign" /></label>
@@ -344,12 +350,12 @@ onMounted(() => void loadAll())
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" text @click="projectDialog = false" />
-        <Button label="Save project" icon="pi pi-check" :loading="saving" :disabled="!projectForm.code.trim() || !projectForm.name.trim()" @click="saveProject" />
+        <Button label="Create project" icon="pi pi-check" :loading="saving" :disabled="!projectForm.code.trim() || !projectForm.name.trim()" @click="saveProject" />
       </template>
     </Dialog>
 
     <!-- Well dialog -->
-    <Dialog v-model:visible="wellDialog" modal :header="wellForm.id ? 'Edit well' : 'New well'" :style="{ width: '520px' }">
+    <Dialog v-model:visible="wellDialog" modal :header="wellForm.id ? 'Edit well' : 'Add well'" :style="{ width: '520px' }">
       <div class="form-stack">
         <label>Project<Select v-model="wellForm.project_id" :options="activeProjectOptions" option-label="code" option-value="id" placeholder="Select project" filter fluid /></label>
         <label>Well code<InputText v-model="wellForm.code" fluid placeholder="e.g. W-101" /></label>
@@ -364,7 +370,7 @@ onMounted(() => void loadAll())
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" text @click="wellDialog = false" />
-        <Button label="Save well" icon="pi pi-check" :loading="saving" :disabled="!wellForm.project_id || !wellForm.code.trim() || !wellForm.name.trim()" @click="saveWell" />
+        <Button label="Create well" icon="pi pi-check" :loading="saving" :disabled="!wellForm.project_id || !wellForm.code.trim() || !wellForm.name.trim()" @click="saveWell" />
       </template>
     </Dialog>
 
@@ -378,7 +384,7 @@ onMounted(() => void loadAll())
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" text @click="requirementDialog = false" />
-        <Button label="Save requirement" icon="pi pi-check" :loading="saving" :disabled="!requirementForm.well_id || !requirementForm.code.trim() || !requirementForm.title.trim()" @click="saveRequirement" />
+        <Button label="Create and open" icon="pi pi-check" :loading="saving" :disabled="!requirementForm.well_id || !requirementForm.code.trim() || !requirementForm.title.trim()" @click="saveRequirement" />
       </template>
     </Dialog>
   </div>

@@ -20,7 +20,7 @@ def test_provider_postgres_urls_select_psycopg3_driver() -> None:
 
 
 def test_hosted_environment_rejects_development_secret() -> None:
-    with pytest.raises(ValidationError, match="SECRET_KEY must be replaced"):
+    with pytest.raises(ValidationError, match="SECRET_KEY must be set for this environment"):
         Settings(
             ENVIRONMENT="uat",
             DATABASE_URL="postgresql://app:secret@example.neon.tech/costing",

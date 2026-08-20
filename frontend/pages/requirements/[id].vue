@@ -10,12 +10,15 @@ import { computed, onMounted, ref } from 'vue'
 import Button from 'primevue/button'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
+import Dialog from 'primevue/dialog'
 import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
+import Textarea from 'primevue/textarea'
 import PageHeader from '~/components/design-system/PageHeader.vue'
+import { parseTsv } from '~/utils/tsv'
 import type { MasterDataRecord } from '~/types/masterData'
 import type { EditableRequirementItem, RequirementItemRecord, RequirementRecord } from '~/types/requirements'
 
@@ -36,9 +39,55 @@ const saving = ref(false)
 const submitting = ref(false)
 const error = ref<string | null>(null)
 const success = ref<string | null>(null)
+const pasteVisible = ref(false)
+const pasteText = ref('')
+const pasteColumns = [
+  { field: 'catalog_item_code' },
+  { field: 'item_type' },
+  { field: 'cost_code' },
+  { field: 'quantity' },
+  { field: 'unit_code' },
+  { field: 'section_name' },
+  { field: 'planned_duration_days' },
+]
 
 const isDraft = computed(() => requirement.value?.status === 'draft')
 const pendingCount = computed(() => items.value.filter(item => item._state !== 'clean').length)
+
+/** Add rows pasted from Excel (item code, type, cost code, qty, unit, section, days). */
+function applyPaste(): void {
+  error.value = null
+  const parsed = parseTsv(pasteText.value, pasteColumns)
+  const created: EditableRequirementItem[] = []
+  for (const values of parsed) {
+    const item = catalogueItems.value.find(record => record.code === values.catalog_item_code)
+    const costCode = costCodes.value.find(record => record.code === values.cost_code)
+    const unit = units.value.find(record => record.code === values.unit_code)
+    if (!item || !costCode || !unit) {
+      error.value = `Paste row '${values.catalog_item_code}' needs an existing item, cost code, and unit code.`
+      return
+    }
+    created.push({
+      line_number: items.value.reduce((max, row) => Math.max(max, row.line_number), 0) + 1,
+      catalog_item_id: item.id,
+      cost_code_id: costCode.id,
+      quantity: values.quantity || '0',
+      unit_id: unit.id,
+      section_name: values.section_name ?? '',
+      planned_duration_days: values.planned_duration_days ?? '',
+      planned_depth_from: '',
+      planned_depth_to: '',
+      depth_unit_id: '',
+      notes: '',
+      is_active: true,
+      _state: 'new',
+    })
+  }
+  items.value.unshift(...created)
+  pasteText.value = ''
+  pasteVisible.value = false
+  success.value = `${created.length} rows added from the clipboard. Review them, then choose Save.`
+}
 
 function toEditable(record: RequirementItemRecord): EditableRequirementItem {
   return {
@@ -158,7 +207,7 @@ async function save(): Promise<void> {
         is_active: item.is_active,
       })))
     }
-    success.value = 'Requirement items saved. The grid is re-sorted by line number.'
+    success.value = `${newRows.length + changedRows.length} rows saved.`
     await load()
   }
   catch (caught: unknown) {
@@ -231,7 +280,7 @@ onMounted(() => void load())
       <template #actions>
         <Tag :value="requirement.status" :severity="requirement.status === 'submitted' ? 'success' : 'warn'" />
         <Button
-          label="Submit requirement"
+          label="Submit"
           icon="pi pi-send"
           :disabled="!isDraft || !items.length"
           :loading="submitting"
@@ -252,9 +301,10 @@ onMounted(() => void load())
         <div><strong>Requirement line items</strong><small class="toolbar-note">New rows are added at the top; the grid re-sorts by line number only after saving.</small></div>
         <div class="grid-toolbar__actions">
           <Button label="Add row" icon="pi pi-plus" :disabled="!isDraft" @click="addRow" />
+          <Button label="Paste" icon="pi pi-clipboard" text :disabled="!isDraft" @click="pasteVisible = true" />
           <Button label="Template" icon="pi pi-file-excel" text :disabled="!isDraft" @click="download('template')" />
           <Button label="Export" icon="pi pi-download" text @click="download('export')" />
-          <Button :label="pendingCount ? `Save items (${pendingCount})` : 'Save items'" icon="pi pi-save" :disabled="!isDraft || !pendingCount" :loading="saving" @click="save" />
+          <Button :label="pendingCount ? `Save ${pendingCount}` : 'Save'" icon="pi pi-save" :disabled="!isDraft || !pendingCount" :loading="saving" @click="save" />
         </div>
       </div>
 
@@ -341,6 +391,18 @@ onMounted(() => void load())
         </template>
       </DataTable>
     </div>
+
+    <Dialog v-model:visible="pasteVisible" modal header="Paste requirement lines" :style="{ width: '720px' }">
+      <p class="wi-paste-hint">
+        Copy cells from your workbook in this column order: item code, item type,
+        cost code, quantity, unit code, section name, planned days.
+      </p>
+      <Textarea v-model="pasteText" rows="10" fluid autofocus placeholder="Paste tab-separated rows here" />
+      <template #footer>
+        <Button label="Cancel" severity="secondary" text @click="pasteVisible = false" />
+        <Button label="Apply rows" icon="pi pi-check" :disabled="!pasteText.trim()" @click="applyPaste" />
+      </template>
+    </Dialog>
   </div>
 </template>
 

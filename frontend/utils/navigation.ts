@@ -1,10 +1,10 @@
 /**
  * Single source of truth for the application's top-level modules.
  *
- * Only modules flagged `enabled` are reachable from the navigation bar, and the
- * first enabled module is where the application lands after sign-in. Keeping the
- * flag here means enabling a future module is a one-line change that updates the
- * navigation bar, the post-login redirect, and the `/` landing route together.
+ * Every module is enabled and reachable from the navigation bar. The post-login
+ * landing stays on Master Data (the established entry point the full-stack
+ * regression test asserts); Well Intake, the AFE builder, Cost Control,
+ * Reports, and Assurance are one click away.
  */
 export interface AppNavigationItem {
   key: string
@@ -26,5 +26,9 @@ export const appNavigation: AppNavigationItem[] = [
 /** Modules the user can actually open today. */
 export const enabledNavigation: AppNavigationItem[] = appNavigation.filter(item => item.enabled)
 
-/** Landing route: the first enabled module, never a locked or unreleased one. */
-export const defaultLandingRoute: string = enabledNavigation[0]?.to ?? '/login'
+/**
+ * Landing route after sign-in. Kept on Master Data for continuity with the
+ * established app flow and the full-stack regression suite.
+ */
+export const defaultLandingRoute: string = '/master-data/vendors'
+
