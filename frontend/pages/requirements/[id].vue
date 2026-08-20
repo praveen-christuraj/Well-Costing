@@ -54,6 +54,29 @@ const pasteColumns = [
 const isDraft = computed(() => requirement.value?.status === 'draft')
 const pendingCount = computed(() => items.value.filter(item => item._state !== 'clean').length)
 
+/** Normalise empty inputs to null so the API's optional fields stay valid. */
+function nullableValue(value: unknown): unknown {
+  return (value === '' || value === null || value === undefined) ? null : value
+}
+
+/** Row payload shared by create and update; empty optional inputs become null. */
+function toPayload(item: EditableRequirementItem) {
+  return {
+    line_number: item.line_number,
+    catalog_item_id: item.catalog_item_id,
+    cost_code_id: item.cost_code_id,
+    quantity: String(item.quantity),
+    unit_id: item.unit_id,
+    section_name: nullableValue(item.section_name),
+    planned_duration_days: nullableValue(item.planned_duration_days),
+    planned_depth_from: nullableValue(item.planned_depth_from),
+    planned_depth_to: nullableValue(item.planned_depth_to),
+    depth_unit_id: nullableValue(item.depth_unit_id),
+    notes: nullableValue(item.notes),
+    is_active: item.is_active,
+  }
+}
+
 /** Add rows pasted from Excel (item code, type, cost code, qty, unit, section, days). */
 function applyPaste(): void {
   error.value = null
@@ -170,20 +193,7 @@ async function save(): Promise<void> {
     const newRows = items.value.filter(item => item._state === 'new')
     const changedRows = items.value.filter(item => item._state === 'dirty' && item.id)
     if (newRows.length) {
-      const payload = newRows.map(item => ({
-        line_number: item.line_number,
-        catalog_item_id: item.catalog_item_id,
-        cost_code_id: item.cost_code_id,
-        quantity: String(item.quantity),
-        unit_id: item.unit_id,
-        section_name: item.section_name || null,
-        planned_duration_days: item.planned_duration_days ?? null,
-        planned_depth_from: item.planned_depth_from ?? null,
-        planned_depth_to: item.planned_depth_to ?? null,
-        depth_unit_id: item.depth_unit_id || null,
-        notes: item.notes || null,
-        is_active: item.is_active,
-      }))
+      const payload = newRows.map(toPayload)
       const validation = await api.validateItems(id, payload)
       if (!validation.valid) {
         throw new Error(validation.errors.map(item => `Row ${item.row_index + 1}: ${item.message}`).join('; '))
@@ -191,21 +201,7 @@ async function save(): Promise<void> {
       await api.bulkCreateItems(id, payload)
     }
     if (changedRows.length) {
-      await api.bulkUpdateItems(changedRows.map(item => ({
-        id: item.id,
-        line_number: item.line_number,
-        catalog_item_id: item.catalog_item_id,
-        cost_code_id: item.cost_code_id,
-        quantity: String(item.quantity),
-        unit_id: item.unit_id,
-        section_name: item.section_name || null,
-        planned_duration_days: item.planned_duration_days ?? null,
-        planned_depth_from: item.planned_depth_from ?? null,
-        planned_depth_to: item.planned_depth_to ?? null,
-        depth_unit_id: item.depth_unit_id || null,
-        notes: item.notes || null,
-        is_active: item.is_active,
-      })))
+      await api.bulkUpdateItems(changedRows.map(item => ({ id: item.id, ...toPayload(item) })))
     }
     success.value = `${newRows.length + changedRows.length} rows saved.`
     await load()
