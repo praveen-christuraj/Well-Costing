@@ -136,16 +136,19 @@ class ServiceRateCardCreate(BaseModel):
 
     service_id: UUID
     vendor_id: UUID
-    service_order_id: UUID | None = None
     currency_id: UUID
     unit_id: UUID
-    hole_section: str | None = Field(default=None, max_length=60)
+    hole_section_id: UUID | None = None
+    rate_basis: str = "daily"
     operating_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
     standby_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
     mobilisation_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
     demobilisation_rate: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
+    personnel_operating_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    personnel_standby_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    other_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
     effective_from: date
     effective_to: date | None = None
     description: str | None = None
@@ -155,6 +158,10 @@ class ServiceRateCardCreate(BaseModel):
     def check(self) -> "ServiceRateCardCreate":
         if self.effective_to is not None and self.effective_to < self.effective_from:
             raise ValueError("effective_to must be on or after effective_from")
+        if self.rate_basis not in {"daily", "per_service", "per_section", "fixed"}:
+            raise ValueError("rate_basis must be daily, per_service, per_section, or fixed")
+        if self.rate_basis == "per_section" and self.hole_section_id is None:
+            raise ValueError("hole_section_id is required for per-section rates")
         return self
 
 
@@ -163,16 +170,19 @@ class ServiceRateCardUpdate(BaseModel):
 
     service_id: UUID | None = None
     vendor_id: UUID | None = None
-    service_order_id: UUID | None = None
     currency_id: UUID | None = None
     unit_id: UUID | None = None
-    hole_section: str | None = Field(default=None, max_length=60)
+    hole_section_id: UUID | None = None
+    rate_basis: str | None = None
     operating_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     standby_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     mobilisation_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     demobilisation_rate: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=4
     )
+    personnel_operating_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
+    personnel_standby_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
+    other_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     effective_from: date | None = None
     effective_to: date | None = None
     description: str | None = None
@@ -182,14 +192,19 @@ class ServiceRateCardUpdate(BaseModel):
 class ServiceRateCardRead(_AuditRead):
     service_id: UUID
     vendor_id: UUID
-    service_order_id: UUID | None
     currency_id: UUID
     unit_id: UUID
-    hole_section: str | None
+    hole_section_id: UUID | None
+    hole_section_code: str | None = None
+    hole_section_name: str | None = None
+    rate_basis: str
     operating_rate: Decimal
     standby_rate: Decimal
     mobilisation_rate: Decimal
     demobilisation_rate: Decimal
+    personnel_operating_rate: Decimal
+    personnel_standby_rate: Decimal
+    other_rate: Decimal
     effective_from: date
     effective_to: date | None
     description: str | None
@@ -198,7 +213,6 @@ class ServiceRateCardRead(_AuditRead):
     service_name: str | None = None
     vendor_code: str | None = None
     vendor_name: str | None = None
-    service_order_number: str | None = None
     currency_code: str | None = None
     unit_code: str | None = None
 

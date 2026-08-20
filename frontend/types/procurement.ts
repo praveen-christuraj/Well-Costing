@@ -1,4 +1,5 @@
 export type RowState = 'clean' | 'new' | 'dirty'
+export type ServiceRateBasis = 'daily' | 'per_service' | 'per_section' | 'fixed'
 
 export interface AuditFields {
   id: string
@@ -43,14 +44,19 @@ export interface PurchaseOrderRecord extends AuditFields {
 export interface ServiceRateRecord extends AuditFields {
   service_id: string
   vendor_id: string
-  service_order_id: string | null
   currency_id: string
   unit_id: string
-  hole_section: string | null
+  hole_section_id: string | null
+  hole_section_code: string | null
+  hole_section_name: string | null
+  rate_basis: ServiceRateBasis
   operating_rate: string
   standby_rate: string
   mobilisation_rate: string
   demobilisation_rate: string
+  personnel_operating_rate: string
+  personnel_standby_rate: string
+  other_rate: string
   effective_from: string
   effective_to: string | null
   description: string | null
@@ -59,7 +65,6 @@ export interface ServiceRateRecord extends AuditFields {
   service_name: string | null
   vendor_code: string | null
   vendor_name: string | null
-  service_order_number: string | null
   currency_code: string | null
   unit_code: string | null
 }
@@ -112,12 +117,9 @@ export const ITEM_CATEGORY_SCOPES = [
   { label: 'Cement additive', value: 'cement_additive' },
 ]
 
-/** Common hole sections offered as suggestions when entering section-wise rates. */
-export const HOLE_SECTIONS = [
-  '36"',
-  '26"',
-  '17-1/2"',
-  '12-1/4"',
-  '8-1/2"',
-  '6"',
+export const SERVICE_RATE_BASES = [
+  { label: 'Daily rate', value: 'daily' },
+  { label: 'Per service', value: 'per_service' },
+  { label: 'Per section', value: 'per_section' },
+  { label: 'Fixed rate', value: 'fixed' },
 ]

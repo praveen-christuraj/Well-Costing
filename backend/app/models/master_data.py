@@ -43,6 +43,12 @@ class Currency(MasterDataMixin, Base):
     symbol: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
+class HoleSection(MasterDataMixin, Base):
+    """Configurable drilling hole section used for section-scoped service rates."""
+
+    __tablename__ = "hole_sections"
+
+
 class CostCategory(MasterDataMixin, Base):
     __tablename__ = "cost_categories"
 
@@ -317,8 +323,14 @@ class ServiceRateCard(TimestampMixin, AuditMixin, Base):
         ),
         CheckConstraint(
             "operating_rate >= 0 AND standby_rate >= 0 "
-            "AND mobilisation_rate >= 0 AND demobilisation_rate >= 0",
+            "AND mobilisation_rate >= 0 AND demobilisation_rate >= 0 "
+            "AND personnel_operating_rate >= 0 AND personnel_standby_rate >= 0 "
+            "AND other_rate >= 0",
             name="non_negative_service_rates",
+        ),
+        CheckConstraint(
+            "rate_basis IN ('daily','per_service','per_section','fixed')",
+            name="valid_service_rate_basis",
         ),
     )
 
@@ -329,14 +341,16 @@ class ServiceRateCard(TimestampMixin, AuditMixin, Base):
     vendor_id: Mapped[UUID] = mapped_column(
         ForeignKey("vendors.id", ondelete="RESTRICT"), index=True
     )
-    service_order_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("service_orders.id", ondelete="RESTRICT"), nullable=True, index=True
-    )
     currency_id: Mapped[UUID] = mapped_column(
         ForeignKey("currencies.id", ondelete="RESTRICT"), index=True
     )
     unit_id: Mapped[UUID] = mapped_column(ForeignKey("units.id", ondelete="RESTRICT"), index=True)
-    hole_section: Mapped[str | None] = mapped_column(String(60), nullable=True, index=True)
+    hole_section_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("hole_sections.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    rate_basis: Mapped[str] = mapped_column(
+        String(20), default="daily", server_default="daily", index=True
+    )
     operating_rate: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), default=Decimal("0"), server_default="0"
     )
@@ -349,6 +363,15 @@ class ServiceRateCard(TimestampMixin, AuditMixin, Base):
     demobilisation_rate: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), default=Decimal("0"), server_default="0"
     )
+    personnel_operating_rate: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), default=Decimal("0"), server_default="0"
+    )
+    personnel_standby_rate: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), default=Decimal("0"), server_default="0"
+    )
+    other_rate: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), default=Decimal("0"), server_default="0"
+    )
     effective_from: Mapped[date] = mapped_column(Date, index=True)
     effective_to: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -358,7 +381,7 @@ class ServiceRateCard(TimestampMixin, AuditMixin, Base):
 
     service: Mapped[CatalogItem] = relationship(lazy="joined")
     vendor: Mapped[Vendor] = relationship(lazy="joined")
-    service_order: Mapped[ServiceOrder | None] = relationship(lazy="joined")
+    hole_section: Mapped[HoleSection | None] = relationship(lazy="joined")
     currency: Mapped[Currency] = relationship(lazy="joined")
     unit: Mapped[Unit] = relationship(lazy="joined")
 
