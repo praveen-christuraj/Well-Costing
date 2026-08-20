@@ -20,6 +20,7 @@ const groups: NavGroup[] = [
       { key: 'units', label: 'Units of Measure', to: '/master-data/units' },
       { key: 'currencies', label: 'Currencies', to: '/master-data/currencies' },
       { key: 'item-categories', label: 'Item Categories', to: '/master-data/item-categories' },
+      { key: 'item-subcategories', label: 'Item Sub Categories', to: '/master-data/item-subcategories' },
       { key: 'hole-sections', label: 'Hole Sections', to: '/master-data/hole-sections' },
     ],
   },

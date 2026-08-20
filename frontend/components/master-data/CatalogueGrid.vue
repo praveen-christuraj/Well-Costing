@@ -7,6 +7,7 @@ import { computed, onMounted, ref } from 'vue'
 import EnterpriseGrid from '~/components/data-grid/EnterpriseGrid.vue'
 import type { EditableRow, GridColumn, GridFilterDefinition } from '~/types/grid'
 import type { MasterDataRecord, PageResponse } from '~/types/masterData'
+import { RATE_BASES } from '~/types/wellCosting'
 
 const props = defineProps<{
   entity: string
@@ -18,11 +19,16 @@ const props = defineProps<{
   identifierLabel?: string
   /** Show specification and manufacturer columns. */
   showEquipmentDetail?: boolean
+  /** Show the configurable Sub category picker (tangibles and consumables). */
+  showSubCategory?: boolean
+  /** Show the Rate type picker (services: daily / per section / per service / fixed). */
+  showRateBasis?: boolean
 }>()
 
 const api = useMasterData()
 const references = useReferenceOptions()
 const categoryOptions = ref<{ label: string, value: string }[]>([])
+const subCategoryOptions = ref<{ label: string, value: string }[]>([])
 
 const columns = computed<GridColumn[]>(() => {
   const base: GridColumn[] = [
@@ -32,6 +38,16 @@ const columns = computed<GridColumn[]>(() => {
     { field: 'default_unit_id', header: 'UOM', type: 'select', options: references.units.value, width: '150px' },
     { field: 'material_number', header: props.identifierLabel ?? 'Material number', width: '170px' },
   ]
+  if (props.showSubCategory) {
+    base.push(
+      { field: 'sub_category_id', header: 'Sub category', type: 'select', options: subCategoryOptions.value, width: '200px' },
+    )
+  }
+  if (props.showRateBasis) {
+    base.push(
+      { field: 'rate_basis', header: 'Rate type', type: 'select', options: RATE_BASES, width: '170px' },
+    )
+  }
   if (props.showEquipmentDetail) {
     base.push(
       { field: 'specification', header: 'Specification', width: '170px' },
@@ -45,10 +61,16 @@ const columns = computed<GridColumn[]>(() => {
   return base
 })
 
-const filters = computed<GridFilterDefinition[]>(() => [
-  { key: 'item_category_id', label: 'Category', type: 'select', options: categoryOptions.value },
-  { key: 'default_unit_id', label: 'UOM', type: 'select', options: references.units.value, width: '150px' },
-])
+const filters = computed<GridFilterDefinition[]>(() => {
+  const result: GridFilterDefinition[] = [
+    { key: 'item_category_id', label: 'Category', type: 'select', options: categoryOptions.value },
+  ]
+  if (props.showSubCategory) {
+    result.push({ key: 'sub_category_id', label: 'Sub category', type: 'select', options: subCategoryOptions.value, width: '190px' })
+  }
+  result.push({ key: 'default_unit_id', label: 'UOM', type: 'select', options: references.units.value, width: '150px' })
+  return result
+})
 
 onMounted(async () => {
   await references.load(['units', 'item-categories'])
@@ -64,6 +86,20 @@ onMounted(async () => {
   catch {
     categoryOptions.value = []
   }
+  if (props.showSubCategory) {
+    try {
+      const page = await api.listPage('item-subcategories', {
+        page: 1,
+        page_size: 500,
+        applies_to: props.categoryScope,
+        is_active: true,
+      })
+      subCategoryOptions.value = page.items.map(item => ({ label: `${item.code} — ${item.name}`, value: item.id }))
+    }
+    catch {
+      subCategoryOptions.value = []
+    }
+  }
 })
 
 function fetchPage(params: Record<string, unknown>): Promise<PageResponse<Record<string, unknown>>> {
@@ -77,6 +113,8 @@ function toRow(record: Record<string, unknown>) {
     code: item.code,
     name: item.name,
     item_category_id: item.item_category_id ?? '',
+    sub_category_id: item.sub_category_id ?? '',
+    rate_basis: item.rate_basis ?? 'daily',
     default_unit_id: item.default_unit_id ?? '',
     material_number: item.material_number ?? '',
     specification: item.specification ?? '',
@@ -91,6 +129,8 @@ function toPayload(row: EditableRow) {
     code: String(row.code ?? '').trim(),
     name: String(row.name ?? '').trim(),
     item_category_id: row.item_category_id || null,
+    sub_category_id: row.sub_category_id || null,
+    ...(props.showRateBasis ? { rate_basis: row.rate_basis || 'daily' } : {}),
     default_unit_id: row.default_unit_id || null,
     material_number: row.material_number || null,
     specification: row.specification || null,
@@ -104,6 +144,8 @@ const blankRow = () => ({
   code: '',
   name: '',
   item_category_id: '',
+  sub_category_id: '',
+  rate_basis: 'daily',
   default_unit_id: '',
   material_number: '',
   specification: '',

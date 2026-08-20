@@ -15,8 +15,12 @@ export interface AppNavigationItem {
 }
 
 export const appNavigation: AppNavigationItem[] = [
-  { key: 'requirements', label: 'Well Intake', icon: 'pi pi-clipboard', to: '/requirements', enabled: false },
+  { key: 'requirements', label: 'Well Intake', icon: 'pi pi-clipboard', to: '/requirements', enabled: true },
+  { key: 'cost-builder', label: 'Cost Builder (AFE)', icon: 'pi pi-calculator', to: '/cost-builder', enabled: true },
   { key: 'master-data', label: 'Master Data', icon: 'pi pi-book', to: '/master-data/vendors', enabled: true },
+  { key: 'cost-control', label: 'Cost Control', icon: 'pi pi-arrow-right-arrow-left', to: '/cost-control', enabled: true },
+  { key: 'reports', label: 'Reports', icon: 'pi pi-chart-bar', to: '/reports', enabled: true },
+  { key: 'assurance', label: 'Assurance', icon: 'pi pi-shield', to: '/assurance', enabled: true },
 ]
 
 /** Modules the user can actually open today. */

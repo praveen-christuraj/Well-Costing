@@ -11,7 +11,7 @@ definePageMeta({ middleware: 'auth' })
   <div class="library-page">
     <PageHeader
       title="Tangibles"
-      description="Maintain drilling tangibles — bits, casings, centralisers, float shoes and collars, top and bottom plugs, wellheads, pup joints, pip tags, and threads — with their category, unit, and material numbers."
+      description="Maintain drilling tangibles — bits, casings, centralisers, float shoes and collars, top and bottom plugs, wellheads, pup joints, pip tags, and threads — with their category, sub category, unit, and material numbers."
     />
     <MasterDataNav active="tangibles" />
     <CatalogueGrid
@@ -21,6 +21,7 @@ definePageMeta({ middleware: 'auth' })
       category-scope="tangible"
       identifier-label="Material number"
       show-equipment-detail
+      show-sub-category
     />
   </div>
 </template>

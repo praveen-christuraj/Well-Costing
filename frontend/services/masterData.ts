@@ -20,6 +20,8 @@ export interface MasterDataWrite {
   cost_code_id?: string | null
   default_unit_id?: string | null
   item_category_id?: string | null
+  sub_category_id?: string | null
+  rate_basis?: string | null
   material_number?: string | null
   specification?: string | null
   manufacturer?: string | null

@@ -258,6 +258,13 @@ class ExcelImportService:
                 sort_by="effective_from",
                 sort_order="asc",
             )
+        elif entity == "rate-revisions":
+            # The master rate change log is append-only and read-only: export
+            # it with the same headers the Rate Revisions page shows.
+            page = ItemPriceService(self.session, self.actor_id).revisions(
+                page=1,
+                page_size=100_000,
+            )
         else:
             page = MasterDataService(self.session, entity, self.actor_id).list_page(
                 page=1,

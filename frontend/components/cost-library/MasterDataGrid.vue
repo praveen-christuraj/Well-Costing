@@ -94,7 +94,8 @@ function markDirty(row: EditableMasterDataRow): void {
 }
 
 function addRows(count = 5): void {
-  rows.value.push(...Array.from({ length: count }, () => ({
+  // New rows are unshifted so data entry always happens at the top of the grid.
+  rows.value.unshift(...Array.from({ length: count }, () => ({
     code: '',
     name: '',
     description: '',
@@ -113,13 +114,13 @@ function duplicateSelected(): void {
     const { id: _id, ...copy } = row
     return { ...copy, code: `${row.code}-COPY`, _state: 'new' as const }
   })
-  rows.value.push(...copies)
+  rows.value.unshift(...copies)
   selected.value = []
 }
 
 function applyPaste(): void {
   const parsed = parseTsv(pasteText.value, columns.value)
-  rows.value.push(...parsed.map(values => ({
+  rows.value.unshift(...parsed.map(values => ({
     code: values.code ?? '',
     name: values.name ?? '',
     symbol: values.symbol ?? '',

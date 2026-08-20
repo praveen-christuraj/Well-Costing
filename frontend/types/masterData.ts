@@ -16,6 +16,10 @@ export interface MasterDataRecord {
   item_category_id?: string | null
   item_category_code?: string | null
   item_category_name?: string | null
+  sub_category_id?: string | null
+  sub_category_code?: string | null
+  sub_category_name?: string | null
+  rate_basis?: string | null
   material_number?: string | null
   specification?: string | null
   manufacturer?: string | null

@@ -16,16 +16,23 @@ describe('AppSidebar', () => {
     const wrapper = mountNav()
 
     const links = wrapper.findAll('a')
-    expect(links).toHaveLength(1)
-    expect(links[0]?.attributes('href')).toBe('/master-data/vendors')
+    expect(links).toHaveLength(6)
+    expect(links.map(link => link.attributes('href'))).toEqual([
+      '/requirements',
+      '/cost-builder',
+      '/master-data/vendors',
+      '/cost-control',
+      '/reports',
+      '/assurance',
+    ])
+    expect(wrapper.text()).toContain('Well Intake')
+    expect(wrapper.text()).toContain('Cost Builder (AFE)')
     expect(wrapper.text()).toContain('Master Data')
   })
 
-  it('does not render modules that are not enabled yet', () => {
+  it('renders no placeholder or hidden links', () => {
     const wrapper = mountNav()
 
-    expect(wrapper.text()).not.toContain('Well Intake')
-    expect(wrapper.html()).not.toContain('/requirements')
-    expect(wrapper.html()).not.toContain('/cost-library')
+    expect(wrapper.html()).not.toContain('/cost-library/services')
   })
 })

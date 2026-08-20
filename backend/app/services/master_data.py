@@ -19,6 +19,7 @@ from app.models.master_data import (
     Equipment,
     HoleSection,
     ItemCategory,
+    ItemSubCategory,
     Material,
     MudChemical,
     Rate,
@@ -61,6 +62,7 @@ CATALOG_FIELDS = COMMON_FIELDS | {
     "cost_code_id",
     "default_unit_id",
     "item_category_id",
+    "sub_category_id",
     "material_number",
     "specification",
     "manufacturer",
@@ -73,7 +75,10 @@ ENTITY_CONFIGS: dict[str, EntityConfig] = {
     "cost-codes": EntityConfig(CostCode, COMMON_FIELDS | {"cost_category_id"}),
     "vendors": EntityConfig(Vendor, VENDOR_FIELDS),
     "item-categories": EntityConfig(ItemCategory, COMMON_FIELDS | {"applies_to"}),
-    "services": EntityConfig(Service, CATALOG_FIELDS, "service"),
+    "item-subcategories": EntityConfig(
+        ItemSubCategory, COMMON_FIELDS | {"applies_to"}
+    ),
+    "services": EntityConfig(Service, CATALOG_FIELDS | {"rate_basis"}, "service"),
     "tangibles": EntityConfig(Tangible, CATALOG_FIELDS, "tangible"),
     "materials": EntityConfig(Material, CATALOG_FIELDS, "material"),
     "equipment": EntityConfig(Equipment, CATALOG_FIELDS, "equipment"),
@@ -276,6 +281,16 @@ class MasterDataService:
             supplied["code"] = str(supplied["code"]).strip().upper()
         if "name" in supplied and supplied["name"] is not None:
             supplied["name"] = str(supplied["name"]).strip()
+        if "rate_basis" in supplied and supplied["rate_basis"] is not None:
+            raw = str(supplied["rate_basis"]).strip().lower().replace(" ", "_").replace("-", "_")
+            synonyms = {
+                "daily_rate": "daily",
+                "per_day": "daily",
+                "per_section_rate": "per_section",
+                "per_service_rate": "per_service",
+                "fixed_rate": "fixed",
+            }
+            supplied["rate_basis"] = synonyms.get(raw, raw)
         return supplied
 
     def _validate_references(self, values: dict[str, Any], current_id: UUID | None = None) -> None:
@@ -298,12 +313,23 @@ class MasterDataService:
             raise BusinessValidationError(
                 "applies_to must be one of service, tangible, mud_chemical, cement_additive"
             )
+        rate_basis = values.get("rate_basis")
+        if rate_basis is not None and rate_basis not in {
+            "daily",
+            "per_service",
+            "per_section",
+            "fixed",
+        }:
+            raise BusinessValidationError(
+                "rate_basis must be one of daily, per_service, per_section, fixed"
+            )
         reference_models = {
             "parent_id": CostCategory,
             "cost_category_id": CostCategory,
             "cost_code_id": CostCode,
             "default_unit_id": Unit,
             "item_category_id": ItemCategory,
+            "sub_category_id": ItemSubCategory,
         }
         for field, model in reference_models.items():
             value = values.get(field)
@@ -329,6 +355,8 @@ class MasterDataService:
             "cost_code_id": getattr(instance, "cost_code_id", None),
             "default_unit_id": getattr(instance, "default_unit_id", None),
             "item_category_id": getattr(instance, "item_category_id", None),
+            "sub_category_id": getattr(instance, "sub_category_id", None),
+            "rate_basis": getattr(instance, "rate_basis", None),
             "material_number": getattr(instance, "material_number", None),
             "specification": getattr(instance, "specification", None),
             "manufacturer": getattr(instance, "manufacturer", None),
@@ -359,6 +387,12 @@ class MasterDataService:
                     else None,
                     "item_category_name": instance.item_category.name
                     if instance.item_category
+                    else None,
+                    "sub_category_code": instance.sub_category.code
+                    if instance.sub_category
+                    else None,
+                    "sub_category_name": instance.sub_category.name
+                    if instance.sub_category
                     else None,
                 }
             )

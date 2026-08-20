@@ -22,11 +22,6 @@ export default defineNuxtConfig({
   devtools: { enabled: process.env.NODE_ENV !== 'production' },
   modules: ['@pinia/nuxt', '@primevue/nuxt-module', '@nuxt/eslint'],
   css: ['primeicons/primeicons.css', '~/assets/css/main.css'],
-  // Default Nitro/h3 body cap is 1 MB, which rejects typical Excel workbooks
-  // and surfaces as a 502 from the API proxy. Align with the 15 MB import limit.
-  nitro: {
-    maxRequestBodySize: 16 * 1024 * 1024,
-  },
   typescript: {
     strict: true,
     // typeCheck runs vue-tsc during every build — very slow on low-memory devices

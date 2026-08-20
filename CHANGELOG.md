@@ -2,6 +2,43 @@
 
 All notable project changes are documented here.
 
+## 2026-08-20 — Well intake, AFE builder, and catalogue classification
+
+The full workflow is now reachable from the navigation bar instead of being
+hidden behind feature flags: enter projects, wells, and requirements on **Well
+Intake**, generate the cost build and AFE baseline in **Cost Builder (AFE)**,
+and maintain the catalogue on **Master Data**.
+
+### Added
+
+- **Well Intake UI.** Projects, wells (rig, status, spud/completion dates), and
+  requirements are created and maintained in the browser. Requirement detail
+  pages edit the line-item grid (catalogue item, cost code, quantity, section,
+  planned days/depths), then submit the requirement to the Cost Builder.
+- **Service rate classification.** Services now carry a `rate_basis`
+  (daily rate / per section / per service / fixed rate) on the Services page,
+  matching the well rate book's pricing model. Free-text labels such as
+  "Fixed rate" are normalised to the stored enum on save and Excel import.
+- **Tangible sub categories.** A configurable `item-subcategories` master-data
+  page plus a **Sub category** dropdown on the Tangibles page. Sub categories
+  are scoped (`applies_to`) and flow through Excel import/export and the API.
+- **Rate Revisions export and print.** The rate change log now has the same
+  Export (Excel) and Print buttons as every other grid page, with a dedicated
+  `/export/rate-revisions` workbook.
+- **Navigation.** All modules are enabled: Well Intake, Cost Builder (AFE),
+  Master Data, Cost Control, Reports, and Assurance. The post-login landing
+  route is now Well Intake.
+
+### Changed
+
+- **Grid data entry.** New rows are always inserted at the top of the grid
+  (never the bottom), and grids no longer re-sort alphabetically while you
+  type — rows keep their position until you save, then the server re-sorts.
+- **Tangible rate revisions.** The row action on Tangible Rates is now a
+  clearly labelled **Revise** button next to Edit.
+- Dropped the invalid `nitro.maxRequestBodySize` option (no longer supported
+  by the locked Nitro version) so `npm run typecheck` is green again.
+
 ## 2026-08-20 — Well-scoped rate governance
 
 Rates are renegotiated periodically while twenty rigs drill at once. A revision

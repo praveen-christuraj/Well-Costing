@@ -57,7 +57,8 @@ async function load(): Promise<void> {
 }
 
 function addRows(): void {
-  rows.value.push(...Array.from({ length: 5 }, () => ({
+  // New rows are unshifted so data entry happens at the top of the list.
+  rows.value.unshift(...Array.from({ length: 5 }, () => ({
     item_id: '', vendor_id: '', currency_id: '', unit_id: '', amount: '', effective_from: '', effective_to: '', description: '', is_active: true, _state: 'new' as const,
   })))
 }
