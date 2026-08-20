@@ -90,6 +90,7 @@ function toDateString(value: Date | null): string | null {
 }
 
 function openWellDialog(record?: WellRecord): void {
+  const defaultProjectId = projectFilter.value ?? activeProjectOptions.value[0]?.id ?? ''
   wellForm.value = record
     ? {
         id: record.id,
@@ -105,7 +106,7 @@ function openWellDialog(record?: WellRecord): void {
       }
     : {
         id: undefined,
-        project_id: projectFilter.value ?? '',
+        project_id: defaultProjectId,
         code: '',
         name: '',
         rig_name: '',
@@ -155,9 +156,10 @@ const requirementDialog = ref(false)
 const requirementForm = ref({ id: undefined as string | undefined, well_id: '', code: '', title: '', description: '' })
 
 function openRequirementDialog(record?: RequirementRecord): void {
+  const defaultWellId = wellFilter.value ?? wellOptions.value[0]?.id ?? ''
   requirementForm.value = record
     ? { id: record.id, well_id: record.well_id, code: record.code, title: record.title, description: record.description ?? '' }
-    : { id: undefined, well_id: wellFilter.value ?? '', code: '', title: '', description: '' }
+    : { id: undefined, well_id: defaultWellId, code: '', title: '', description: '' }
   requirementDialog.value = true
 }
 

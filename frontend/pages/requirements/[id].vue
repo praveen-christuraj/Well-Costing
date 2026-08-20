@@ -219,7 +219,6 @@ async function save(): Promise<void> {
 async function submit(): Promise<void> {
   error.value = null
   success.value = null
-  if (!window.confirm('Submit this requirement? It becomes read-only and can be used to generate a cost build (AFE).')) return
   submitting.value = true
   try {
     requirement.value = await api.submit(id)
