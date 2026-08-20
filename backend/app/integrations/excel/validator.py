@@ -16,6 +16,7 @@ from app.models.master_data import (
     CostCode,
     Currency,
     ItemCategory,
+    ItemSubCategory,
     PurchaseOrder,
     ServiceOrder,
     Unit,
@@ -66,15 +67,22 @@ class ExcelValidator:
                     if isinstance(order_no, str):
                         key = order_no.strip().upper()
                         if key in seen_order_numbers:
-                            raise ValueError(f"Duplicate order_number '{order_no}' within workbook (row {excel_row})")
+                            raise ValueError(
+                                f"Duplicate order_number '{order_no}' within workbook "
+                                f"(row {excel_row})"
+                            )
                         seen_order_numbers.add(key)
-                        # DB duplicate check – case-insensitive, friendly error instead of DB IntegrityError
+                        # DB duplicate check - case-insensitive, friendly error instead of
+                        # DB IntegrityError
                         model = ServiceOrder if entity == "service-orders" else PurchaseOrder
                         exists = self.session.scalar(
                             select(model).where(model.order_number.ilike(key))
                         )
                         if exists is not None:
-                            raise ValueError(f"order_number '{order_no}' already exists in database – will be skipped on import")
+                            raise ValueError(
+                                f"order_number '{order_no}' already exists in database "
+                                "- will be skipped on import"
+                            )
                 valid.append(normalized)
             except (ValueError, ValidationError, TypeError, InvalidOperation) as exc:
                 errors.append(
@@ -192,8 +200,11 @@ class ExcelValidator:
                     ("cost_code", "cost_code_id", CostCode),
                     ("default_unit_code", "default_unit_id", Unit),
                     ("item_category_code", "item_category_id", ItemCategory),
+                    ("sub_category_code", "sub_category_id", ItemSubCategory),
                 ]
             )
+        if entity == "services":
+            values["rate_basis"] = self._normalize_rate_basis(values.get("rate_basis", "daily"))
         for source_field, target_field, model in mappings:
             code = values.pop(source_field, None)
             if code in (None, ""):
@@ -206,6 +217,21 @@ class ExcelValidator:
             if instance is None:
                 raise ValueError(f"{source_field} '{code}' does not exist")
             values[target_field] = instance.id
+
+    @staticmethod
+    def _normalize_rate_basis(value: Any) -> str:
+        """Normalise free-text service rate basis labels to the stored enum."""
+        if value in (None, ""):
+            return "daily"
+        raw = str(value).strip().lower().replace(" ", "_").replace("-", "_")
+        synonyms = {
+            "daily_rate": "daily",
+            "per_day": "daily",
+            "per_section_rate": "per_section",
+            "per_service_rate": "per_service",
+            "fixed_rate": "fixed",
+        }
+        return synonyms.get(raw, raw)
 
     def _resolve_codes(
         self, values: dict[str, Any], mappings: list[tuple[str, str, type[Any]]]
@@ -308,7 +334,15 @@ class ExcelValidator:
         if value in (None, ""):
             values.pop(field, None)
             return
-        raw = str(value).strip().replace(",", "").replace("$", "").replace("₹", "").replace("€", "").replace("£", "")
+        raw = (
+            str(value)
+            .strip()
+            .replace(",", "")
+            .replace("$", "")
+            .replace("₹", "")
+            .replace("€", "")
+            .replace("£", "")
+        )
         # Handle accounting parentheses: (1234.50) -> -1234.50
         if raw.startswith("(") and raw.endswith(")"):
             raw = "-" + raw[1:-1]
@@ -334,7 +368,10 @@ class ExcelValidator:
 
     @staticmethod
     def _normalize_status(value: object, kind: str) -> str:
-        """Relaxed status normalization: case-insensitive, whitespace-tolerant, defaults to draft."""
+        """Relaxed status normalization: case-insensitive, whitespace-tolerant.
+
+        Unknown values default to draft.
+        """
         raw = str(value).strip().lower().replace(" ", "_").replace("-", "_")
         service_allowed = {"draft", "active", "expired", "cancelled"}
         purchase_allowed = {"draft", "open", "partially_received", "closed", "cancelled"}
@@ -352,8 +389,8 @@ class ExcelValidator:
         normalized = synonyms.get(raw, raw)
         if normalized in allowed:
             return normalized
-        # Relaxation: unknown status coerced to draft/open instead of hard failure
-        return "draft" if kind == "service" else "draft"
+        # Relaxation: unknown status coerced to draft instead of hard failure
+        return "draft"
 
     @staticmethod
     def _boolean(value: object) -> bool:
@@ -379,7 +416,7 @@ class ExcelValidator:
         if isinstance(value, date):
             return value
         if isinstance(value, (int, float)):
-            # Excel serial date number – approximate from 1899-12-30 epoch
+            # Excel serial date number - approximate from 1899-12-30 epoch
             from datetime import timedelta
             try:
                 return date(1899, 12, 30) + timedelta(days=int(value))

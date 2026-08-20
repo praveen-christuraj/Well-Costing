@@ -21,6 +21,8 @@ class MasterDataCreate(BaseModel):
     cost_code_id: UUID | None = None
     default_unit_id: UUID | None = None
     item_category_id: UUID | None = None
+    sub_category_id: UUID | None = None
+    rate_basis: str | None = Field(default=None, max_length=20)
     material_number: str | None = Field(default=None, max_length=100)
     specification: str | None = Field(default=None, max_length=255)
     manufacturer: str | None = Field(default=None, max_length=150)
@@ -45,6 +47,8 @@ class MasterDataUpdate(BaseModel):
     cost_code_id: UUID | None = None
     default_unit_id: UUID | None = None
     item_category_id: UUID | None = None
+    sub_category_id: UUID | None = None
+    rate_basis: str | None = Field(default=None, max_length=20)
     material_number: str | None = Field(default=None, max_length=100)
     specification: str | None = Field(default=None, max_length=255)
     manufacturer: str | None = Field(default=None, max_length=150)
@@ -74,6 +78,8 @@ class MasterDataRead(BaseModel):
     cost_code_id: UUID | None = None
     default_unit_id: UUID | None = None
     item_category_id: UUID | None = None
+    sub_category_id: UUID | None = None
+    rate_basis: str | None = None
     material_number: str | None = None
     specification: str | None = None
     manufacturer: str | None = None
@@ -90,6 +96,8 @@ class MasterDataRead(BaseModel):
     default_unit_code: str | None = None
     item_category_code: str | None = None
     item_category_name: str | None = None
+    sub_category_code: str | None = None
+    sub_category_name: str | None = None
 
 
 class RateCreate(BaseModel):

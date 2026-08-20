@@ -11,7 +11,7 @@ definePageMeta({ middleware: 'auth' })
   <div class="library-page">
     <PageHeader
       title="Services"
-      description="Maintain every well service used during drilling and completion — directional, cementing, logging, surveys, and support services. Rates for each service are held on the Service Rates page."
+      description="Maintain every well service used during drilling and completion — directional, cementing, logging, surveys, and support services — and classify how each one is charged: daily rate, per section, per service, or a fixed rate. The amount itself is always agreed per well on the well's rate book."
     />
     <MasterDataNav active="services" />
     <CatalogueGrid
@@ -20,6 +20,7 @@ definePageMeta({ middleware: 'auth' })
       singular="service"
       category-scope="service"
       identifier-label="Reference number"
+      show-rate-basis
     />
   </div>
 </template>

@@ -8,6 +8,7 @@
  */
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import Button from 'primevue/button'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
 import Message from 'primevue/message'
@@ -15,11 +16,13 @@ import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import MasterDataNav from '~/components/master-data/MasterDataNav.vue'
 import PageHeader from '~/components/design-system/PageHeader.vue'
+import { downloadBlob, exportFilename } from '~/utils/download'
 import { RATE_CHANGE_TYPES, type RateRevisionRecord } from '~/types/procurement'
 
 definePageMeta({ middleware: 'auth' })
 
 const procurement = useProcurement()
+const masterData = useMasterData()
 const references = useReferenceOptions()
 
 const revisions = ref<RateRevisionRecord[]>([])
@@ -27,11 +30,15 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(25)
 const loading = ref(false)
+const exporting = ref(false)
 const error = ref<string | null>(null)
+const success = ref<string | null>(null)
 const itemFilter = ref<string | null>(null)
 const changeTypeFilter = ref<string | null>(null)
 
 const first = computed(() => (page.value - 1) * pageSize.value)
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+const printedAt = computed(() => new Date().toLocaleString())
 
 async function load(): Promise<void> {
   loading.value = true
@@ -52,6 +59,29 @@ async function load(): Promise<void> {
   finally {
     loading.value = false
   }
+}
+
+/** Export the whole change log (not just the current page) to Excel. */
+async function exportWorkbook(): Promise<void> {
+  exporting.value = true
+  error.value = null
+  try {
+    const blob = await masterData.export('rate-revisions')
+    downloadBlob(blob, exportFilename('rate-revisions'))
+    success.value = 'Rate revisions exported to Excel.'
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error
+      ? `The export failed: ${caught.message}`
+      : 'The export could not be generated.'
+  }
+  finally {
+    exporting.value = false
+  }
+}
+
+function printLog(): void {
+  if (typeof window !== 'undefined' && typeof window.print === 'function') window.print()
 }
 
 function onPage(event: { page: number, rows: number }): void {
@@ -92,7 +122,25 @@ onMounted(() => {
     <PageHeader
       title="Rate Revisions"
       description="Every master rate change, newest first: the amount before and after, the date it takes effect, the reason, and who made it. Rates are superseded rather than overwritten, so any past date still resolves to exactly one rate."
-    />
+    >
+      <template #actions>
+        <Button
+          label="Export"
+          icon="pi pi-file-excel"
+          severity="secondary"
+          outlined
+          :loading="exporting"
+          @click="exportWorkbook"
+        />
+        <Button
+          label="Print"
+          icon="pi pi-print"
+          severity="secondary"
+          outlined
+          @click="printLog"
+        />
+      </template>
+    </PageHeader>
     <MasterDataNav active="rate-revisions" />
 
     <div class="rr__filters">
@@ -117,6 +165,7 @@ onMounted(() => {
       />
     </div>
 
+    <Message v-if="success" severity="success" :closable="true" @close="success = null">{{ success }}</Message>
     <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
     <DataTable
@@ -167,6 +216,47 @@ onMounted(() => {
       </Column>
       <template #empty>No master rate has been changed yet.</template>
     </DataTable>
+
+    <!-- Print-only rendering: hidden on screen, used by the browser print dialog -->
+    <div class="eg__print" aria-hidden="true">
+      <header class="eg__print-header">
+        <h2>Rate revisions</h2>
+        <p>
+          {{ total }} record(s) · page {{ page }} of {{ totalPages }} · printed {{ printedAt }}
+        </p>
+      </header>
+      <table class="eg__print-table">
+        <thead>
+          <tr>
+            <th>Changed</th>
+            <th>Item</th>
+            <th>Change</th>
+            <th>Rev.</th>
+            <th>Previous</th>
+            <th>New</th>
+            <th>Delta</th>
+            <th>Currency / UOM</th>
+            <th>Effective from</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="data in revisions" :key="data.id">
+            <td>{{ new Date(data.created_at).toLocaleString() }}</td>
+            <td>{{ data.item_code ?? '—' }} — {{ data.item_name }}</td>
+            <td>{{ data.change_type }}</td>
+            <td>{{ data.revision_number }}</td>
+            <td>{{ money(data.previous_amount) }}</td>
+            <td>{{ money(data.new_amount) }}</td>
+            <td>{{ delta(data.delta_amount) }}</td>
+            <td>{{ data.currency_code ?? '—' }} / {{ data.unit_code ?? '—' }}</td>
+            <td>{{ data.effective_from ?? '—' }}</td>
+            <td>{{ data.reason ?? '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="!revisions.length" class="eg__print-empty">No master rate changes match the current filters.</p>
+    </div>
   </div>
 </template>
 

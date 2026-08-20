@@ -573,6 +573,7 @@ defineExpose({ reload: load })
       scrollable
       scroll-height="560px"
       removable-sort
+      lazy
       :sort-field="sortField"
       :sort-order="sortOrder === 'desc' ? -1 : 1"
       class="eg__table"
@@ -669,7 +670,7 @@ defineExpose({ reload: load })
         </template>
       </Column>
 
-      <Column header="Actions" :frozen="true" align-frozen="right" header-style="width: 12rem">
+      <Column header="Actions" :frozen="true" align-frozen="right" header-style="width: 15rem">
         <template #body="{ data }">
           <div class="eg__row-actions">
             <template v-if="data._editing || data._state === 'new'">

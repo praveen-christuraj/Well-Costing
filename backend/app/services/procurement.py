@@ -181,14 +181,22 @@ class _BaseService(Generic[ModelT, ReadT]):  # noqa: UP046
                 if isinstance(order_no, str):
                     key = order_no.strip().upper()
                     if key in seen:
-                        raise BusinessValidationError(f"Duplicate order_number '{order_no.strip()}' within bulk payload (row {index + 1})")
+                        raise BusinessValidationError(
+                            f"Duplicate order_number '{order_no.strip()}' within bulk payload "
+                            f"(row {index + 1})"
+                        )
                     seen.add(key)
-                    # DB duplicate check – friendly error before attempting insert
+                    # DB duplicate check - friendly error before attempting insert
                     model = getattr(self, "model", None)
                     if model is not None and hasattr(model, "order_number") and key:
-                        exists = self.session.scalar(select(model).where(model.order_number.ilike(key)))  # type: ignore
+                        exists = self.session.scalar(
+                            select(model).where(model.order_number.ilike(key))  # type: ignore
+                        )
                         if exists is not None:
-                            raise BusinessValidationError(f"order_number '{key}' already exists – row will be skipped; remove or change it for bulk import")
+                            raise BusinessValidationError(
+                                f"order_number '{key}' already exists - row will be skipped; "
+                                "remove or change it for bulk import"
+                            )
                 self._validate(data)
             except BusinessValidationError as exc:
                 errors.append(
@@ -288,7 +296,12 @@ class ServiceOrderService(_BaseService[ServiceOrder, ServiceOrderRead]):
         # Relaxation: status case-insensitive and synonym tolerant
         if values.get("status"):
             raw = str(values["status"]).strip().lower().replace(" ", "_").replace("-", "_")
-            synonyms = {"activated": "active", "enabled": "active", "canceled": "cancelled", "cancelled": "cancelled"}
+            synonyms = {
+                "activated": "active",
+                "enabled": "active",
+                "canceled": "cancelled",
+                "cancelled": "cancelled",
+            }
             raw = synonyms.get(raw, raw)
             if raw not in {"draft", "active", "expired", "cancelled"}:
                 raw = "draft"
@@ -330,7 +343,12 @@ class PurchaseOrderService(_BaseService[PurchaseOrder, PurchaseOrderRead]):
             values["order_number"] = str(values["order_number"]).strip().upper()
         if values.get("status"):
             raw = str(values["status"]).strip().lower().replace(" ", "_").replace("-", "_")
-            synonyms = {"activated": "open", "partial": "partially_received", "partiallyreceived": "partially_received", "canceled": "cancelled"}
+            synonyms = {
+                "activated": "open",
+                "partial": "partially_received",
+                "partiallyreceived": "partially_received",
+                "canceled": "cancelled",
+            }
             raw = synonyms.get(raw, raw)
             if raw not in {"draft", "open", "partially_received", "closed", "cancelled"}:
                 raw = "draft"

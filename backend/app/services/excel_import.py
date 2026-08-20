@@ -1,5 +1,6 @@
 """Transactional Excel preview, validation, commit, history, and export workflows."""
 
+import contextlib
 import hashlib
 from math import ceil
 from pathlib import Path
@@ -117,23 +118,29 @@ class ExcelImportService:
             return ImportCommitResponse(
                 batch_id=batch.id, status=batch.status, imported_rows=batch.imported_rows
             )
-        # Relaxation: procurement bulk imports allow partial commits (valid rows import even if some errored)
+        # Relaxation: procurement bulk imports allow partial commits (valid rows
+        # import even if some errored)
         # Non-procurement entities remain strict to preserve existing behaviour
         if not batch.staged_rows:
-            raise BusinessValidationError("No valid rows to import – fix errors and re-upload")
+            raise BusinessValidationError("No valid rows to import - fix errors and re-upload")
         if entity not in PROCUREMENT_ENTITIES and entity != "rates":
             if batch.status != "validated" or batch.error_rows:
-                raise BusinessValidationError("Only a fully validated import batch can be committed")
+                raise BusinessValidationError(
+                    "Only a fully validated import batch can be committed"
+                )
         else:
             # procurement/rates: allow commit when at least one valid row exists
             if batch.status == "committed":
                 pass
             elif batch.status not in ("validated", "invalid"):
-                raise BusinessValidationError("Only a fully validated import batch can be committed")
+                raise BusinessValidationError(
+                    "Only a fully validated import batch can be committed"
+                )
             if not batch.staged_rows:
                 raise BusinessValidationError("Only a batch with valid rows can be committed")
 
         from sqlalchemy.exc import IntegrityError
+
         from app.core.exceptions import ConflictError
 
         BULK_CHUNK = 500
@@ -150,13 +157,14 @@ class ExcelImportService:
                         )
                         imported += 1
                     except (ConflictError, IntegrityError, BusinessValidationError) as exc:
-                        # Relaxation: skip duplicate/conflict rows instead of aborting entire bulk import
+                        # Relaxation: skip duplicate/conflict rows instead of aborting
+                        # the entire bulk import
                         self.session.rollback()
                         # re-attach batch after rollback
                         batch = self.batches.get(batch_id)  # type: ignore
                         skipped += 1
                         # record skip as import error for traceability
-                        try:
+                        with contextlib.suppress(Exception):
                             batch.errors.append(  # type: ignore
                                 ImportError(
                                     row_number=idx + 2,
@@ -167,8 +175,6 @@ class ExcelImportService:
                                     updated_by=self.actor_id,
                                 )
                             )
-                        except Exception:
-                            pass
                         continue
                     # Chunked flush to avoid large transaction memory/timeouts for bulk data
                     if imported % BULK_CHUNK == 0:
@@ -205,6 +211,8 @@ class ExcelImportService:
                 self.session.flush()
             # Refresh batch reference after potential rollbacks
             batch = self.batches.get(batch_id)  # type: ignore
+            if batch is None:  # pragma: no cover - defensive; the batch exists
+                raise NotFoundError("Import batch not found")
             batch.status = "committed"
             batch.imported_rows = imported
             batch.updated_by = self.actor_id
@@ -257,6 +265,13 @@ class ExcelImportService:
                 is_active=None,
                 sort_by="effective_from",
                 sort_order="asc",
+            )
+        elif entity == "rate-revisions":
+            # The master rate change log is append-only and read-only: export
+            # it with the same headers the Rate Revisions page shows.
+            page = ItemPriceService(self.session, self.actor_id).revisions(
+                page=1,
+                page_size=100_000,
             )
         else:
             page = MasterDataService(self.session, entity, self.actor_id).list_page(

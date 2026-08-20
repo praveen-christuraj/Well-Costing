@@ -36,6 +36,9 @@ CATALOG_ALIASES = {
     "item_category_code": frozenset(
         {"item_category_code", "item_category", "tangible_category", "group"}
     ),
+    "sub_category_code": frozenset(
+        {"sub_category_code", "sub_category", "subcategory", "sub_group"}
+    ),
     "material_number": frozenset(
         {"material_number", "material_no", "unique_number", "sap_number", "part_number"}
     ),
@@ -90,11 +93,23 @@ PROFILE_REGISTRY: dict[str, MappingProfile] = {
             "applies_to": frozenset({"applies_to", "scope", "category_scope"}),
         },
     ),
+    "item-subcategories": MappingProfile(
+        "item-subcategories-default",
+        "1.0",
+        frozenset({"code", "name"}),
+        {
+            **COMMON_ALIASES,
+            "applies_to": frozenset({"applies_to", "scope", "category_scope"}),
+        },
+    ),
     "services": MappingProfile(
-        "services-default", "1.1", frozenset({"code", "name"}), CATALOG_ALIASES
+        "services-default",
+        "1.2",
+        frozenset({"code", "name"}),
+        {**CATALOG_ALIASES, "rate_basis": frozenset({"rate_basis", "rate_type", "basis"})},
     ),
     "tangibles": MappingProfile(
-        "tangibles-default", "1.1", frozenset({"code", "name"}), CATALOG_ALIASES
+        "tangibles-default", "1.2", frozenset({"code", "name"}), CATALOG_ALIASES
     ),
     "materials": MappingProfile(
         "materials-default", "1.1", frozenset({"code", "name"}), CATALOG_ALIASES
@@ -166,6 +181,27 @@ PROFILE_REGISTRY: dict[str, MappingProfile] = {
             "change_reason": frozenset({"change_reason", "revision_reason", "reason"}),
             "description": COMMON_ALIASES["description"],
             "is_active": COMMON_ALIASES["is_active"],
+        },
+    ),
+    "rate-revisions": MappingProfile(
+        "rate-revisions-default",
+        "1.0",
+        frozenset(),
+        {
+            "item_code": frozenset({"item_code", "material_code", "tangible_code"}),
+            "item_name": frozenset({"item_name", "description_name"}),
+            "item_type": frozenset({"item_type", "cost_type"}),
+            "change_type": frozenset({"change_type", "change", "revision_type"}),
+            "revision_number": frozenset({"revision_number", "revision", "rev"}),
+            "previous_amount": frozenset({"previous_amount", "old_amount", "previous_rate"}),
+            "new_amount": frozenset({"new_amount", "amount", "rate"}),
+            "delta_amount": frozenset({"delta_amount", "delta", "change_amount"}),
+            "currency_code": frozenset({"currency_code", "currency"}),
+            "unit_code": frozenset({"unit_code", "unit", "uom"}),
+            "effective_from": frozenset({"effective_from", "start_date", "effective_date"}),
+            "vendor_code": frozenset({"vendor_code", "vendor"}),
+            "reason": frozenset({"reason", "change_reason", "revision_reason"}),
+            "created_at": frozenset({"created_at", "changed", "timestamp"}),
         },
     ),
     "estimate-items": MappingProfile(

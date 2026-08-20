@@ -15,6 +15,12 @@ export interface WellRecord {
   code: string
   name: string
   description: string | null
+  rig_name: string | null
+  status: 'planning' | 'active' | 'suspended' | 'completed' | 'abandoned'
+  spud_date: string | null
+  completion_date: string | null
+  rates_locked_at: string | null
+  rate_lock_reference: string | null
   is_active: boolean
 }
 

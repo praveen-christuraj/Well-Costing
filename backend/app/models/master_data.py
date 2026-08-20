@@ -103,6 +103,29 @@ class ItemCategory(MasterDataMixin, Base):
     )
 
 
+class ItemSubCategory(MasterDataMixin, Base):
+    """User-configurable second-level classification for catalogue items.
+
+    A tangible such as a bit belongs to a category (``item_categories``) and a
+    sub category (this table) — e.g. Bits > PDC bits, Casing > Surface casing.
+    Sub categories are fully configurable, mirroring item categories, and are
+    scoped with ``applies_to`` so the picker on each catalogue page only offers
+    the values that make sense for it.
+    """
+
+    __tablename__ = "item_subcategories"
+    __table_args__ = (
+        CheckConstraint(
+            "applies_to IN ('service','tangible','mud_chemical','cement_additive')",
+            name="valid_item_subcategory_scope",
+        ),
+    )
+
+    applies_to: Mapped[str] = mapped_column(
+        String(30), default="tangible", server_default="tangible", index=True
+    )
+
+
 class CatalogItem(TimestampMixin, AuditMixin, Base):
     """Shared identity for rate-bearing services, tangibles, materials, and equipment."""
 
@@ -136,6 +159,9 @@ class CatalogItem(TimestampMixin, AuditMixin, Base):
     item_category_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("item_categories.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    sub_category_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("item_subcategories.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     material_number: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     specification: Mapped[str | None] = mapped_column(String(255), nullable=True)
     manufacturer: Mapped[str | None] = mapped_column(String(150), nullable=True)
@@ -144,6 +170,7 @@ class CatalogItem(TimestampMixin, AuditMixin, Base):
     cost_code: Mapped[CostCode | None] = relationship(lazy="joined")
     default_unit: Mapped[Unit | None] = relationship(lazy="joined")
     item_category: Mapped[ItemCategory | None] = relationship(lazy="joined")
+    sub_category: Mapped[ItemSubCategory | None] = relationship(lazy="joined")
 
     __mapper_args__: dict[str, object] = {  # noqa: RUF012
         "polymorphic_on": item_type,
@@ -152,10 +179,27 @@ class CatalogItem(TimestampMixin, AuditMixin, Base):
 
 
 class Service(CatalogItem):
+    """A well service, categorised by how its rate is charged.
+
+    ``rate_basis`` is the default pricing model negotiated for the service:
+    daily rate, per hole section, per service, or a fixed rate. It is the
+    catalogue-level classification; the actual amount is always agreed per well
+    in the well rate book.
+    """
+
     __tablename__ = "services"
+    __table_args__ = (
+        CheckConstraint(
+            "rate_basis IN ('daily','per_service','per_section','fixed')",
+            name="valid_service_rate_basis",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(
         ForeignKey("catalog_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    rate_basis: Mapped[str] = mapped_column(
+        String(20), default="daily", server_default="daily", index=True
     )
     __mapper_args__: dict[str, object] = {"polymorphic_identity": "service"}  # noqa: RUF012
 

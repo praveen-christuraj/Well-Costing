@@ -35,7 +35,7 @@ describe('AppHeader', () => {
     })
 
     expect(wrapper.text()).toContain('Admin User')
-    expect(wrapper.text()).toContain('admin@example.com')
+    expect(wrapper.get('.user-avatar').attributes('title')).toBe('Admin User')
 
     const buttons = wrapper.findAll('button')
     await buttons[buttons.length - 1]?.trigger('click')

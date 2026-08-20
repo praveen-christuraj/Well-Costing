@@ -202,11 +202,13 @@ async function submitRevision(): Promise<void> {
     >
       <template #row-actions="{ row }">
         <Button
-          v-tooltip.top="'Revise rate'"
+          v-tooltip.top="'Close the current rate and open the next revision'"
+          label="Revise"
           icon="pi pi-history"
           size="small"
-          severity="secondary"
-          text
+          severity="contrast"
+          outlined
+          class="rr-button"
           aria-label="Revise rate"
           @click="openRevise(row)"
         />
@@ -253,5 +255,11 @@ async function submitRevision(): Promise<void> {
   flex-direction: column;
   gap: 0.35rem;
   font-weight: 600;
+}
+
+/* A labeled revision button next to the icon-only Edit / Duplicate / Delete actions. */
+.rr-button {
+  margin-right: 0.25rem;
+  padding: 0.25rem 0.5rem;
 }
 </style>

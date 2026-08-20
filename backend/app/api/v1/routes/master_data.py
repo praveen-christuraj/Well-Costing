@@ -36,6 +36,7 @@ def list_records(
     search: str | None = None,
     is_active: bool | None = None,
     item_category_id: UUID | None = None,
+    sub_category_id: UUID | None = None,
     cost_category_id: UUID | None = None,
     cost_code_id: UUID | None = None,
     default_unit_id: UUID | None = None,
@@ -53,6 +54,7 @@ def list_records(
         sort_order=sort_order,
         filters={
             "item_category_id": item_category_id,
+            "sub_category_id": sub_category_id,
             "cost_category_id": cost_category_id,
             "cost_code_id": cost_code_id,
             "default_unit_id": default_unit_id,

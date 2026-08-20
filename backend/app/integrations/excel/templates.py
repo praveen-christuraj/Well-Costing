@@ -7,7 +7,7 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from app.core.exceptions import NotFoundError
-from app.integrations.excel.mapper import MappingProfile, PROFILE_REGISTRY
+from app.integrations.excel.mapper import PROFILE_REGISTRY, MappingProfile
 
 
 class ExcelTemplateService:
