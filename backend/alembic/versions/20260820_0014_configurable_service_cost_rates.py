@@ -83,6 +83,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # These indexes belong to the 0014 era and reference the columns this
+    # downgrade removes. Dropping them first keeps the batch rebuild on
+    # SQLite from trying to recreate indexes over dropped columns (and is
+    # correct on PostgreSQL as well).
+    op.drop_index(op.f("ix_service_rate_cards_hole_section_id"), table_name="service_rate_cards")
+    op.drop_index(op.f("ix_service_rate_cards_rate_basis"), table_name="service_rate_cards")
     with op.batch_alter_table("service_rate_cards") as batch:
         batch.add_column(sa.Column("service_order_id", sa.Uuid(), nullable=True))
         batch.add_column(sa.Column("hole_section", sa.String(60), nullable=True))

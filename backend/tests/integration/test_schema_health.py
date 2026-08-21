@@ -172,3 +172,25 @@ def test_development_startup_auto_applies_pending_migrations(tmp_path: Path) -> 
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
     engine.dispose()
     assert version == "20260821_0019"
+
+
+def test_migrations_round_trip_on_sqlite(tmp_path: Path) -> None:
+    """upgrade head -> downgrade base -> upgrade head succeeds on SQLite.
+
+    Regression: the SQLite chain broke mid-way in several places (reserved
+    word in the reporting views, constraint DDL on existing tables, the
+    legacy_alter_table pragma leaking between migrations, and batch rebuilds
+    of view-referenced tables). A local SQLite database must be able to
+    migrate up, roll back to an empty schema, and migrate up again.
+    """
+    db_path = tmp_path / "roundtrip.db"
+    url = f"sqlite+pysqlite:///{db_path}"
+    command.upgrade(_alembic_config(url), "head")
+    command.downgrade(_alembic_config(url), "base")
+    command.upgrade(_alembic_config(url), "head")
+
+    engine = create_engine(url, connect_args={"check_same_thread": False})
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
+    engine.dispose()
+    assert version == "20260821_0019"

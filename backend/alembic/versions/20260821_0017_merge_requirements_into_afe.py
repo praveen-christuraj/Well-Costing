@@ -422,7 +422,8 @@ def downgrade() -> None:
     _drop_reporting_views()
 
     for table in ("cement_additives", "mud_chemicals"):
-        op.drop_constraint(f"valid_{table[:-1]}_rate_basis", table, type_="check")
+        if not _is_sqlite():  # constraints were never created on SQLite
+            op.drop_constraint(f"valid_{table[:-1]}_rate_basis", table, type_="check")
         op.drop_index(op.f(f"ix_{table}_rate_basis"), table_name=table)
         op.drop_column(table, "rate_basis")
 
@@ -447,7 +448,8 @@ def downgrade() -> None:
         "non_negative_daily_consumption",
         "valid_rate_basis",
     ):
-        op.drop_constraint(constraint, "afe_lines", type_="check")
+        if not _is_sqlite():  # constraints were never created on SQLite
+            op.drop_constraint(constraint, "afe_lines", type_="check")
     op.drop_index(op.f("ix_afe_lines_rate_basis"), table_name="afe_lines")
     for column in (
         "quantity_override_reason",
@@ -458,9 +460,12 @@ def downgrade() -> None:
         op.drop_column("afe_lines", column)
 
     op.drop_index(op.f("ix_afe_lines_hole_section_id"), table_name="afe_lines")
-    op.drop_constraint(
-        op.f("fk_afe_lines_hole_section_id_hole_sections"), "afe_lines", type_="foreignkey"
-    )
+    if not _is_sqlite():  # foreign key was never created on SQLite
+        op.drop_constraint(
+            op.f("fk_afe_lines_hole_section_id_hole_sections"),
+            "afe_lines",
+            type_="foreignkey",
+        )
     op.drop_column("afe_lines", "hole_section_id")
 
     _rename_index("ix_cost_estimates_afe_id", "ix_cost_estimates_requirement_id", "cost_estimates")

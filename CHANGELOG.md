@@ -30,15 +30,22 @@ so instead of 500ing.
   with the migration command to run, instead of a generic 500.
 - **Migration `20260821_0019`** adds the missing `afe_audit_logs.updated_at`
   column for databases that already applied 0018.
-- **SQLite migrations reach head.** The SQLite dev path was broken in three
-  places: the reporting-contract views used the reserved word `transaction`
-  as a table alias (0010/0017), several migrations tried to add constraints to
-  existing tables (unsupported by SQLite; 0012/0016/0017/0018), and an earlier
-  batch migration left `PRAGMA legacy_alter_table=ON`, which stopped the
-  AFE table renames from retargeting foreign keys. The views use a `txn`
-  alias, constraint DDL is dialect-guarded (catalogue checks on SQLite are
-  swapped by a safe table rebuild), and `server_default` uses `func.now()`
-  so defaults work on every dialect.
+- **SQLite migrations reach head — and round-trip.** The SQLite dev path was
+  broken in several places: the reporting-contract views used the reserved
+  word `transaction` as a table alias (0010/0017), several migrations tried to
+  add constraints to existing tables (unsupported by SQLite;
+  0012/0016/0017/0018), SQLite refused the batch rebuilds of view-referenced
+  tables (`wells` in 0015) and index recreation over dropped columns
+  (`service_rate_cards` in 0014), and `PRAGMA legacy_alter_table` leaked
+  between migrations and stopped the AFE table renames from retargeting
+  foreign keys. The views use a `txn` alias, constraint DDL is
+  dialect-guarded (catalogue checks on SQLite are swapped by safe table
+  rebuilds), the pragma is set and restored explicitly where rebuilds need
+  it, and `server_default` uses `func.now()` so defaults work on every
+  dialect. `alembic upgrade head` → `downgrade base` → `upgrade head` now
+  completes on SQLite (covered by a regression test); the 0012 downgrade also
+  restores the originally named `ck_catalog_items_valid_item_type` check on
+  PostgreSQL.
 
 ### Changed
 

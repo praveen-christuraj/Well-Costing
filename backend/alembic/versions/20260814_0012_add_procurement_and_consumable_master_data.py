@@ -29,6 +29,10 @@ _NEW_ITEM_TYPE_CHECK = (
     "CONSTRAINT valid_item_type CHECK (item_type IN ('service','tangible',"
     "'material','equipment','mud_chemical','cement_additive'))"
 )
+_LEGACY_ITEM_TYPE_CHECK = (
+    "CONSTRAINT ck_catalog_items_valid_item_type CHECK "
+    "(item_type IN ('service','tangible','material','equipment'))"
+)
 
 
 def _is_sqlite() -> bool:
@@ -69,16 +73,89 @@ def _sqlite_rebuild_catalog_items_constraints(bind) -> None:
     )
 
     temporary = "_swap_catalog_items"
+    previous_legacy = bind.exec_driver_sql("PRAGMA legacy_alter_table").scalar()
     bind.exec_driver_sql("PRAGMA legacy_alter_table=ON")
-    bind.exec_driver_sql('ALTER TABLE "catalog_items" RENAME TO "{}"'.format(temporary))
+    bind.exec_driver_sql(f'ALTER TABLE "catalog_items" RENAME TO "{temporary}"')
     bind.exec_driver_sql(rebuilt_sql)
-    column_list = ", ".join('"{}"'.format(column) for column in columns)
+    column_list = ", ".join(f'"{column}"' for column in columns)
     bind.exec_driver_sql(
-        'INSERT INTO "catalog_items" ({columns}) SELECT {columns} FROM "{temporary}"'.format(
-            columns=column_list, temporary=temporary
-        )
+        f'INSERT INTO "catalog_items" ({column_list}) SELECT {column_list} FROM "{temporary}"'
     )
-    bind.exec_driver_sql('DROP TABLE "{}"'.format(temporary))
+    bind.exec_driver_sql(f'DROP TABLE "{temporary}"')
+    bind.exec_driver_sql("PRAGMA legacy_alter_table=" + ("ON" if previous_legacy else "OFF"))
+    for index in indexes:
+        op.create_index(
+            index["name"],
+            "catalog_items",
+            list(index["column_names"]),
+            unique=bool(index["unique"]),
+        )
+
+
+def _sqlite_rebuild_catalog_items_legacy(bind) -> None:
+    """Reverse the upgrade's catalog_items rebuild on SQLite.
+
+    SQLite can neither drop a column that appears in a foreign-key clause nor
+    replace a CHECK constraint, so the extension columns
+    (``item_category_id``, ``material_number``, ``specification``,
+    ``manufacturer``), the item-category foreign key, and the widened
+    item-type CHECK are removed by rebuilding the table with the original
+    narrow, originally named CHECK. ``PRAGMA legacy_alter_table=ON`` keeps
+    referencing foreign keys pointing at ``catalog_items`` throughout.
+    """
+    import re
+
+    inspector = sa.inspect(bind)
+    indexes = inspector.get_indexes("catalog_items")
+    create_sql = bind.execute(
+        sa.text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :name"),
+        {"name": "catalog_items"},
+    ).scalar_one()
+
+    create_sql = re.sub(
+        r"CONSTRAINT valid_item_type CHECK \(item_type IN \([^)]*\)\)",
+        _LEGACY_ITEM_TYPE_CHECK,
+        create_sql,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    # Drop the item-category FK clause whether it is the last constraint in
+    # the table or sits between other constraints.
+    fk_clause = (
+        r"CONSTRAINT fk_catalog_items_item_category_id_item_categories\s+"
+        r"FOREIGN KEY\s*\(\s*\"?item_category_id\"?\s*\)\s*REFERENCES\s*"
+        r"\"?item_categories\"?\s*\(\s*\"?id\"?\s*\)"
+    )
+    create_sql = re.sub(
+        r",\s*" + fk_clause + r"\s*(?=\))", "", create_sql, count=1, flags=re.IGNORECASE
+    )
+    create_sql = re.sub(fk_clause + r"\s*,", "", create_sql, count=1, flags=re.IGNORECASE)
+    for column in ("item_category_id", "material_number", "specification", "manufacturer"):
+        create_sql = re.sub(
+            r'^[ \t]*"?' + column + r'"?[^,\n]*,[ \t]*$\n',
+            "",
+            create_sql,
+            count=1,
+            flags=re.MULTILINE | re.IGNORECASE,
+        )
+
+    columns = [
+        column["name"]
+        for column in inspector.get_columns("catalog_items")
+        if column["name"]
+        not in {"item_category_id", "material_number", "specification", "manufacturer"}
+    ]
+    temporary = "_swap_catalog_items_legacy"
+    previous_legacy = bind.exec_driver_sql("PRAGMA legacy_alter_table").scalar()
+    bind.exec_driver_sql("PRAGMA legacy_alter_table=ON")
+    bind.exec_driver_sql(f'ALTER TABLE "catalog_items" RENAME TO "{temporary}"')
+    bind.exec_driver_sql(create_sql)
+    column_list = ", ".join(f'"{column}"' for column in columns)
+    bind.exec_driver_sql(
+        f'INSERT INTO "catalog_items" ({column_list}) SELECT {column_list} FROM "{temporary}"'
+    )
+    bind.exec_driver_sql(f'DROP TABLE "{temporary}"')
+    bind.exec_driver_sql("PRAGMA legacy_alter_table=" + ("ON" if previous_legacy else "OFF"))
     for index in indexes:
         op.create_index(
             index["name"],
@@ -452,24 +529,35 @@ def downgrade() -> None:
     op.drop_table("cement_additives")
     op.drop_table("mud_chemicals")
 
-    op.drop_constraint(op.f("ck_catalog_items_valid_item_type"), "catalog_items", type_="check")
-    if not _is_sqlite():  # constraint DDL is skipped on SQLite (see upgrade)
-        op.create_check_constraint("valid_item_type", "catalog_items", OLD_ITEM_TYPES)
-    op.drop_constraint(
-        op.f("fk_catalog_items_item_category_id_item_categories"),
-        "catalog_items",
-        type_="foreignkey",
-    )
     op.drop_index(op.f("ix_catalog_items_material_number"), table_name="catalog_items")
     op.drop_index(op.f("ix_catalog_items_item_category_id"), table_name="catalog_items")
-    op.drop_column("catalog_items", "manufacturer")
-    op.drop_column("catalog_items", "specification")
-    op.drop_column("catalog_items", "material_number")
-    op.drop_column("catalog_items", "item_category_id")
+    if _is_sqlite():
+        # SQLite cannot drop a column that appears in a foreign-key clause or
+        # replace CHECK constraints, so the extension columns and the
+        # item-category FK are removed and the original item-type CHECK
+        # restored by rebuilding the table.
+        _sqlite_rebuild_catalog_items_legacy(op.get_bind())
+    else:
+        # The upgrade replaced ck_catalog_items_valid_item_type with
+        # valid_item_type, so the downgrade restores them the same way.
+        op.drop_constraint("valid_item_type", "catalog_items", type_="check")
+        op.create_check_constraint(
+            op.f("ck_catalog_items_valid_item_type"), "catalog_items", OLD_ITEM_TYPES
+        )
+        op.drop_constraint(
+            op.f("fk_catalog_items_item_category_id_item_categories"),
+            "catalog_items",
+            type_="foreignkey",
+        )
+        op.drop_column("catalog_items", "manufacturer")
+        op.drop_column("catalog_items", "specification")
+        op.drop_column("catalog_items", "material_number")
+        op.drop_column("catalog_items", "item_category_id")
 
     op.drop_table("item_categories")
 
-    op.drop_constraint(op.f("ck_vendors_valid_vendor_type"), "vendors", type_="check")
+    if not _is_sqlite():  # constraint was never created on SQLite
+        op.drop_constraint(op.f("ck_vendors_valid_vendor_type"), "vendors", type_="check")
     op.drop_index(op.f("ix_vendors_vendor_type"), table_name="vendors")
     op.drop_column("vendors", "country")
     op.drop_column("vendors", "phone")

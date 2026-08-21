@@ -66,6 +66,35 @@ def _money(name: str) -> sa.Column:
     return sa.Column(name, sa.Numeric(18, 4), server_default="0", nullable=False)
 
 
+def _is_sqlite() -> bool:
+    return op.get_bind().dialect.name == "sqlite"
+
+
+def _sqlite_view_safe_legacy_mode() -> bool:
+    """Enable legacy rename behaviour for the next table rebuild, if any.
+
+    The reporting views (created in 0010) reference ``wells``, and SQLite
+    rejects ``ALTER TABLE ... RENAME`` while a view mentions the renamed
+    table, so the batch rebuild of ``wells`` fails during its final rename.
+    ``PRAGMA legacy_alter_table=ON`` skips the view/FK rewriting and the
+    validation, which is exactly what the rebuild wants — the replacement
+    table takes the same name, so references stay valid. The previous mode
+    is returned so callers can restore it.
+    """
+    if not _is_sqlite():
+        return False
+    previous = bool(op.get_bind().exec_driver_sql("PRAGMA legacy_alter_table").scalar())
+    op.get_bind().exec_driver_sql("PRAGMA legacy_alter_table=ON")
+    return previous
+
+
+def _sqlite_restore_legacy_mode(previous: bool) -> None:
+    if _is_sqlite():
+        op.get_bind().exec_driver_sql(
+            "PRAGMA legacy_alter_table=" + ("ON" if previous else "OFF")
+        )
+
+
 def upgrade() -> None:
     # --- master service rate cards are retired --------------------------------
     op.drop_table("service_rate_cards")
@@ -179,6 +208,7 @@ def upgrade() -> None:
     )
 
     # --- wells gain the operational context the rate lock depends on -----------
+    previous_legacy = _sqlite_view_safe_legacy_mode()
     with op.batch_alter_table("wells") as batch:
         batch.add_column(sa.Column("rig_name", sa.String(150), nullable=True))
         batch.add_column(
@@ -191,6 +221,7 @@ def upgrade() -> None:
         )
         batch.add_column(sa.Column("rate_lock_reference", sa.String(150), nullable=True))
         batch.create_check_constraint("valid_well_status", WELL_STATUS_CHECK)
+    _sqlite_restore_legacy_mode(previous_legacy)
     op.create_index(op.f("ix_wells_rig_name"), "wells", ["rig_name"])
     op.create_index(op.f("ix_wells_status"), "wells", ["status"])
 
@@ -603,6 +634,7 @@ def downgrade() -> None:
 
     op.drop_index(op.f("ix_wells_status"), table_name="wells")
     op.drop_index(op.f("ix_wells_rig_name"), table_name="wells")
+    previous_legacy = _sqlite_view_safe_legacy_mode()
     with op.batch_alter_table("wells") as batch:
         batch.drop_constraint("valid_well_status", type_="check")
         batch.drop_column("rate_lock_reference")
@@ -611,6 +643,7 @@ def downgrade() -> None:
         batch.drop_column("spud_date")
         batch.drop_column("status")
         batch.drop_column("rig_name")
+    _sqlite_restore_legacy_mode(previous_legacy)
 
     op.drop_table("rate_revisions")
 

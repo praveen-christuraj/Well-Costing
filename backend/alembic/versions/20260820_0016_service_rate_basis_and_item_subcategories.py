@@ -110,5 +110,6 @@ def downgrade() -> None:
     op.drop_table("item_subcategories")
 
     op.drop_index(op.f("ix_services_rate_basis"), table_name="services")
-    op.drop_constraint("valid_service_rate_basis", "services", type_="check")
+    if op.get_bind().dialect.name != "sqlite":  # constraint was never created on SQLite
+        op.drop_constraint("valid_service_rate_basis", "services", type_="check")
     op.drop_column("services", "rate_basis")
