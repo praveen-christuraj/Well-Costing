@@ -191,23 +191,23 @@ def _upgrade_sqlite() -> None:
         """
         CREATE VIEW IF NOT EXISTS rpt_v1_cost_transaction_fact AS
         SELECT
-            transaction.id AS transaction_id,
-            transaction.posting_reference,
-            transaction.cost_state,
-            transaction.transaction_date,
-            transaction.currency_code,
-            transaction.amount AS source_amount,
-            transaction.quantity,
-            transaction.unit_code,
-            transaction.cost_code,
+            txn.id AS transaction_id,
+            txn.posting_reference,
+            txn.cost_state,
+            txn.transaction_date,
+            txn.currency_code,
+            txn.amount AS source_amount,
+            txn.quantity,
+            txn.unit_code,
+            txn.cost_code,
             category.code AS cost_category_code,
             NULL AS item_nature,
-            transaction.vendor_code,
-            transaction.source_document_type,
-            transaction.source_document_reference,
-            transaction.external_transaction_id,
-            transaction.correction_kind,
-            transaction.reverses_transaction_id,
+            txn.vendor_code,
+            txn.source_document_type,
+            txn.source_document_reference,
+            txn.external_transaction_id,
+            txn.correction_kind,
+            txn.reverses_transaction_id,
             afe.id AS afe_snapshot_id,
             afe.afe_number,
             afe.issue_date AS afe_issue_date,
@@ -221,16 +221,16 @@ def _upgrade_sqlite() -> None:
             well.code AS well_code,
             project.id AS project_id,
             project.code AS project_code,
-            transaction.created_at AS posted_at,
-            transaction.created_by AS posted_by
-        FROM cost_transactions AS transaction
-        JOIN afe_snapshots AS afe ON afe.id = transaction.afe_snapshot_id
+            txn.created_at AS posted_at,
+            txn.created_by AS posted_by
+        FROM cost_transactions AS txn
+        JOIN afe_snapshots AS afe ON afe.id = txn.afe_snapshot_id
         JOIN estimate_versions AS version ON version.id = afe.estimate_version_id
         JOIN cost_estimates AS estimate ON estimate.id = version.estimate_id
         JOIN well_requirements AS requirement ON requirement.id = estimate.requirement_id
         JOIN wells AS well ON well.id = requirement.well_id
         JOIN projects AS project ON project.id = well.project_id
-        LEFT JOIN cost_codes AS cost_code ON cost_code.code = transaction.cost_code
+        LEFT JOIN cost_codes AS cost_code ON cost_code.code = txn.cost_code
         LEFT JOIN cost_categories AS category ON category.id = cost_code.cost_category_id
         """
     ))

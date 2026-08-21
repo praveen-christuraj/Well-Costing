@@ -50,15 +50,20 @@ def upgrade() -> None:
             server_default="0",
         ),
     )
-    op.add_column(
-        "afes",
-        sa.Column(
-            "depth_unit_id",
-            sa.UUID(),
-            sa.ForeignKey("units.id", ondelete="RESTRICT"),
-            nullable=True,
-        ),
-    )
+    if _is_sqlite():
+        # SQLite cannot add a foreign key to an existing table; the column
+        # lands without the constraint (the app validates the reference).
+        op.add_column("afes", sa.Column("depth_unit_id", sa.UUID(), nullable=True))
+    else:
+        op.add_column(
+            "afes",
+            sa.Column(
+                "depth_unit_id",
+                sa.UUID(),
+                sa.ForeignKey("units.id", ondelete="RESTRICT"),
+                nullable=True,
+            ),
+        )
     op.add_column(
         "afes",
         sa.Column(

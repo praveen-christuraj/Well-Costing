@@ -72,14 +72,16 @@ class EstimateVersionRead(BaseModel):
 class EstimateRead(BaseModel):
     id: UUID
     afe_id: UUID
-    afe_code: str
-    well_id: UUID
-    well_code: str
-    project_code: str
+    # Relationship-derived fields degrade to null when the referenced record
+    # was hard-deleted, so a list/detail read never crashes on orphaned data.
+    afe_code: str | None = None
+    well_id: UUID | None = None
+    well_code: str | None = None
+    project_code: str | None = None
     code: str
     title: str
     currency_id: UUID
-    currency_code: str
+    currency_code: str | None = None
     current_version_number: int
     versions: list[EstimateVersionRead]
     created_at: datetime

@@ -78,7 +78,8 @@ class WellRead(BaseModel):
 
     id: UUID
     project_id: UUID
-    project_code: str
+    # Relationship-derived; degrades to null when the project was hard-deleted.
+    project_code: str | None = None
     code: str
     name: str
     description: str | None
@@ -318,9 +319,11 @@ class AfeRead(BaseModel):
 
     id: UUID
     well_id: UUID
-    well_code: str
-    project_id: UUID
-    project_code: str
+    # Relationship-derived fields degrade to null when the well/project was
+    # hard-deleted, so list and detail reads never crash on orphaned data.
+    well_code: str | None = None
+    project_id: UUID | None = None
+    project_code: str | None = None
     code: str
     title: str
     description: str | None

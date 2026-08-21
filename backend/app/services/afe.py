@@ -41,7 +41,6 @@ from app.schemas.afe import (
     AfeLineRead,
     AfeLineUpdate,
     AfeRead,
-    AfeSectionCreate,
     AfeSectionRead,
     AfeUpdate,
     DrillingPhaseCreate,
@@ -140,9 +139,9 @@ class DrillingPhaseService:
         if not phase or not phase.is_active:
             raise NotFoundError("Drilling phase not found")
         values = payload.model_dump(exclude_unset=True)
-        if "code" in values and values["code"]:
+        if values.get("code"):
             values["code"] = str(values["code"]).strip().upper()
-        if "name" in values and values["name"]:
+        if values.get("name"):
             values["name"] = str(values["name"]).strip()
         for k, v in values.items():
             setattr(phase, k, v)
@@ -362,7 +361,7 @@ class WellService:
                     for field in WellRead.model_fields
                     if field != "project_code"
                 },
-                "project_code": well.project.code,
+                "project_code": well.project.code if well.project else None,
             }
         )
 
@@ -471,7 +470,7 @@ class AfeService:
     def update(self, afe_id: UUID, payload: AfeUpdate, commit: bool = True) -> AfeRead:
         afe = self._draft(afe_id)
         values = payload.model_dump(exclude_unset=True, exclude={"sections"})
-        if "well_id" in values and values["well_id"]:
+        if values.get("well_id"):
             well = self.session.get(Well, values["well_id"])
             if well is None or not well.is_active:
                 raise BusinessValidationError("well_id must reference an active well")
@@ -687,9 +686,11 @@ class AfeService:
                         "depth_unit_code",
                     }
                 },
-                "well_code": afe.well.code,
-                "project_id": afe.well.project_id,
-                "project_code": afe.well.project.code,
+                "well_code": afe.well.code if afe.well else None,
+                "project_id": afe.well.project_id if afe.well else None,
+                "project_code": (
+                    afe.well.project.code if afe.well and afe.well.project else None
+                ),
                 "depth_unit_code": afe.depth_unit.code if afe.depth_unit else None,
                 "item_count": len(items) if include_items else len(afe.items),
                 "sections": sections,

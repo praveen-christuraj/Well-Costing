@@ -31,6 +31,8 @@ def test_health_reports_connected_database(client: TestClient) -> None:
         "database": "connected",
         "environment": "test",
         "version": "0.1.0",
+        "schema_status": "current",
+        "schema_message": None,
     }
 
 

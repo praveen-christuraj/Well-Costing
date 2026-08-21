@@ -31,9 +31,10 @@ def upgrade() -> None:
         "services",
         sa.Column("rate_basis", sa.String(20), server_default="daily", nullable=False),
     )
-    op.create_check_constraint(
-        "valid_service_rate_basis", "services", RATE_BASIS_CHECK
-    )
+    if op.get_bind().dialect.name != "sqlite":  # SQLite cannot ALTER constraints
+        op.create_check_constraint(
+            "valid_service_rate_basis", "services", RATE_BASIS_CHECK
+        )
     op.create_index(op.f("ix_services_rate_basis"), "services", ["rate_basis"])
 
     # --- configurable item sub categories -------------------------------------
@@ -109,5 +110,6 @@ def downgrade() -> None:
     op.drop_table("item_subcategories")
 
     op.drop_index(op.f("ix_services_rate_basis"), table_name="services")
-    op.drop_constraint("valid_service_rate_basis", "services", type_="check")
+    if op.get_bind().dialect.name != "sqlite":  # constraint was never created on SQLite
+        op.drop_constraint("valid_service_rate_basis", "services", type_="check")
     op.drop_column("services", "rate_basis")
