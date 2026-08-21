@@ -1,292 +1,677 @@
-"""Baseline AFE snapshot orchestration with explicit pending-policy auditing."""
+"""Application workflows for project, well, and AFE preparation."""
 
-from dataclasses import asdict
+from datetime import UTC, datetime
+from math import ceil
+from typing import Any, Never
 from uuid import UUID
 
-from fastapi.encoders import jsonable_encoder
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import AfePolicyPendingError, ConflictError, NotFoundError
-from app.domain.afe.snapshots import create_baseline_afe_snapshot
-from app.domain.afe.types import AfeLineInput, BaselineAfeInput, BaselineAfeSnapshot
-from app.models.afe import AfeSnapshot, AfeSnapshotAttempt, AfeSnapshotLine
-from app.models.calculations import EstimateCalculation
-from app.models.estimates import CostEstimate, EstimateVersion
-from app.models.user import User
-from app.models.workflow import EstimateWorkflowInstance
-from app.schemas.afe import (
-    AfeSnapshotAttemptRead,
-    AfeSnapshotCreateRequest,
-    AfeSnapshotLineRead,
-    AfeSnapshotRead,
-    EstimateAfeStatus,
+from app.core.exceptions import BusinessValidationError, ConflictError, NotFoundError
+from app.domain.afe.rate_basis import (
+    RateBasisError,
+    default_rate_basis,
+    requires_hole_section,
+    resolve_planned_quantity,
+    validate_rate_basis,
 )
+from app.models.afe import Afe, AfeLine, Project, Well
+from app.models.master_data import CatalogItem, CostCode, HoleSection, Unit
+from app.repositories.afe import (
+    AfeLineRepository,
+    AfeRepository,
+    ProjectRepository,
+    WellRepository,
+)
+from app.schemas.afe import (
+    AfeCreate,
+    AfeLineCreate,
+    AfeLineRead,
+    AfeLineUpdate,
+    AfeRead,
+    AfeUpdate,
+    ProjectCreate,
+    ProjectRead,
+    ProjectUpdate,
+    WellCreate,
+    WellRead,
+    WellUpdate,
+)
+from app.schemas.master_data import BulkRowError, BulkValidationResult, PageResponse
 
-AFE_POLICY_VERSION = "pending-baseline-afe"
-PENDING_AFE_REQUIREMENTS = [
-    "approved estimate workflow state and AFE eligibility gate",
-    "completed calculation and accepted rule-set prerequisites",
-    "AFE numbering, ownership, and duplicate-reference policy",
-    "authoritative header, line, assumption, and attachment snapshot contents",
-    "issue date, authorization actor, status, and accounting handoff semantics",
-    "void, cancellation, correction, and duplicate-attempt treatment",
-]
+
+def _page(items: list[Any], page: int, page_size: int, total: int) -> PageResponse:
+    return PageResponse(
+        items=items,
+        page=page,
+        page_size=page_size,
+        total=total,
+        pages=ceil(total / page_size) if total else 0,
+    )
 
 
-class EstimateAfeService:
-    def __init__(self, session: Session, actor: User) -> None:
-        self.session, self.actor = session, actor
+class ProjectService:
+    def __init__(self, session: Session, actor_id: UUID) -> None:
+        self.session, self.actor_id = session, actor_id
+        self.repository = ProjectRepository(session)
 
-    def status(self, estimate_id: UUID, version_id: UUID | None = None) -> EstimateAfeStatus:
-        estimate, version = self._estimate_version(estimate_id, version_id)
-        snapshot = self.session.scalar(
-            select(AfeSnapshot).where(AfeSnapshot.estimate_version_id == version.id)
-        )
-        attempts = list(
-            self.session.scalars(
-                select(AfeSnapshotAttempt)
-                .where(AfeSnapshotAttempt.estimate_version_id == version.id)
-                .order_by(AfeSnapshotAttempt.created_at.desc())
-            ).all()
-        )
-        return EstimateAfeStatus(
-            estimate_id=estimate.id,
-            estimate_version_id=version.id,
-            version_number=version.version_number,
-            afe_status="issued" if snapshot else "policy_pending",
-            baseline_snapshot=self._snapshot_read(snapshot) if snapshot else None,
-            creation_attempts=[
-                AfeSnapshotAttemptRead.model_validate(attempt) for attempt in attempts
-            ],
-            pending_requirements=[] if snapshot else PENDING_AFE_REQUIREMENTS,
+    def list_page(
+        self, page: int, page_size: int, search: str | None, is_active: bool | None
+    ) -> PageResponse:
+        records, total = self.repository.list(page, page_size, search, is_active)
+        return _page(
+            [ProjectRead.model_validate(record) for record in records], page, page_size, total
         )
 
-    def create_baseline(
-        self, estimate_id: UUID, request: AfeSnapshotCreateRequest
-    ) -> EstimateAfeStatus:
-        estimate, version = self._estimate_version(estimate_id, request.version_id)
-        existing = self.session.scalar(
-            select(AfeSnapshot).where(AfeSnapshot.estimate_version_id == version.id)
+    def get(self, project_id: UUID) -> ProjectRead:
+        record = self.repository.get(project_id)
+        if record is None:
+            raise NotFoundError("Project not found")
+        return ProjectRead.model_validate(record)
+
+    def create(self, payload: ProjectCreate, commit: bool = True) -> ProjectRead:
+        values = payload.model_dump()
+        values.update(code=payload.code.strip().upper(), name=payload.name.strip())
+        project = Project(
+            **values,
+            created_by=self.actor_id,
+            updated_by=self.actor_id,
         )
-        if existing is not None:
-            raise ConflictError("A baseline AFE snapshot already exists for this estimate version")
-        calculation = self.session.scalar(
-            select(EstimateCalculation)
-            .where(EstimateCalculation.estimate_version_id == version.id)
-            .order_by(EstimateCalculation.created_at.desc())
-        )
-        workflow = self.session.scalar(
-            select(EstimateWorkflowInstance).where(
-                EstimateWorkflowInstance.estimate_version_id == version.id
-            )
-        )
-        source = self._source(estimate, version, calculation)
-        attempt = AfeSnapshotAttempt(
-            estimate_version_id=version.id,
-            requested_reference=request.requested_reference,
-            status="blocked",
-            eligibility_snapshot={
-                "afe_policy_version": AFE_POLICY_VERSION,
-                "estimate_id": str(estimate.id),
-                "estimate_version_id": str(version.id),
-                "version_number": version.version_number,
-                "estimate_status": version.status,
-                "workflow_instance_id": str(workflow.id) if workflow else None,
-                "workflow_profile_id": str(workflow.workflow_profile_id) if workflow else None,
-                "workflow_state_key": workflow.current_state_key if workflow else None,
-                "calculation_run_id": str(calculation.id) if calculation else None,
-                "calculation_status": calculation.status if calculation else None,
-                "rule_set_version": calculation.rule_set_version if calculation else None,
-                "totals_complete": all(
-                    value is not None
-                    for value in (
-                        version.base_total,
-                        version.contingency_total,
-                        version.escalation_total,
-                        version.grand_total,
-                    )
-                ),
-                "line_totals_complete": all(item.total_cost is not None for item in version.items),
-            },
-            created_by=self.actor.id,
-            updated_by=self.actor.id,
-        )
-        self.session.add(attempt)
-        self.session.flush()
+        self.session.add(project)
         try:
-            result = create_baseline_afe_snapshot(source)
-        except NotImplementedError as exc:
-            attempt.message = str(exc)
-            self.session.commit()
-            raise AfePolicyPendingError(
-                "Baseline AFE creation is blocked pending an approved eligibility "
-                "and snapshot policy",
-                {
-                    "snapshot_attempt_id": str(attempt.id),
-                    "afe_policy_version": AFE_POLICY_VERSION,
-                    "pending_requirements": PENDING_AFE_REQUIREMENTS,
-                },
-            ) from exc
-        snapshot = self._persist(source, result)
-        attempt.status = "completed"
-        attempt.resulting_snapshot_id = snapshot.id
-        attempt.message = "Immutable baseline AFE snapshot created"
-        self.session.commit()
-        return self.status(estimate_id, version.id)
+            self.session.flush()
+            if commit:
+                self.session.commit()
+                self.session.refresh(project)
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise ConflictError("Project code already exists") from exc
+        return ProjectRead.model_validate(project)
 
-    def get_snapshot(self, snapshot_id: UUID) -> AfeSnapshotRead:
-        snapshot = self.session.get(AfeSnapshot, snapshot_id)
-        if snapshot is None:
-            raise NotFoundError("AFE snapshot not found")
-        return self._snapshot_read(snapshot)
-
-    def _estimate_version(
-        self, estimate_id: UUID, version_id: UUID | None
-    ) -> tuple[CostEstimate, EstimateVersion]:
-        estimate = self.session.get(CostEstimate, estimate_id)
-        if estimate is None:
-            raise NotFoundError("Estimate not found")
-        if version_id is None:
-            version = next(
-                (
-                    item
-                    for item in estimate.versions
-                    if item.version_number == estimate.current_version_number
-                ),
-                None,
-            )
-        else:
-            version = next((item for item in estimate.versions if item.id == version_id), None)
-        if version is None:
-            raise NotFoundError("Estimate version not found")
-        return estimate, version
-
-    @staticmethod
-    def _source(
-        estimate: CostEstimate,
-        version: EstimateVersion,
-        calculation: EstimateCalculation | None,
-    ) -> BaselineAfeInput:
-        return BaselineAfeInput(
-            estimate_id=str(estimate.id),
-            estimate_version_id=str(version.id),
-            estimate_code=estimate.code,
-            estimate_title=estimate.title,
-            requirement_code=estimate.requirement.code,
-            project_code=estimate.requirement.well.project.code,
-            well_code=estimate.requirement.well.code,
-            currency_code=estimate.currency.code,
-            calculation_run_id=str(calculation.id) if calculation else None,
-            engine_version=calculation.engine_version if calculation else None,
-            rule_set_version=calculation.rule_set_version if calculation else None,
-            base_total=version.base_total,
-            contingency_total=version.contingency_total,
-            escalation_total=version.escalation_total,
-            grand_total=version.grand_total,
-            lines=tuple(
-                AfeLineInput(
-                    estimate_item_id=str(item.id),
-                    line_number=item.line_number,
-                    item_code=item.catalog_item.code,
-                    item_description=item.catalog_item.name,
-                    item_type=item.catalog_item.item_type,
-                    cost_code=item.cost_code.code,
-                    cost_category_code=(
-                        item.catalog_item.cost_category.code
-                        if item.catalog_item.cost_category
-                        else None
-                    ),
-                    vendor_code=item.vendor.code if item.vendor else None,
-                    quantity=item.quantity,
-                    unit_code=item.unit.code,
-                    rate_amount=item.rate.amount if item.rate else None,
-                    rate_currency_code=item.rate.currency.code if item.rate else None,
-                    base_cost=item.base_cost,
-                    contingency_cost=item.contingency_cost,
-                    escalation_cost=item.escalation_cost,
-                    total_cost=item.total_cost,
-                )
-                for item in version.items
-            ),
-        )
-
-    def _persist(self, source: BaselineAfeInput, result: BaselineAfeSnapshot) -> AfeSnapshot:
-        if source.engine_version is None or source.rule_set_version is None:
-            raise ValueError("Completed calculation provenance is required for an AFE snapshot")
-        snapshot = AfeSnapshot(
-            afe_number=result.afe_number,
-            estimate_version_id=UUID(result.estimate_version_id),
-            calculation_run_id=UUID(result.calculation_run_id),
-            issue_date=result.issue_date,
-            estimate_code=source.estimate_code,
-            estimate_title=source.estimate_title,
-            requirement_code=source.requirement_code,
-            project_code=source.project_code,
-            well_code=source.well_code,
-            currency_code=result.currency_code,
-            engine_version=source.engine_version,
-            rule_set_version=source.rule_set_version,
-            base_total=result.base_total,
-            contingency_total=result.contingency_total,
-            escalation_total=result.escalation_total,
-            grand_total=result.grand_total,
-            source_snapshot=jsonable_encoder(asdict(source)),
-            created_by=self.actor.id,
-            updated_by=self.actor.id,
-            lines=[
-                AfeSnapshotLine(
-                    source_estimate_item_id=UUID(line.source_estimate_item_id),
-                    line_number=line.line_number,
-                    item_code=line.item_code,
-                    item_description=line.item_description,
-                    item_type=line.item_type,
-                    cost_code=line.cost_code,
-                    cost_category_code=line.cost_category_code,
-                    vendor_code=line.vendor_code,
-                    quantity=line.quantity,
-                    unit_code=line.unit_code,
-                    rate_amount=line.rate_amount,
-                    rate_currency_code=line.rate_currency_code,
-                    base_cost=line.base_cost,
-                    contingency_cost=line.contingency_cost,
-                    escalation_cost=line.escalation_cost,
-                    total_cost=line.total_cost,
-                    created_by=self.actor.id,
-                    updated_by=self.actor.id,
-                )
-                for line in result.lines
-            ],
-        )
-        self.session.add(snapshot)
+    def update(self, project_id: UUID, payload: ProjectUpdate, commit: bool = True) -> ProjectRead:
+        project = self.repository.get(project_id)
+        if project is None:
+            raise NotFoundError("Project not found")
+        values = payload.model_dump(exclude_unset=True)
+        if values.get("code"):
+            values["code"] = str(values["code"]).strip().upper()
+        if values.get("name"):
+            values["name"] = str(values["name"]).strip()
+        for field, value in values.items():
+            setattr(project, field, value)
+        project.updated_by = self.actor_id
         self.session.flush()
-        return snapshot
+        if commit:
+            self.session.commit()
+            self.session.refresh(project)
+        return ProjectRead.model_validate(project)
+
+    def bulk_update(self, rows: list[tuple[UUID, ProjectUpdate]]) -> list[ProjectRead]:
+        try:
+            result = [self.update(item_id, payload, commit=False) for item_id, payload in rows]
+            self.session.commit()
+            return result
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def deactivate(self, project_id: UUID) -> None:
+        project = self.repository.get(project_id)
+        if project is None:
+            raise NotFoundError("Project not found")
+        project.is_active, project.updated_by = False, self.actor_id
+        self.session.commit()
+
+    def bulk_create(self, rows: list[ProjectCreate]) -> list[ProjectRead]:
+        errors: list[BulkRowError] = []
+        seen: set[str] = set()
+        for index, row in enumerate(rows):
+            code = row.code.strip().upper()
+            if code in seen or self.repository.get_by_code(code):
+                errors.append(
+                    BulkRowError(
+                        row_index=index,
+                        column="code",
+                        code="duplicate_code",
+                        message="Project code is duplicated",
+                    )
+                )
+            seen.add(code)
+        if errors:
+            raise BusinessValidationError(
+                "Bulk project validation failed",
+                BulkValidationResult(
+                    valid=False,
+                    total_rows=len(rows),
+                    valid_rows=len(rows) - len({error.row_index for error in errors}),
+                    errors=errors,
+                ).model_dump(),
+            )
+        try:
+            result = [self.create(row, commit=False) for row in rows]
+            self.session.commit()
+            return result
+        except Exception:
+            self.session.rollback()
+            raise
+
+
+class WellService:
+    def __init__(self, session: Session, actor_id: UUID) -> None:
+        self.session, self.actor_id = session, actor_id
+        self.repository = WellRepository(session)
+
+    def list_page(
+        self,
+        page: int,
+        page_size: int,
+        search: str | None,
+        project_id: UUID | None,
+        is_active: bool | None,
+    ) -> PageResponse:
+        records, total = self.repository.list(page, page_size, search, project_id, is_active)
+        return _page([self._read(record) for record in records], page, page_size, total)
+
+    def get(self, well_id: UUID) -> WellRead:
+        well = self.repository.get(well_id)
+        if well is None:
+            raise NotFoundError("Well not found")
+        return self._read(well)
+
+    def create(self, payload: WellCreate, commit: bool = True) -> WellRead:
+        project = self.session.get(Project, payload.project_id)
+        if project is None or not project.is_active:
+            raise BusinessValidationError("project_id must reference an active project")
+        values = payload.model_dump()
+        values.update(code=payload.code.strip().upper(), name=payload.name.strip())
+        well = Well(**values, created_by=self.actor_id, updated_by=self.actor_id)
+        self.session.add(well)
+        try:
+            self.session.flush()
+            if commit:
+                self.session.commit()
+                self.session.refresh(well)
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise ConflictError("Well code already exists within this project") from exc
+        return self._read(well)
+
+    def update(self, well_id: UUID, payload: WellUpdate, commit: bool = True) -> WellRead:
+        well = self.repository.get(well_id)
+        if well is None:
+            raise NotFoundError("Well not found")
+        values = payload.model_dump(exclude_unset=True)
+        if "project_id" in values:
+            project = self.session.get(Project, values["project_id"])
+            if project is None or not project.is_active:
+                raise BusinessValidationError("project_id must reference an active project")
+        if values.get("code"):
+            values["code"] = str(values["code"]).strip().upper()
+        if values.get("name"):
+            values["name"] = str(values["name"]).strip()
+        for field, value in values.items():
+            setattr(well, field, value)
+        well.updated_by = self.actor_id
+        self.session.flush()
+        if commit:
+            self.session.commit()
+            self.session.refresh(well)
+        return self._read(well)
+
+    def bulk_update(self, rows: list[tuple[UUID, WellUpdate]]) -> list[WellRead]:
+        try:
+            result = [self.update(item_id, payload, commit=False) for item_id, payload in rows]
+            self.session.commit()
+            return result
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def deactivate(self, well_id: UUID) -> None:
+        well = self.repository.get(well_id)
+        if well is None:
+            raise NotFoundError("Well not found")
+        well.is_active, well.updated_by = False, self.actor_id
+        self.session.commit()
+
+    def bulk_create(self, rows: list[WellCreate]) -> list[WellRead]:
+        try:
+            result = [self.create(row, commit=False) for row in rows]
+            self.session.commit()
+            return result
+        except Exception:
+            self.session.rollback()
+            raise
 
     @staticmethod
-    def _snapshot_read(snapshot: AfeSnapshot) -> AfeSnapshotRead:
-        return AfeSnapshotRead(
-            id=snapshot.id,
-            afe_number=snapshot.afe_number,
-            snapshot_type=snapshot.snapshot_type,
-            estimate_version_id=snapshot.estimate_version_id,
-            calculation_run_id=snapshot.calculation_run_id,
-            issue_date=snapshot.issue_date,
-            estimate_code=snapshot.estimate_code,
-            estimate_title=snapshot.estimate_title,
-            requirement_code=snapshot.requirement_code,
-            project_code=snapshot.project_code,
-            well_code=snapshot.well_code,
-            currency_code=snapshot.currency_code,
-            engine_version=snapshot.engine_version,
-            rule_set_version=snapshot.rule_set_version,
-            base_total=snapshot.base_total,
-            contingency_total=snapshot.contingency_total,
-            escalation_total=snapshot.escalation_total,
-            grand_total=snapshot.grand_total,
-            source_snapshot=snapshot.source_snapshot,
-            lines=[AfeSnapshotLineRead.model_validate(line) for line in snapshot.lines],
-            created_at=snapshot.created_at,
-            updated_at=snapshot.updated_at,
-            created_by=snapshot.created_by,
-            updated_by=snapshot.updated_by,
+    def _read(well: Well) -> WellRead:
+        return WellRead.model_validate(
+            {
+                **{
+                    field: getattr(well, field)
+                    for field in WellRead.model_fields
+                    if field != "project_code"
+                },
+                "project_code": well.project.code,
+            }
         )
+
+
+class AfeService:
+    def __init__(self, session: Session, actor_id: UUID) -> None:
+        self.session, self.actor_id = session, actor_id
+        self.repository = AfeRepository(session)
+
+    def list_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        search: str | None,
+        project_id: UUID | None,
+        well_id: UUID | None,
+        status: str | None,
+        is_active: bool | None,
+    ) -> PageResponse:
+        if status not in {None, "draft", "submitted"}:
+            raise BusinessValidationError("status must be draft or submitted")
+        records, total = self.repository.list(
+            page=page,
+            page_size=page_size,
+            search=search,
+            project_id=project_id,
+            well_id=well_id,
+            status=status,
+            is_active=is_active,
+        )
+        return _page(
+            [self._read(record, include_items=False) for record in records], page, page_size, total
+        )
+
+    def get(self, afe_id: UUID) -> AfeRead:
+        afe = self.repository.get(afe_id)
+        if afe is None:
+            raise NotFoundError("AFE not found")
+        return self._read(afe, include_items=True)
+
+    def create(self, payload: AfeCreate, commit: bool = True) -> AfeRead:
+        well = self.session.get(Well, payload.well_id)
+        if well is None or not well.is_active or not well.project.is_active:
+            raise BusinessValidationError("well_id must reference an active well and project")
+        values = payload.model_dump()
+        values.update(code=payload.code.strip().upper(), title=payload.title.strip())
+        afe = Afe(
+            **values,
+            status="draft",
+            revision_number=1,
+            created_by=self.actor_id,
+            updated_by=self.actor_id,
+        )
+        self.session.add(afe)
+        try:
+            self.session.flush()
+            if commit:
+                self.session.commit()
+                self.session.refresh(afe)
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise ConflictError("AFE code/revision already exists for this well") from exc
+        return self._read(afe, include_items=False)
+
+    def update(self, afe_id: UUID, payload: AfeUpdate, commit: bool = True) -> AfeRead:
+        afe = self._draft(afe_id)
+        values = payload.model_dump(exclude_unset=True)
+        if "well_id" in values:
+            well = self.session.get(Well, values["well_id"])
+            if well is None or not well.is_active:
+                raise BusinessValidationError("well_id must reference an active well")
+        if values.get("code"):
+            values["code"] = str(values["code"]).strip().upper()
+        if values.get("title"):
+            values["title"] = str(values["title"]).strip()
+        for field, value in values.items():
+            setattr(afe, field, value)
+        afe.updated_by = self.actor_id
+        self.session.flush()
+        if commit:
+            self.session.commit()
+            self.session.refresh(afe)
+        return self._read(afe, include_items=True)
+
+    def bulk_update(self, rows: list[tuple[UUID, AfeUpdate]]) -> list[AfeRead]:
+        try:
+            result = [self.update(item_id, payload, commit=False) for item_id, payload in rows]
+            self.session.commit()
+            return result
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def submit(self, afe_id: UUID) -> AfeRead:
+        afe = self._draft(afe_id)
+        active_items = int(
+            self.session.scalar(
+                select(func.count())
+                .select_from(AfeLine)
+                .where(
+                    AfeLine.afe_id == afe.id,
+                    AfeLine.is_active.is_(True),
+                )
+            )
+            or 0
+        )
+        if active_items == 0:
+            raise BusinessValidationError("A afe needs at least one active item before submission")
+        afe.status = "submitted"
+        afe.submitted_at = datetime.now(UTC)
+        afe.updated_by = self.actor_id
+        self.session.commit()
+        self.session.refresh(afe)
+        self.session.expire(afe, ["items"])
+        return self._read(afe, include_items=True)
+
+    def deactivate(self, afe_id: UUID) -> None:
+        afe = self._draft(afe_id)
+        afe.is_active, afe.updated_by = False, self.actor_id
+        self.session.commit()
+
+    def bulk_create(self, rows: list[AfeCreate]) -> list[AfeRead]:
+        try:
+            result = [self.create(row, commit=False) for row in rows]
+            self.session.commit()
+            return result
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def create_revision(self, afe_id: UUID) -> Never:
+        """Business rule to be confirmed during Excel/business-rule discovery."""
+
+        del afe_id
+        raise NotImplementedError(
+            "Business rule to be confirmed during Excel/business-rule discovery."
+        )
+
+    def _draft(self, afe_id: UUID) -> Afe:
+        afe = self.repository.get(afe_id)
+        if afe is None:
+            raise NotFoundError("AFE not found")
+        if afe.status != "draft":
+            raise BusinessValidationError(
+                "Submitted afes are read-only until revision rules are confirmed"
+            )
+        return afe
+
+    @staticmethod
+    def _read(afe: Afe, include_items: bool) -> AfeRead:
+        items = [AfeLineService.read(item) for item in afe.items]
+        return AfeRead.model_validate(
+            {
+                **{
+                    field: getattr(afe, field)
+                    for field in AfeRead.model_fields
+                    if field
+                    not in {"well_code", "project_id", "project_code", "item_count", "items"}
+                },
+                "well_code": afe.well.code,
+                "project_id": afe.well.project_id,
+                "project_code": afe.well.project.code,
+                "item_count": len(items),
+                "items": items if include_items else [],
+            }
+        )
+
+
+class AfeLineService:
+    def __init__(self, session: Session, actor_id: UUID) -> None:
+        self.session, self.actor_id = session, actor_id
+        self.repository = AfeLineRepository(session)
+
+    def list_items(self, afe_id: UUID) -> list[AfeLineRead]:
+        self._afe(afe_id)
+        return [self.read(item) for item in self.repository.list_for_afe(afe_id)]
+
+    def create(self, afe_id: UUID, payload: AfeLineCreate, commit: bool = True) -> AfeLineRead:
+        afe = self._afe(afe_id, must_be_draft=True)
+        values = payload.model_dump()
+        self._validate_references(values)
+        self._apply_rate_basis(values)
+        item = AfeLine(
+            **values,
+            afe_id=afe.id,
+            created_by=self.actor_id,
+            updated_by=self.actor_id,
+        )
+        self.session.add(item)
+        try:
+            self.session.flush()
+            if commit:
+                self.session.commit()
+                self.session.refresh(item)
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise ConflictError("AFE line number already exists") from exc
+        return self.read(item)
+
+    def update(self, item_id: UUID, payload: AfeLineUpdate, commit: bool = True) -> AfeLineRead:
+        item = self.repository.get(item_id)
+        if item is None:
+            raise NotFoundError("AFE item not found")
+        self._afe(item.afe_id, must_be_draft=True)
+        values = payload.model_dump(exclude_unset=True)
+        self._validate_references(values)
+        # A quantity the app computed is not a planner's choice: leave it out so a
+        # change to usage or planned days recomputes instead of reading as an override.
+        was_computed = (
+            item.computed_quantity is not None and item.quantity == item.computed_quantity
+        )
+        merged = {
+            "catalog_item_id": item.catalog_item_id,
+            "hole_section_id": item.hole_section_id,
+            "rate_basis": item.rate_basis,
+            "quantity": None if was_computed else item.quantity,
+            "daily_consumption": item.daily_consumption,
+            "planned_duration_days": item.planned_duration_days,
+            "quantity_override_reason": item.quantity_override_reason,
+            **values,
+        }
+        self._apply_rate_basis(merged)
+        for field in (
+            "rate_basis",
+            "quantity",
+            "computed_quantity",
+            "quantity_override_reason",
+        ):
+            values[field] = merged[field]
+        for field, value in values.items():
+            setattr(item, field, value)
+        if (
+            item.planned_depth_from is not None
+            and item.planned_depth_to is not None
+            and item.planned_depth_to < item.planned_depth_from
+        ):
+            raise BusinessValidationError("planned_depth_to must be on or after planned_depth_from")
+        if (item.planned_depth_from is not None or item.planned_depth_to is not None) and (
+            item.depth_unit_id is None
+        ):
+            raise BusinessValidationError("A depth unit is required when planned depth is supplied")
+        item.updated_by = self.actor_id
+        self.session.flush()
+        if commit:
+            self.session.commit()
+            self.session.refresh(item)
+        return self.read(item)
+
+    def deactivate(self, item_id: UUID) -> None:
+        item = self.repository.get(item_id)
+        if item is None:
+            raise NotFoundError("AFE item not found")
+        self._afe(item.afe_id, must_be_draft=True)
+        item.is_active, item.updated_by = False, self.actor_id
+        self.session.commit()
+
+    def validate_bulk(self, afe_id: UUID, rows: list[AfeLineCreate]) -> BulkValidationResult:
+        self._afe(afe_id, must_be_draft=True)
+        errors: list[BulkRowError] = []
+        seen: set[int] = set()
+        for index, row in enumerate(rows):
+            if row.line_number in seen:
+                errors.append(
+                    BulkRowError(
+                        row_index=index,
+                        column="line_number",
+                        code="duplicate_line",
+                        message="Line number is duplicated in the batch",
+                    )
+                )
+            seen.add(row.line_number)
+            values = row.model_dump()
+            try:
+                self._validate_references(values)
+            except BusinessValidationError as exc:
+                errors.append(
+                    BulkRowError(row_index=index, code="invalid_reference", message=exc.message)
+                )
+                continue
+            try:
+                self._apply_rate_basis(values)
+            except BusinessValidationError as exc:
+                errors.append(
+                    BulkRowError(
+                        row_index=index,
+                        column="rate_basis",
+                        code="invalid_rate_basis",
+                        message=exc.message,
+                    )
+                )
+        invalid = {error.row_index for error in errors}
+        return BulkValidationResult(
+            valid=not errors,
+            total_rows=len(rows),
+            valid_rows=len(rows) - len(invalid),
+            errors=errors,
+        )
+
+    def bulk_create(self, afe_id: UUID, rows: list[AfeLineCreate]) -> list[AfeLineRead]:
+        validation = self.validate_bulk(afe_id, rows)
+        if not validation.valid:
+            raise BusinessValidationError("Bulk item validation failed", validation.model_dump())
+        try:
+            result = [self.create(afe_id, row, commit=False) for row in rows]
+            self.session.commit()
+            return result
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def bulk_update(self, rows: list[tuple[UUID, AfeLineUpdate]]) -> list[AfeLineRead]:
+        try:
+            result = [self.update(item_id, payload, commit=False) for item_id, payload in rows]
+            self.session.commit()
+            return result
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def _afe(self, afe_id: UUID, must_be_draft: bool = False) -> Afe:
+        afe = self.session.get(Afe, afe_id)
+        if afe is None or not afe.is_active:
+            raise NotFoundError("AFE not found")
+        if must_be_draft and afe.status != "draft":
+            raise BusinessValidationError("Submitted afe items are read-only")
+        return afe
+
+    def _validate_references(self, values: dict[str, Any]) -> None:
+        references = {
+            "catalog_item_id": CatalogItem,
+            "cost_code_id": CostCode,
+            "unit_id": Unit,
+            "depth_unit_id": Unit,
+            "hole_section_id": HoleSection,
+        }
+        for field, model in references.items():
+            value = values.get(field)
+            if value is None:
+                continue
+            record = self.session.get(model, value)
+            if record is None or not record.is_active:
+                raise BusinessValidationError(f"{field} must reference an active record")
+
+    def _apply_rate_basis(self, values: dict[str, Any]) -> None:
+        """Settle the line's rate basis and the quantity that follows from it.
+
+        The basis defaults to whatever the catalogue item is normally charged
+        on and the planner may override it for this line. On a daily-consumption
+        line the quantity is computed from consumption per day and planned days
+        unless a reasoned override is supplied.
+        """
+
+        item = self.session.get(CatalogItem, values["catalog_item_id"])
+        if item is None:
+            raise BusinessValidationError("catalog_item_id must reference an active record")
+        catalogue_basis = getattr(item, "rate_basis", None)
+        try:
+            basis = (
+                validate_rate_basis(item.item_type, values["rate_basis"])
+                if values.get("rate_basis")
+                else default_rate_basis(item.item_type, catalogue_basis)
+            )
+            resolved = resolve_planned_quantity(
+                rate_basis=basis,
+                quantity=values.get("quantity"),
+                daily_consumption=values.get("daily_consumption"),
+                planned_duration_days=values.get("planned_duration_days"),
+                override_reason=values.get("quantity_override_reason"),
+            )
+        except RateBasisError as exc:
+            raise BusinessValidationError(str(exc)) from exc
+        if requires_hole_section(basis) and values.get("hole_section_id") is None:
+            raise BusinessValidationError(
+                "hole_section_id is required when a line is charged per section"
+            )
+
+        values["rate_basis"] = basis
+        values["quantity"] = resolved.quantity
+        values["computed_quantity"] = resolved.computed_quantity
+        if not resolved.is_overridden:
+            values["quantity_override_reason"] = None
+
+    @staticmethod
+    def read(item: AfeLine) -> AfeLineRead:
+        return AfeLineRead.model_validate(
+            {
+                **{
+                    field: getattr(item, field)
+                    for field in AfeLineRead.model_fields
+                    if field
+                    not in {
+                        "catalog_item_code",
+                        "catalog_item_name",
+                        "item_type",
+                        "cost_code",
+                        "unit_code",
+                        "depth_unit_code",
+                        "hole_section_code",
+                        "hole_section_name",
+                        "quantity_source",
+                    }
+                },
+                "catalog_item_code": item.catalog_item.code,
+                "catalog_item_name": item.catalog_item.name,
+                "item_type": item.catalog_item.item_type,
+                "cost_code": item.cost_code.code,
+                "unit_code": item.unit.code,
+                "depth_unit_code": item.depth_unit.code if item.depth_unit else None,
+                "hole_section_code": item.hole_section.code if item.hole_section else None,
+                "hole_section_name": item.hole_section.name if item.hole_section else None,
+                "quantity_source": AfeLineService._quantity_source(item),
+            }
+        )
+
+    @staticmethod
+    def _quantity_source(item: AfeLine) -> str:
+        if item.computed_quantity is None:
+            return "entered"
+        return "overridden" if item.quantity != item.computed_quantity else "computed"

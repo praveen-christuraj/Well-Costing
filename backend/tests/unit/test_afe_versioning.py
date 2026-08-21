@@ -1,14 +1,14 @@
-"""Unconfirmed requirement revision behavior must fail loudly."""
+"""Unconfirmed afe revision behavior must fail loudly."""
 
 from uuid import uuid4
 
 import pytest
-from app.services.requirements import RequirementService
+from app.services.afe import AfeService
 from sqlalchemy.orm import Session
 
 
-def test_requirement_revision_rule_is_not_guessed(db_session: Session) -> None:
-    service = RequirementService(db_session, uuid4())
+def test_afe_revision_rule_is_not_guessed(db_session: Session) -> None:
+    service = AfeService(db_session, uuid4())
     with pytest.raises(
         NotImplementedError,
         match="Business rule to be confirmed during Excel/business-rule discovery",

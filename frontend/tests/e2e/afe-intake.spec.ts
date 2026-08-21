@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 const enabled = process.env.E2E_FULL_STACK === '1'
 
-test('creates a well requirement and bulk-pastes a validated line item', async ({ page, request }) => {
+test('creates an AFE and bulk-pastes a validated line', async ({ page, request }) => {
   test.skip(!enabled, 'Full-stack backend is required')
   const email = process.env.E2E_EMAIL ?? ''
   const password = process.env.E2E_PASSWORD ?? ''
@@ -24,13 +24,15 @@ test('creates a well requirement and bulk-pastes a validated line item', async (
   const code = await create('/api/v1/master-data/cost-codes', { code: costCode, name: 'Phase 3 code', cost_category_id: category.id })
   await create('/api/v1/master-data/services', { code: serviceCode, name: 'Phase 3 service', cost_category_id: category.id, cost_code_id: code.id, default_unit_id: unit.id })
   const currency = await create('/api/v1/master-data/currencies', { code: `X${suffix.slice(-2)}`, name: 'Phase 5 test currency' })
+  const sectionCode = `S-${suffix.slice(-6)}`
+  await create('/api/v1/master-data/hole-sections', { code: sectionCode, name: '17-1/2 inch hole' })
 
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page).toHaveURL(/master-data\/vendors/)
-  await page.goto('/requirements')
+  await expect(page).toHaveURL(/dashboard/)
+  await page.goto('/afe')
   await page.waitForLoadState('networkidle')
 
   await page.getByRole('button', { name: 'Add project' }).click()
@@ -38,23 +40,28 @@ test('creates a well requirement and bulk-pastes a validated line item', async (
   await projectDialog.getByLabel('Code').fill(`PRJ-${suffix}`)
   await projectDialog.getByLabel('Name').fill('Phase 3 project')
   await projectDialog.getByRole('button', { name: 'Create project' }).click()
+  await expect(projectDialog).toBeHidden()
+  // The well dialog defaults its project from the reloaded list, so wait for it.
+  await expect(page.getByRole('cell', { name: `PRJ-${suffix}`, exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Add well' }).click()
   const wellDialog = page.getByRole('dialog', { name: 'Add well' })
   await wellDialog.getByLabel('Code').fill(`WELL-${suffix}`)
   await wellDialog.getByLabel('Name').fill('Phase 3 well')
   await wellDialog.getByRole('button', { name: 'Create well' }).click()
+  await expect(wellDialog).toBeHidden()
+  await expect(page.getByRole('cell', { name: `WELL-${suffix}`, exact: true })).toBeVisible()
 
-  await page.getByRole('button', { name: 'New' }).click()
-  const reqDialog = page.getByRole('dialog', { name: 'New requirement' })
-  await reqDialog.getByLabel('Code').fill(`REQ-${suffix}`)
-  await reqDialog.getByLabel('Title').fill('Phase 3 requirement')
-  await reqDialog.getByRole('button', { name: 'Create and open' }).click()
-  await expect(page.getByRole('heading', { name: 'Phase 3 requirement' })).toBeVisible()
+  await page.getByRole('button', { name: 'New AFE' }).first().click()
+  const afeDialog = page.getByRole('dialog', { name: 'New AFE' })
+  await afeDialog.getByLabel('AFE code').fill(`AFE-${suffix}`)
+  await afeDialog.getByLabel('Title').fill('Phase 3 AFE')
+  await afeDialog.getByRole('button', { name: 'Create and open' }).click()
+  await expect(afeDialog).toBeHidden()
 
   await page.getByRole('button', { name: 'Paste' }).click()
-  await page.getByRole('dialog', { name: 'Paste requirement lines' }).getByRole('textbox').fill(
-    `${serviceCode}\tservice\t${costCode}\t2\t${unitCode}\t17.5 inch\t5`,
+  await page.getByRole('dialog', { name: 'Paste AFE lines' }).getByRole('textbox').fill(
+    `${serviceCode}\tservice\t${costCode}\t2\t${unitCode}\t${sectionCode}\t5`,
   )
   await page.getByRole('button', { name: 'Apply rows' }).click()
   await page.getByRole('button', { name: /Save 1/ }).click()
@@ -62,12 +69,12 @@ test('creates a well requirement and bulk-pastes a validated line item', async (
   await page.getByRole('button', { name: 'Submit' }).click()
   await expect(page.getByText('submitted', { exact: true }).first()).toBeVisible()
 
-  const requirementResponse = await request.get('/api/v1/requirements?page=1&page_size=500&status=submitted', { headers })
-  const requirementPage = await requirementResponse.json() as { items: { id: string, code: string }[] }
-  const requirement = requirementPage.items.find(item => item.code === `REQ-${suffix}`)
-  expect(requirement).toBeTruthy()
-  const estimate = await create('/api/v1/estimates/from-requirement', {
-    requirement_id: requirement?.id,
+  const afeResponse = await request.get('/api/v1/afes?page=1&page_size=500&status=submitted', { headers })
+  const afePage = await afeResponse.json() as { items: { id: string, code: string }[] }
+  const afe = afePage.items.find(item => item.code === `AFE-${suffix}`)
+  expect(afe).toBeTruthy()
+  const estimate = await create('/api/v1/estimates/from-afe', {
+    afe_id: afe?.id,
     code: `EST-${suffix}`,
     title: 'Phase 5 blocked calculation',
     currency_id: currency.id,

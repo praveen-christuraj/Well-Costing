@@ -4,14 +4,14 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from tests.integration.test_estimate_build import auth, create, submitted_requirement
+from tests.integration.test_estimate_build import auth, create, submitted_afe
 
 
 def test_baseline_afe_creation_is_blocked_and_audited_without_policy(
     client: TestClient,
 ) -> None:
     headers = auth(client)
-    requirement, _refs = submitted_requirement(client, headers)
+    afe, _refs = submitted_afe(client, headers)
     currency = create(
         client,
         "/api/v1/master-data/currencies",
@@ -20,9 +20,9 @@ def test_baseline_afe_creation_is_blocked_and_audited_without_policy(
     )
     estimate = create(
         client,
-        "/api/v1/estimates/from-requirement",
+        "/api/v1/estimates/from-afe",
         {
-            "requirement_id": requirement["id"],
+            "afe_id": afe["id"],
             "code": "EST-P7-AFE",
             "title": "Pending baseline AFE",
             "currency_id": currency["id"],
@@ -65,5 +65,5 @@ def test_baseline_afe_creation_is_blocked_and_audited_without_policy(
     assert version["grand_total"] is None
     assert version["items"][0]["total_cost"] is None
 
-    missing = client.get(f"/api/v1/afes/{uuid4()}", headers=headers)
+    missing = client.get(f"/api/v1/afe-snapshots/{uuid4()}", headers=headers)
     assert missing.status_code == 404

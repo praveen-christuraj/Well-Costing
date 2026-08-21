@@ -1,4 +1,4 @@
-"""Requirement-item Excel import, template, and export routes."""
+"""AFE-item Excel import, template, and export routes."""
 
 import json
 from typing import Annotated
@@ -18,14 +18,14 @@ from app.schemas.imports import (
     ImportPreviewResponse,
     MappingOverride,
 )
-from app.services.requirement_excel import RequirementExcelService
+from app.services.afe_excel import AfeExcelService
 
-router = APIRouter(prefix="/requirements", tags=["requirement Excel"])
+router = APIRouter(prefix="/afes", tags=["AFE Excel"])
 
 
-@router.post("/{requirement_id}/import/preview", response_model=ImportPreviewResponse)
-async def preview_requirement_import(
-    requirement_id: UUID,
+@router.post("/{afe_id}/import/preview", response_model=ImportPreviewResponse)
+async def preview_afe_import(
+    afe_id: UUID,
     current_user: CurrentUser,
     session: Annotated[Session, Depends(get_db)],
     file: Annotated[UploadFile, File()],
@@ -37,50 +37,48 @@ async def preview_requirement_import(
             overrides = MappingOverride.model_validate(json.loads(mapping_json)).source_to_target
         except (json.JSONDecodeError, ValidationError) as exc:
             raise BusinessValidationError("mapping_json is invalid") from exc
-    return RequirementExcelService(session, current_user.id).preview(
-        requirement_id,
-        file.filename or "requirement-items.xlsx",
+    return AfeExcelService(session, current_user.id).preview(
+        afe_id,
+        file.filename or "afe-lines.xlsx",
         await file.read(),
         overrides,
     )
 
 
-@router.post("/{requirement_id}/import/commit", response_model=ImportCommitResponse)
-def commit_requirement_import(
-    requirement_id: UUID,
+@router.post("/{afe_id}/import/commit", response_model=ImportCommitResponse)
+def commit_afe_import(
+    afe_id: UUID,
     payload: ImportCommitRequest,
     current_user: CurrentUser,
     session: Annotated[Session, Depends(get_db)],
 ) -> ImportCommitResponse:
-    return RequirementExcelService(session, current_user.id).commit(
-        requirement_id, payload.batch_id
-    )
+    return AfeExcelService(session, current_user.id).commit(afe_id, payload.batch_id)
 
 
-@router.get("/{requirement_id}/import/template")
-def requirement_template(
-    requirement_id: UUID,
+@router.get("/{afe_id}/import/template")
+def afe_template(
+    afe_id: UUID,
     current_user: CurrentUser,
     session: Annotated[Session, Depends(get_db)],
 ) -> Response:
-    service = RequirementExcelService(session, current_user.id)
-    service.draft_requirement(requirement_id)
+    service = AfeExcelService(session, current_user.id)
+    service.draft_afe(afe_id)
     return Response(
         content=service.template(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="requirement-items-template.xlsx"'},
+        headers={"Content-Disposition": 'attachment; filename="afe-lines-template.xlsx"'},
     )
 
 
-@router.get("/{requirement_id}/export")
-def export_requirement(
-    requirement_id: UUID,
+@router.get("/{afe_id}/export")
+def export_afe(
+    afe_id: UUID,
     current_user: CurrentUser,
     session: Annotated[Session, Depends(get_db)],
 ) -> Response:
-    content = RequirementExcelService(session, current_user.id).export(requirement_id)
+    content = AfeExcelService(session, current_user.id).export(afe_id)
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="requirement-items-export.xlsx"'},
+        headers={"Content-Disposition": 'attachment; filename="afe-lines-export.xlsx"'},
     )

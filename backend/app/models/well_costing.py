@@ -28,7 +28,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import AuditMixin, Base, TimestampMixin
-from app.models.afe import AfeSnapshot
+from app.models.afe import Well
+from app.models.afe_snapshots import AfeSnapshot
 from app.models.master_data import (
     CatalogItem,
     CostCode,
@@ -38,7 +39,6 @@ from app.models.master_data import (
     Unit,
     Vendor,
 )
-from app.models.requirements import Well
 
 RATE_STATUS_CHECK = "status IN ('draft','locked')"
 RATE_ORIGIN_CHECK = "origin IN ('well_planning','unplanned')"

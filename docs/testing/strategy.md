@@ -57,7 +57,7 @@ npm run test:e2e
 - `expected_output.json`
 - source/approval metadata
 
-Later phases extend the same scenarios through requirement, build, estimate, AFE, actual, forecast, and dashboard outputs. Numeric changes require an explicit approved business-rule change and changelog entry.
+Later phases extend the same scenarios through AFE, build, estimate, AFE, actual, forecast, and dashboard outputs. Numeric changes require an explicit approved business-rule change and changelog entry.
 
 ## CI gates
 

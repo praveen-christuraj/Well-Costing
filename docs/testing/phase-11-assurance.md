@@ -4,7 +4,7 @@
 
 - Backend: 53 passed; 80.52% coverage; Ruff and strict Pyright clean.
 - Frontend: strict typecheck, ESLint, 13 Vitest tests, production build, and zero npm vulnerabilities.
-- Full stack: 3 Playwright tests passed through requirement, estimate, blocked calculation/workflow/AFE/posting, reporting export/contract, and assurance dashboard.
+- Full stack: 3 Playwright tests passed through AFE, estimate, blocked calculation/workflow/AFE/posting, reporting export/contract, and assurance dashboard.
 - PostgreSQL 16.14: migration round trip through `20260813_0010` and configured smoke passed.
 
 ## Scale

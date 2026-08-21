@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import Select
 
-from app.models.afe import AfeSnapshotAttempt
+from app.models.afe_snapshots import AfeSnapshotAttempt
 from app.models.calculations import EstimateCalculation
 from app.models.cost_control import CostControlBatch, CostControlPostAttempt, CostTransaction
 from app.models.workflow import EstimateWorkflowInstance, WorkflowProfile, WorkflowTransitionAttempt

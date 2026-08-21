@@ -10,8 +10,8 @@ from app.integrations.excel.templates import ExcelTemplateService
 from openpyxl import Workbook, load_workbook
 
 
-def test_requirement_template_has_versioned_profile_headers() -> None:
-    content = ExcelTemplateService().create_blank("requirement-items")
+def test_afe_template_has_versioned_profile_headers() -> None:
+    content = ExcelTemplateService().create_blank("afe-lines")
     workbook = load_workbook(BytesIO(content))
     sheet = workbook.active
     assert sheet is not None
@@ -34,7 +34,7 @@ def test_unknown_template_fails_clearly() -> None:
 
 def test_reader_rejects_unsupported_file_types() -> None:
     with pytest.raises(BusinessValidationError, match="Unsupported file extension"):
-        ExcelReader().read(b"not-a-workbook", "requirements.pdf")
+        ExcelReader().read(b"not-a-workbook", "afes.pdf")
 
 
 def _xlsx(rows: list[list[object]], *, stray_cell: tuple[int, int, object] | None = None) -> bytes:

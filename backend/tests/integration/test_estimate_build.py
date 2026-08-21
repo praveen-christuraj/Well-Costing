@@ -1,11 +1,11 @@
-"""Phase 4 requirement-to-cost-build integration tests."""
+"""Phase 4 afe-to-cost-build integration tests."""
 
 from typing import Any
 
 from fastapi.testclient import TestClient
 
 from tests.conftest import TEST_PASSWORD
-from tests.integration.test_requirements_api import setup_references, setup_requirement
+from tests.integration.test_afe_api import setup_afe, setup_references
 
 
 def auth(client: TestClient) -> dict[str, str]:
@@ -24,14 +24,14 @@ def create(
     return response.json()
 
 
-def submitted_requirement(
+def submitted_afe(
     client: TestClient, headers: dict[str, str]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     refs = setup_references(client, headers)
-    _, _, requirement = setup_requirement(client, headers)
+    _, _, afe = setup_afe(client, headers)
     item = create(
         client,
-        f"/api/v1/requirements/{requirement['id']}/items",
+        f"/api/v1/afes/{afe['id']}/lines",
         {
             "line_number": 1,
             "catalog_item_id": refs["service"]["id"],
@@ -41,14 +41,14 @@ def submitted_requirement(
         },
         headers,
     )
-    response = client.post(f"/api/v1/requirements/{requirement['id']}/submit", headers=headers)
+    response = client.post(f"/api/v1/afes/{afe['id']}/submit", headers=headers)
     assert response.status_code == 200
-    return response.json(), {**refs, "requirement_item": item}
+    return response.json(), {**refs, "afe_line": item}
 
 
 def test_generate_bulk_assign_assumption_and_version(client: TestClient) -> None:
     headers = auth(client)
-    requirement, refs = submitted_requirement(client, headers)
+    afe, refs = submitted_afe(client, headers)
     currency = create(
         client,
         "/api/v1/master-data/currencies",
@@ -76,9 +76,9 @@ def test_generate_bulk_assign_assumption_and_version(client: TestClient) -> None
     )
     estimate = create(
         client,
-        "/api/v1/estimates/from-requirement",
+        "/api/v1/estimates/from-afe",
         {
-            "requirement_id": requirement["id"],
+            "afe_id": afe["id"],
             "code": "EST-P4",
             "title": "Phase 4 cost build",
             "currency_id": currency["id"],
@@ -125,7 +125,7 @@ def test_generate_bulk_assign_assumption_and_version(client: TestClient) -> None
 
 def test_estimate_excel_export_preview_commit_round_trip(client: TestClient) -> None:
     headers = auth(client)
-    requirement, _refs = submitted_requirement(client, headers)
+    afe, _refs = submitted_afe(client, headers)
     currency = create(
         client,
         "/api/v1/master-data/currencies",
@@ -134,9 +134,9 @@ def test_estimate_excel_export_preview_commit_round_trip(client: TestClient) -> 
     )
     estimate = create(
         client,
-        "/api/v1/estimates/from-requirement",
+        "/api/v1/estimates/from-afe",
         {
-            "requirement_id": requirement["id"],
+            "afe_id": afe["id"],
             "code": "EST-XLSX",
             "title": "Excel round trip",
             "currency_id": currency["id"],
@@ -170,9 +170,9 @@ def test_estimate_excel_export_preview_commit_round_trip(client: TestClient) -> 
     assert committed.json()["imported_rows"] == 1
 
 
-def test_draft_requirement_cannot_generate_estimate(client: TestClient) -> None:
+def test_draft_afe_cannot_generate_estimate(client: TestClient) -> None:
     headers = auth(client)
-    _, _, requirement = setup_requirement(client, headers)
+    _, _, afe = setup_afe(client, headers)
     currency = create(
         client,
         "/api/v1/master-data/currencies",
@@ -180,9 +180,9 @@ def test_draft_requirement_cannot_generate_estimate(client: TestClient) -> None:
         headers,
     )
     response = client.post(
-        "/api/v1/estimates/from-requirement",
+        "/api/v1/estimates/from-afe",
         json={
-            "requirement_id": requirement["id"],
+            "afe_id": afe["id"],
             "code": "EST-DRAFT",
             "title": "Invalid",
             "currency_id": currency["id"],

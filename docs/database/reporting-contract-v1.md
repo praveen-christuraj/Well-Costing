@@ -4,7 +4,7 @@ Schema: `reporting`; contract version: `1.0`.
 
 ## Fact
 
-`reporting.v1_cost_transaction_fact` exposes immutable posted source transactions with AFE, estimate/version, requirement, well, project, state/date, code/category, nullable item nature, vendor, currency, source amount/document, correction lineage, and posting audit. `source_amount` is a stored fact, not a converted or aggregated KPI.
+`reporting.v1_cost_transaction_fact` exposes immutable posted source transactions with AFE snapshot, estimate/version, AFE, well, project, state/date, code/category, nullable item nature, vendor, currency, source amount/document, correction lineage, and posting audit. `source_amount` is a stored fact, not a converted or aggregated KPI.
 
 ## Dimensions
 

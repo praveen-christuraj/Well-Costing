@@ -1,15 +1,17 @@
-import { appNavigation, defaultLandingRoute, enabledNavigation } from '~/utils/navigation'
+import { appNavigation, defaultLandingRoute, enabledNavigation, navigationGroups } from '~/utils/navigation'
 
 describe('application navigation', () => {
   it('only exposes modules that are enabled', () => {
     expect(enabledNavigation.every(item => item.enabled)).toBe(true)
     expect(enabledNavigation.map(item => item.key)).toEqual([
-      'requirements',
+      'dashboard',
+      'afe',
       'cost-builder',
       'master-data',
       'cost-control',
       'reports',
       'assurance',
+      'administration',
     ])
   })
 
@@ -18,8 +20,19 @@ describe('application navigation', () => {
     expect(enabledNavigation.length).toBe(appNavigation.length)
   })
 
-  it('lands on Master Data, the established post-login entry point', () => {
-    expect(defaultLandingRoute).toBe('/master-data/vendors')
+  it('no longer offers a separate well-requirement module', () => {
+    expect(appNavigation.some(item => item.to.startsWith('/requirements'))).toBe(false)
+    expect(appNavigation.find(item => item.key === 'afe')?.to).toBe('/afe')
+  })
+
+  it('lands on the dashboard after sign-in', () => {
+    expect(defaultLandingRoute).toBe('/dashboard')
     expect(enabledNavigation.some(item => item.to === defaultLandingRoute)).toBe(true)
+  })
+
+  it('groups every enabled module into exactly one sidebar group', () => {
+    const grouped = navigationGroups.flatMap(group => group.items.map(item => item.key))
+    expect([...grouped].sort()).toEqual([...enabledNavigation.map(item => item.key)].sort())
+    expect(new Set(grouped).size).toBe(grouped.length)
   })
 })

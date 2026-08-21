@@ -150,9 +150,7 @@ PROFILE_REGISTRY: dict[str, MappingProfile] = {
             "vendor_code": frozenset({"vendor_code", "vendor"}),
             "currency_code": frozenset({"currency_code", "currency"}),
             "order_date": frozenset({"order_date", "po_date", "date"}),
-            "expected_delivery_date": frozenset(
-                {"expected_delivery_date", "delivery_date", "eta"}
-            ),
+            "expected_delivery_date": frozenset({"expected_delivery_date", "delivery_date", "eta"}),
             "order_value": frozenset({"order_value", "value", "amount"}),
             "status": frozenset({"status", "order_status"}),
             "description": COMMON_ALIASES["description"],
@@ -163,8 +161,14 @@ PROFILE_REGISTRY: dict[str, MappingProfile] = {
         "item-prices-default",
         "1.0",
         frozenset(
-            {"item_code", "vendor_code", "currency_code", "unit_code", "unit_price",
-             "effective_from"}
+            {
+                "item_code",
+                "vendor_code",
+                "currency_code",
+                "unit_code",
+                "unit_price",
+                "effective_from",
+            }
         ),
         {
             "item_code": frozenset({"item_code", "material_code", "tangible_code"}),
@@ -220,9 +224,9 @@ PROFILE_REGISTRY: dict[str, MappingProfile] = {
             "notes": frozenset({"notes", "remarks"}),
         },
     ),
-    "requirement-items": MappingProfile(
-        "requirement-items-default",
-        "1.0",
+    "afe-lines": MappingProfile(
+        "afe-lines-default",
+        "2.0",
         frozenset(
             {
                 "line_number",
@@ -240,7 +244,16 @@ PROFILE_REGISTRY: dict[str, MappingProfile] = {
             "cost_code": frozenset({"cost_code", "expense_code"}),
             "quantity": frozenset({"quantity", "qty"}),
             "unit_code": frozenset({"unit_code", "unit", "uom"}),
-            "section_name": frozenset({"section_name", "section", "hole_section"}),
+            "hole_section_code": frozenset(
+                {"hole_section_code", "hole_section", "section_code", "section", "section_name"}
+            ),
+            "rate_basis": frozenset({"rate_basis", "rate_type", "basis", "charge_basis"}),
+            "daily_consumption": frozenset(
+                {"daily_consumption", "consumption_per_day", "usage_per_day", "qty_per_day"}
+            ),
+            "quantity_override_reason": frozenset(
+                {"quantity_override_reason", "override_reason", "quantity_reason"}
+            ),
             "planned_duration_days": frozenset(
                 {"planned_duration_days", "planned_days", "duration_days"}
             ),

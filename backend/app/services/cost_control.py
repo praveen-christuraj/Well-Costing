@@ -26,7 +26,7 @@ from app.domain.cost_control.types import (
 )
 from app.integrations.excel.mapper import ExcelMapper
 from app.integrations.excel.reader import ExcelReader
-from app.models.afe import AfeSnapshot
+from app.models.afe_snapshots import AfeSnapshot
 from app.models.cost_control import (
     CostControlBatch,
     CostControlBatchError,

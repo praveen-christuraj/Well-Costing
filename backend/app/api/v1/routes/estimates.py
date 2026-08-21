@@ -41,7 +41,7 @@ def list_estimates(
     return CostEstimateService(session, current_user.id).list_page(page, page_size, search)
 
 
-@router.post("/from-requirement", response_model=EstimateRead, status_code=201)
+@router.post("/from-afe", response_model=EstimateRead, status_code=201)
 def generate_estimate(
     payload: EstimateGenerateRequest, current_user: CurrentUser, session: DbSession
 ) -> EstimateRead:

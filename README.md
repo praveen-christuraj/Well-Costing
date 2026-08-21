@@ -127,12 +127,24 @@ npm run dev -- --host 0.0.0.0
 
 Open http://localhost:3000 and sign in with the local user you seeded. Nuxt calls the backend through the relative `/api/v1` server proxy, so browser code does not hard-code `localhost` API URLs.
 
-The application always opens on an enabled module. `frontend/utils/navigation.ts`
-is the single source of truth for which top-level modules are released; the
-navigation bar, the `/` landing route, and the post-login redirect all read from
-it, so nothing can route users to a page that is not enabled yet. **Master Data**
-is currently the only enabled module — flip an entry's `enabled` flag to release
-the next one.
+The application opens on the **Dashboard**. `frontend/utils/navigation.ts` is the
+single source of truth for which top-level modules are released; the sidebar, the
+`/` landing route, and the post-login redirect all read from it, so nothing can
+route users to a page that is not enabled yet.
+
+The shell follows the [PrimeVue Sakai](https://github.com/primefaces/sakai-vue)
+layout: a grouped sidebar, a topbar with a light/dark switch, and a theme
+configurator (preset, primary colour, surface palette, static or overlay menu)
+whose choice is remembered between sessions.
+
+**AFE** (`/afe`) is where a well's cost scope is entered — projects, wells, the AFE
+itself, and every AFE line on one page. Each line records how it is charged:
+daily, per section, per service, fixed, per unit, or on daily usage for chemicals
+and additives. The basis pre-fills from the catalogue item and can be changed for
+one line; **Section** is a dropdown of the hole sections configured under Master
+Data, never free text; and a chemical on daily usage has its total computed from
+usage per day times planned days, overridable only with a recorded reason. See
+the [AFE data model](docs/database/afe.md) and the [Phase 3 API](docs/api/phase-3.md).
 
 **Master Data** (`/master-data/vendors`) maintains the raw reference data the AFE is
 built from: vendors classified as third-party or in-house, service orders and

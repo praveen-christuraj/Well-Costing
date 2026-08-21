@@ -30,7 +30,7 @@ user_roles
   created_at / updated_at
 ```
 
-Phase 2 adds the Cost Library and import tracking described in [`master-data.md`](master-data.md). Phase 3 adds project/well/requirement intake described in [`requirements.md`](requirements.md). Estimate, AFE, actual, forecast, and reporting tables do not yet exist.
+Phase 2 adds the Cost Library and import tracking described in [`master-data.md`](master-data.md). Phase 3 adds project/well/AFE preparation described in [`afe.md`](afe.md). Estimate, AFE, actual, forecast, and reporting tables do not yet exist.
 
 ## Conventions
 

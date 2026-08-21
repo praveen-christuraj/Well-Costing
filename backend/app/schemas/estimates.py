@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class EstimateGenerateRequest(BaseModel):
-    requirement_id: UUID
+    afe_id: UUID
     code: str = Field(min_length=1, max_length=100)
     title: str = Field(min_length=1, max_length=255)
     currency_id: UUID
@@ -18,7 +18,7 @@ class EstimateItemRead(BaseModel):
     id: UUID
     estimate_version_id: UUID
     line_number: int
-    requirement_item_id: UUID | None
+    afe_line_id: UUID | None
     catalog_item_id: UUID
     catalog_item_code: str
     catalog_item_name: str
@@ -71,8 +71,8 @@ class EstimateVersionRead(BaseModel):
 
 class EstimateRead(BaseModel):
     id: UUID
-    requirement_id: UUID
-    requirement_code: str
+    afe_id: UUID
+    afe_code: str
     well_id: UUID
     well_code: str
     project_code: str

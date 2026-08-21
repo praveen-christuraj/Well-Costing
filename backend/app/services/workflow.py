@@ -46,7 +46,7 @@ PENDING_WORKFLOW_REQUIREMENTS = [
     "permitted transition graph and transition prerequisites",
     "reviewer and approver role mappings, delegation, and separation of duties",
     "calculation and validation checks required before each transition",
-    "rejection, revision, resubmission, and comment requirements",
+    "rejection, revision, resubmission, and comment afes",
     "profile publication, effective-date, retirement, and migration policy",
 ]
 

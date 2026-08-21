@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
-import AfeSnapshotPanel from '~/components/afe/AfeSnapshotPanel.vue'
-import type { EstimateAfeStatus } from '~/types/afe'
+import AfeBaselinePanel from '~/components/afe/AfeBaselinePanel.vue'
+import type { EstimateAfeStatus } from '~/types/afeSnapshots'
 
 const pending: EstimateAfeStatus = {
   estimate_id: 'estimate-1',
@@ -12,9 +12,9 @@ const pending: EstimateAfeStatus = {
   pending_requirements: ['eligibility gate', 'numbering policy'],
 }
 
-describe('AfeSnapshotPanel', () => {
+describe('AfeBaselinePanel', () => {
   it('shows an explicit but fail-closed baseline request shell', async () => {
-    const wrapper = mount(AfeSnapshotPanel, {
+    const wrapper = mount(AfeBaselinePanel, {
       props: { status: pending, loading: false, requestMessage: null },
     })
 

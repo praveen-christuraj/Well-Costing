@@ -15,8 +15,8 @@ The industry-reference workflow defines application structure only. It is not au
 - Contingency and escalation rules
 - Tax/tangible/intangible classifications
 - Total, subtotal, and rounding behavior
-- Requirement revision, locking, supersession, and post-submission change behavior
-- Whether additional requirement states beyond Draft/Submitted are required
+- AFE revision, locking, supersession, and post-submission change behavior
+- Whether additional AFE states beyond Draft/Submitted are required
 - Estimate and AFE approval transitions/thresholds
 - Field estimate versus accrual definitions
 - Actual allocation and correction/reversal behavior

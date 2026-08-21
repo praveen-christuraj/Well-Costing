@@ -36,7 +36,7 @@ PENDING_METRICS = [
 DIMENSIONS = [
     ("project_code", "Project"),
     ("well_code", "Well"),
-    ("requirement_code", "Requirement"),
+    ("afe_code", "AFE"),
     ("estimate_code", "Estimate/version"),
     ("afe_number", "AFE"),
     ("cost_state", "Cost state"),
@@ -164,19 +164,19 @@ class ReportingService:
         }
         rows: list[CostDrillThroughRow] = []
         for transaction in transactions:
-            afe = transaction.afe_snapshot
-            version = afe.estimate_version
+            snapshot = transaction.afe_snapshot
+            version = snapshot.estimate_version
             estimate = version.estimate
-            requirement = estimate.requirement
+            afe = estimate.afe
             row = CostDrillThroughRow(
                 transaction_id=transaction.id,
                 posting_reference=transaction.posting_reference,
-                project_code=requirement.well.project.code,
-                well_code=requirement.well.code,
-                requirement_code=requirement.code,
+                project_code=afe.well.project.code,
+                well_code=afe.well.code,
+                afe_code=afe.code,
                 estimate_code=estimate.code,
                 estimate_version_number=version.version_number,
-                afe_number=afe.afe_number,
+                afe_number=snapshot.afe_number,
                 cost_state=transaction.cost_state,
                 transaction_date=transaction.transaction_date,
                 cost_category_code=code_map.get(transaction.cost_code),
@@ -200,7 +200,7 @@ class ReportingService:
         checks: list[tuple[Any, Any]] = [
             (filters.project_code, row.project_code),
             (filters.well_code, row.well_code),
-            (filters.requirement_code, row.requirement_code),
+            (filters.afe_code, row.afe_code),
             (filters.estimate_code, row.estimate_code),
             (filters.afe_number, row.afe_number),
             (filters.cost_state, row.cost_state),

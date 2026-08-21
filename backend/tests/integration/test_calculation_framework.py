@@ -2,14 +2,14 @@
 
 from fastapi.testclient import TestClient
 
-from tests.integration.test_estimate_build import auth, create, submitted_requirement
+from tests.integration.test_estimate_build import auth, create, submitted_afe
 
 
 def test_calculation_is_blocked_and_audited_without_confirmed_rules(
     client: TestClient,
 ) -> None:
     headers = auth(client)
-    requirement, _refs = submitted_requirement(client, headers)
+    afe, _refs = submitted_afe(client, headers)
     currency = create(
         client,
         "/api/v1/master-data/currencies",
@@ -18,9 +18,9 @@ def test_calculation_is_blocked_and_audited_without_confirmed_rules(
     )
     estimate = create(
         client,
-        "/api/v1/estimates/from-requirement",
+        "/api/v1/estimates/from-afe",
         {
-            "requirement_id": requirement["id"],
+            "afe_id": afe["id"],
             "code": "EST-P5-BLOCKED",
             "title": "Blocked calculation framework",
             "currency_id": currency["id"],

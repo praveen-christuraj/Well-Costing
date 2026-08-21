@@ -6,7 +6,7 @@ Preserve Excel's high-throughput editing experience while moving validation, aud
 
 ## Implementation status
 
-Phase 2 implements `reader.py`, `mapper.py`, `validator.py`, `importer.py`, `exporter.py`, and `templates.py` for Cost Library entities. See [`phase-2-import.md`](phase-2-import.md). Requirement and later-phase workbook profiles remain deferred.
+Phase 2 implements `reader.py`, `mapper.py`, `validator.py`, `importer.py`, `exporter.py`, and `templates.py` for Cost Library entities. See [`phase-2-import.md`](phase-2-import.md). The AFE-line profile is documented in [`phase-3-afe.md`](phase-3-afe.md); later-phase workbook profiles remain deferred.
 
 ## Phase 2 pipeline
 

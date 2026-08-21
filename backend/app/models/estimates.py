@@ -15,16 +15,16 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import AuditMixin, Base, TimestampMixin
+from app.models.afe import Afe, AfeLine
 from app.models.master_data import CatalogItem, CostCategory, CostCode, Currency, Rate, Unit, Vendor
-from app.models.requirements import RequirementItem, WellRequirement
 
 
 class CostEstimate(TimestampMixin, AuditMixin, Base):
     __tablename__ = "cost_estimates"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    requirement_id: Mapped[UUID] = mapped_column(
-        ForeignKey("well_requirements.id", ondelete="RESTRICT"), index=True
+    afe_id: Mapped[UUID] = mapped_column(
+        ForeignKey("afes.id", ondelete="RESTRICT"), index=True
     )
     code: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     title: Mapped[str] = mapped_column(String(255), index=True)
@@ -33,7 +33,7 @@ class CostEstimate(TimestampMixin, AuditMixin, Base):
     )
     current_version_number: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
 
-    requirement: Mapped[WellRequirement] = relationship(lazy="joined")
+    afe: Mapped[Afe] = relationship(lazy="joined")
     currency: Mapped[Currency] = relationship(lazy="joined")
     versions: Mapped[list["EstimateVersion"]] = relationship(
         back_populates="estimate", cascade="all, delete-orphan", lazy="selectin"
@@ -88,8 +88,8 @@ class EstimateItem(TimestampMixin, AuditMixin, Base):
         ForeignKey("estimate_versions.id", ondelete="CASCADE"), index=True
     )
     line_number: Mapped[int] = mapped_column(Integer)
-    requirement_item_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("requirement_items.id", ondelete="RESTRICT"), nullable=True, index=True
+    afe_line_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("afe_lines.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     catalog_item_id: Mapped[UUID] = mapped_column(
         ForeignKey("catalog_items.id", ondelete="RESTRICT"), index=True
@@ -112,7 +112,7 @@ class EstimateItem(TimestampMixin, AuditMixin, Base):
     total_cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
 
     version: Mapped[EstimateVersion] = relationship(back_populates="items")
-    requirement_item: Mapped[RequirementItem | None] = relationship(lazy="joined")
+    afe_line: Mapped[AfeLine | None] = relationship(lazy="joined")
     catalog_item: Mapped[CatalogItem] = relationship(lazy="joined")
     cost_code: Mapped[CostCode] = relationship(lazy="joined")
     vendor: Mapped[Vendor | None] = relationship(lazy="joined")

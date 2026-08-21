@@ -82,7 +82,7 @@ describe('Login page', () => {
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
-    expect(navigateTo).toHaveBeenCalledWith('/master-data/vendors')
+    expect(navigateTo).toHaveBeenCalledWith('/dashboard')
     expect(navigateTo).not.toHaveBeenCalledWith('/cost-library/services')
   })
 
@@ -90,7 +90,7 @@ describe('Login page', () => {
     const { navigateTo } = await mountPage({ authenticated: true })
     await flushPromises()
 
-    expect(navigateTo).toHaveBeenCalledWith('/master-data/vendors')
+    expect(navigateTo).toHaveBeenCalledWith('/dashboard')
   })
 
   it('shows the placeholder password-recovery links and database provisioning notice', async () => {
