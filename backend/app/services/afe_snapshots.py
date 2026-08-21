@@ -168,6 +168,39 @@ class EstimateAfeService:
         version: EstimateVersion,
         calculation: EstimateCalculation | None,
     ) -> BaselineAfeInput:
+        lines: list[AfeLineInput] = []
+        for item in version.items:
+            catalog_item = item.catalog_item
+            cost_code = item.cost_code
+            unit = item.unit
+            if catalog_item is None or cost_code is None or unit is None:
+                # A referenced catalogue item/cost code/unit is missing; it cannot be
+                # snapshotted, so skip it rather than crash.
+                continue
+            lines.append(
+                AfeLineInput(
+                    estimate_item_id=str(item.id),
+                    line_number=item.line_number,
+                    item_code=catalog_item.code,
+                    item_description=catalog_item.name,
+                    item_type=catalog_item.item_type,
+                    cost_code=cost_code.code,
+                    cost_category_code=(
+                        catalog_item.cost_category.code if catalog_item.cost_category else None
+                    ),
+                    vendor_code=item.vendor.code if item.vendor else None,
+                    quantity=item.quantity,
+                    unit_code=unit.code,
+                    rate_amount=item.rate.amount if item.rate else None,
+                    rate_currency_code=(
+                        item.rate.currency.code if item.rate and item.rate.currency else None
+                    ),
+                    base_cost=item.base_cost,
+                    contingency_cost=item.contingency_cost,
+                    escalation_cost=item.escalation_cost,
+                    total_cost=item.total_cost,
+                )
+            )
         return BaselineAfeInput(
             estimate_id=str(estimate.id),
             estimate_version_id=str(version.id),
@@ -184,31 +217,7 @@ class EstimateAfeService:
             contingency_total=version.contingency_total,
             escalation_total=version.escalation_total,
             grand_total=version.grand_total,
-            lines=tuple(
-                AfeLineInput(
-                    estimate_item_id=str(item.id),
-                    line_number=item.line_number,
-                    item_code=item.catalog_item.code,
-                    item_description=item.catalog_item.name,
-                    item_type=item.catalog_item.item_type,
-                    cost_code=item.cost_code.code,
-                    cost_category_code=(
-                        item.catalog_item.cost_category.code
-                        if item.catalog_item.cost_category
-                        else None
-                    ),
-                    vendor_code=item.vendor.code if item.vendor else None,
-                    quantity=item.quantity,
-                    unit_code=item.unit.code,
-                    rate_amount=item.rate.amount if item.rate else None,
-                    rate_currency_code=item.rate.currency.code if item.rate else None,
-                    base_cost=item.base_cost,
-                    contingency_cost=item.contingency_cost,
-                    escalation_cost=item.escalation_cost,
-                    total_cost=item.total_cost,
-                )
-                for item in version.items
-            ),
+            lines=tuple(lines),
         )
 
     def _persist(self, source: BaselineAfeInput, result: BaselineAfeSnapshot) -> AfeSnapshot:
