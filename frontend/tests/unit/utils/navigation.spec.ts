@@ -5,13 +5,14 @@ describe('application navigation', () => {
     expect(enabledNavigation.every(item => item.enabled)).toBe(true)
     expect(enabledNavigation.map(item => item.key)).toEqual([
       'dashboard',
+      'master-data',
       'afe',
       'cost-builder',
-      'master-data',
       'cost-control',
       'reports',
       'assurance',
       'administration',
+      'help',
     ])
   })
 

@@ -241,6 +241,58 @@ def test_submission_requires_items_and_prevents_silent_mutation(client: TestClie
     assert "read-only" in mutation.json()["error"]["message"]
 
 
+def test_draft_afe_can_be_deleted_outright(client: TestClient) -> None:
+    auth = headers(client)
+    refs = setup_references(client, auth)
+    _, _, afe = setup_afe(client, auth)
+
+    post(
+        client,
+        f"/api/v1/afes/{afe['id']}/lines",
+        {
+            "line_number": 1,
+            "catalog_item_id": refs["service"]["id"],
+            "cost_code_id": refs["cost_code"]["id"],
+            "quantity": 1,
+            "unit_id": refs["day"]["id"],
+        },
+        auth,
+    )
+
+    deleted = client.delete(f"/api/v1/afes/{afe['id']}", headers=auth)
+    assert deleted.status_code == 204
+
+    gone = client.get(f"/api/v1/afes/{afe['id']}", headers=auth)
+    assert gone.status_code == 404
+
+    remaining = client.get("/api/v1/afes?page=1&page_size=500", headers=auth)
+    assert remaining.json()["total"] == 0
+
+
+def test_submitted_afe_cannot_be_deleted(client: TestClient) -> None:
+    auth = headers(client)
+    refs = setup_references(client, auth)
+    _, _, afe = setup_afe(client, auth)
+
+    post(
+        client,
+        f"/api/v1/afes/{afe['id']}/lines",
+        {
+            "line_number": 1,
+            "catalog_item_id": refs["service"]["id"],
+            "cost_code_id": refs["cost_code"]["id"],
+            "quantity": 1,
+            "unit_id": refs["day"]["id"],
+        },
+        auth,
+    )
+    assert client.post(f"/api/v1/afes/{afe['id']}/submit", headers=auth).status_code == 200
+
+    deleted = client.delete(f"/api/v1/afes/{afe['id']}", headers=auth)
+    assert deleted.status_code == 422
+    assert "read-only" in deleted.json()["error"]["message"]
+
+
 def test_section_must_be_a_configured_hole_section(client: TestClient) -> None:
     auth = headers(client)
     refs = setup_references(client, auth)
