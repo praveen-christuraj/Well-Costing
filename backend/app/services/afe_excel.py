@@ -1,4 +1,4 @@
-"""Excel import/export workflow for afe line items."""
+"""Excel import/export workflow for AFE lines."""
 
 import hashlib
 from decimal import Decimal, InvalidOperation
@@ -18,7 +18,7 @@ from app.integrations.excel.reader import ExcelReader
 from app.integrations.excel.templates import ExcelTemplateService
 from app.models.afe import Afe, AfeLine
 from app.models.import_tracking import ImportBatch, ImportError
-from app.models.master_data import CatalogItem, CostCode, Unit
+from app.models.master_data import CatalogItem, CostCode, HoleSection, Unit
 from app.repositories.imports import ImportBatchRepository
 from app.schemas.afe import AfeLineCreate
 from app.schemas.imports import ImportCommitResponse, ImportPreviewResponse
@@ -152,7 +152,10 @@ class AfeExcelService:
                     "cost_code": item.cost_code.code,
                     "quantity": item.quantity,
                     "unit_code": item.unit.code,
-                    "section_name": item.section_name,
+                    "hole_section_code": item.hole_section.code if item.hole_section else None,
+                    "rate_basis": item.rate_basis,
+                    "daily_consumption": item.daily_consumption,
+                    "quantity_override_reason": item.quantity_override_reason,
                     "planned_duration_days": item.planned_duration_days,
                     "planned_depth_from": item.planned_depth_from,
                     "planned_depth_to": item.planned_depth_to,
@@ -181,6 +184,7 @@ class AfeExcelService:
             ("cost_code", "cost_code_id", CostCode),
             ("unit_code", "unit_id", Unit),
             ("depth_unit_code", "depth_unit_id", Unit),
+            ("hole_section_code", "hole_section_id", HoleSection),
         ]:
             code = values.pop(source_field, None)
             if code in (None, ""):
@@ -197,6 +201,7 @@ class AfeExcelService:
             values["line_number"] = int(values["line_number"])
             for field in (
                 "quantity",
+                "daily_consumption",
                 "planned_duration_days",
                 "planned_depth_from",
                 "planned_depth_to",
@@ -204,7 +209,9 @@ class AfeExcelService:
                 if field in values:
                     values[field] = Decimal(str(values[field]))
         except (InvalidOperation, TypeError, ValueError) as exc:
-            raise ValueError("Line, quantity, duration, and depth values must be numeric") from exc
+            raise ValueError(
+                "Line, quantity, consumption, duration, and depth values must be numeric"
+            ) from exc
         if "is_active" in values:
             values["is_active"] = str(values["is_active"]).strip().lower() not in {
                 "false",
@@ -219,5 +226,5 @@ class AfeExcelService:
         if afe is None or not afe.is_active:
             raise NotFoundError("AFE not found")
         if afe.status != "draft":
-            raise BusinessValidationError("Only draft afes can be imported")
+            raise BusinessValidationError("Only draft AFEs can be imported")
         return afe

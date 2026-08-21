@@ -1,4 +1,4 @@
-"""Phase 3 project, well, afe, and afe-item models."""
+"""Project, well, AFE, and AFE-line models."""
 
 from datetime import date, datetime
 from decimal import Decimal
@@ -19,7 +19,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import AuditMixin, Base, TimestampMixin
-from app.models.master_data import CatalogItem, CostCode, Unit
+from app.domain.afe.rate_basis import RATE_BASES
+from app.models.master_data import CatalogItem, CostCode, HoleSection, Unit, _sql_in
 
 
 class Project(TimestampMixin, AuditMixin, Base):
@@ -119,6 +120,19 @@ class AfeLine(TimestampMixin, AuditMixin, Base):
             "OR planned_depth_to >= planned_depth_from",
             name="valid_depth_range",
         ),
+        CheckConstraint(f"rate_basis IN ({_sql_in(RATE_BASES)})", name="valid_rate_basis"),
+        CheckConstraint(
+            "daily_consumption IS NULL OR daily_consumption >= 0",
+            name="non_negative_daily_consumption",
+        ),
+        CheckConstraint(
+            "computed_quantity IS NULL OR computed_quantity >= 0",
+            name="non_negative_computed_quantity",
+        ),
+        CheckConstraint(
+            "quantity_override_reason IS NULL OR length(trim(quantity_override_reason)) > 0",
+            name="override_reason_not_blank",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -132,7 +146,15 @@ class AfeLine(TimestampMixin, AuditMixin, Base):
     )
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
     unit_id: Mapped[UUID] = mapped_column(ForeignKey("units.id", ondelete="RESTRICT"), index=True)
-    section_name: Mapped[str | None] = mapped_column(String(150), nullable=True, index=True)
+    hole_section_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("hole_sections.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    rate_basis: Mapped[str] = mapped_column(
+        String(20), default="daily", server_default="daily", index=True
+    )
+    daily_consumption: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    computed_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    quantity_override_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     planned_duration_days: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     planned_depth_from: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
     planned_depth_to: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
@@ -147,5 +169,6 @@ class AfeLine(TimestampMixin, AuditMixin, Base):
     afe: Mapped[Afe] = relationship(back_populates="items")
     catalog_item: Mapped[CatalogItem] = relationship(lazy="joined")
     cost_code: Mapped[CostCode] = relationship(lazy="joined")
+    hole_section: Mapped[HoleSection | None] = relationship(lazy="joined")
     unit: Mapped[Unit] = relationship(foreign_keys=[unit_id], lazy="joined")
     depth_unit: Mapped[Unit | None] = relationship(foreign_keys=[depth_unit_id], lazy="joined")

@@ -10,6 +10,12 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import BusinessValidationError, ConflictError, NotFoundError
 from app.db.base import Base
+from app.domain.afe.rate_basis import (
+    RateBasisError,
+    allowed_rate_bases,
+    normalize_rate_basis,
+    validate_rate_basis,
+)
 from app.models.master_data import (
     CatalogItem,
     CementAdditive,
@@ -75,15 +81,15 @@ ENTITY_CONFIGS: dict[str, EntityConfig] = {
     "cost-codes": EntityConfig(CostCode, COMMON_FIELDS | {"cost_category_id"}),
     "vendors": EntityConfig(Vendor, VENDOR_FIELDS),
     "item-categories": EntityConfig(ItemCategory, COMMON_FIELDS | {"applies_to"}),
-    "item-subcategories": EntityConfig(
-        ItemSubCategory, COMMON_FIELDS | {"applies_to"}
-    ),
+    "item-subcategories": EntityConfig(ItemSubCategory, COMMON_FIELDS | {"applies_to"}),
     "services": EntityConfig(Service, CATALOG_FIELDS | {"rate_basis"}, "service"),
     "tangibles": EntityConfig(Tangible, CATALOG_FIELDS, "tangible"),
     "materials": EntityConfig(Material, CATALOG_FIELDS, "material"),
     "equipment": EntityConfig(Equipment, CATALOG_FIELDS, "equipment"),
-    "mud-chemicals": EntityConfig(MudChemical, CATALOG_FIELDS, "mud_chemical"),
-    "cement-additives": EntityConfig(CementAdditive, CATALOG_FIELDS, "cement_additive"),
+    "mud-chemicals": EntityConfig(MudChemical, CATALOG_FIELDS | {"rate_basis"}, "mud_chemical"),
+    "cement-additives": EntityConfig(
+        CementAdditive, CATALOG_FIELDS | {"rate_basis"}, "cement_additive"
+    ),
 }
 
 
@@ -282,15 +288,7 @@ class MasterDataService:
         if "name" in supplied and supplied["name"] is not None:
             supplied["name"] = str(supplied["name"]).strip()
         if "rate_basis" in supplied and supplied["rate_basis"] is not None:
-            raw = str(supplied["rate_basis"]).strip().lower().replace(" ", "_").replace("-", "_")
-            synonyms = {
-                "daily_rate": "daily",
-                "per_day": "daily",
-                "per_section_rate": "per_section",
-                "per_service_rate": "per_service",
-                "fixed_rate": "fixed",
-            }
-            supplied["rate_basis"] = synonyms.get(raw, raw)
+            supplied["rate_basis"] = normalize_rate_basis(str(supplied["rate_basis"]))
         return supplied
 
     def _validate_references(self, values: dict[str, Any], current_id: UUID | None = None) -> None:
@@ -314,15 +312,15 @@ class MasterDataService:
                 "applies_to must be one of service, tangible, mud_chemical, cement_additive"
             )
         rate_basis = values.get("rate_basis")
-        if rate_basis is not None and rate_basis not in {
-            "daily",
-            "per_service",
-            "per_section",
-            "fixed",
-        }:
-            raise BusinessValidationError(
-                "rate_basis must be one of daily, per_service, per_section, fixed"
-            )
+        if rate_basis is not None:
+            item_type = self.config.item_type or ""
+            try:
+                values["rate_basis"] = validate_rate_basis(item_type, str(rate_basis))
+            except RateBasisError as exc:
+                allowed = ", ".join(allowed_rate_bases(item_type))
+                raise BusinessValidationError(
+                    f"rate_basis must be one of {allowed} for {self.entity}"
+                ) from exc
         reference_models = {
             "parent_id": CostCategory,
             "cost_category_id": CostCategory,

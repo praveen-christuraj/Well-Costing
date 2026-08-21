@@ -1,4 +1,4 @@
-"""Phase 3 project, well, and afe API schemas."""
+"""Project, well, AFE, and AFE-line API schemas."""
 
 from datetime import date, datetime
 from decimal import Decimal
@@ -114,12 +114,23 @@ class AfeUpdate(BaseModel):
 
 
 class AfeLineCreate(BaseModel):
+    """A planned AFE line.
+
+    ``quantity`` is optional on a ``daily_consumption`` line: leave it out and
+    the app multiplies ``daily_consumption`` by ``planned_duration_days``.
+    Supply a different quantity and it is kept as an override, but only with a
+    ``quantity_override_reason``.
+    """
+
     line_number: int = Field(ge=1)
     catalog_item_id: UUID
     cost_code_id: UUID
-    quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
+    quantity: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     unit_id: UUID
-    section_name: str | None = Field(default=None, max_length=150)
+    hole_section_id: UUID | None = None
+    rate_basis: str | None = Field(default=None, max_length=20)
+    daily_consumption: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
+    quantity_override_reason: str | None = Field(default=None, max_length=500)
     planned_duration_days: Decimal | None = Field(
         default=None, ge=0, max_digits=12, decimal_places=4
     )
@@ -150,7 +161,10 @@ class AfeLineUpdate(BaseModel):
     cost_code_id: UUID | None = None
     quantity: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     unit_id: UUID | None = None
-    section_name: str | None = Field(default=None, max_length=150)
+    hole_section_id: UUID | None = None
+    rate_basis: str | None = Field(default=None, max_length=20)
+    daily_consumption: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
+    quantity_override_reason: str | None = Field(default=None, max_length=500)
     planned_duration_days: Decimal | None = Field(
         default=None, ge=0, max_digits=12, decimal_places=4
     )
@@ -176,7 +190,14 @@ class AfeLineRead(BaseModel):
     quantity: Decimal
     unit_id: UUID
     unit_code: str
-    section_name: str | None
+    hole_section_id: UUID | None
+    hole_section_code: str | None
+    hole_section_name: str | None
+    rate_basis: str
+    daily_consumption: Decimal | None
+    computed_quantity: Decimal | None
+    quantity_override_reason: str | None
+    quantity_source: Literal["entered", "computed", "overridden"]
     planned_duration_days: Decimal | None
     planned_depth_from: Decimal | None
     planned_depth_to: Decimal | None

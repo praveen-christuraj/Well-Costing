@@ -19,6 +19,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import AuditMixin, Base, TimestampMixin
+from app.domain.afe.rate_basis import CONSUMABLE_RATE_BASES, SERVICE_RATE_BASES
+
+
+def _sql_in(values: tuple[str, ...]) -> str:
+    return ",".join(f"'{value}'" for value in values)
 
 
 class MasterDataMixin(TimestampMixin, AuditMixin):
@@ -190,7 +195,7 @@ class Service(CatalogItem):
     __tablename__ = "services"
     __table_args__ = (
         CheckConstraint(
-            "rate_basis IN ('daily','per_service','per_section','fixed')",
+            f"rate_basis IN ({_sql_in(SERVICE_RATE_BASES)})",
             name="valid_service_rate_basis",
         ),
     )
@@ -232,19 +237,46 @@ class Equipment(CatalogItem):
 
 
 class MudChemical(CatalogItem):
+    """A drilling-fluid chemical.
+
+    ``rate_basis`` records how the chemical is normally charged: ``per_unit``
+    for a quantity bought outright, or ``daily_consumption`` when the planned
+    volume is a consumption per day multiplied by the planned days.
+    """
+
     __tablename__ = "mud_chemicals"
+    __table_args__ = (
+        CheckConstraint(
+            f"rate_basis IN ({_sql_in(CONSUMABLE_RATE_BASES)})",
+            name="valid_mud_chemical_rate_basis",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(
         ForeignKey("catalog_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    rate_basis: Mapped[str] = mapped_column(
+        String(20), default="per_unit", server_default="per_unit", index=True
     )
     __mapper_args__: dict[str, object] = {"polymorphic_identity": "mud_chemical"}  # noqa: RUF012
 
 
 class CementAdditive(CatalogItem):
+    """A cement additive, charged per unit or on planned daily consumption."""
+
     __tablename__ = "cement_additives"
+    __table_args__ = (
+        CheckConstraint(
+            f"rate_basis IN ({_sql_in(CONSUMABLE_RATE_BASES)})",
+            name="valid_cement_additive_rate_basis",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(
         ForeignKey("catalog_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    rate_basis: Mapped[str] = mapped_column(
+        String(20), default="per_unit", server_default="per_unit", index=True
     )
     __mapper_args__: dict[str, object] = {"polymorphic_identity": "cement_additive"}  # noqa: RUF012
 
@@ -467,6 +499,4 @@ class RateRevision(TimestampMixin, AuditMixin, Base):
     vendor: Mapped[Vendor | None] = relationship(lazy="joined")
     currency: Mapped[Currency | None] = relationship(lazy="joined")
     unit: Mapped[Unit | None] = relationship(lazy="joined")
-    item_price: Mapped[ItemPrice | None] = relationship(
-        lazy="joined", foreign_keys=[item_price_id]
-    )
+    item_price: Mapped[ItemPrice | None] = relationship(lazy="joined", foreign_keys=[item_price_id])

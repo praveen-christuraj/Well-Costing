@@ -1,4 +1,4 @@
-"""Application workflows for project, well, and afe intake."""
+"""Application workflows for project, well, and AFE preparation."""
 
 from datetime import UTC, datetime
 from math import ceil
@@ -10,8 +10,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BusinessValidationError, ConflictError, NotFoundError
+from app.domain.afe.rate_basis import (
+    RateBasisError,
+    default_rate_basis,
+    requires_hole_section,
+    resolve_planned_quantity,
+    validate_rate_basis,
+)
 from app.models.afe import Afe, AfeLine, Project, Well
-from app.models.master_data import CatalogItem, CostCode, Unit
+from app.models.master_data import CatalogItem, CostCode, HoleSection, Unit
 from app.repositories.afe import (
     AfeLineRepository,
     AfeRepository,
@@ -428,9 +435,11 @@ class AfeLineService:
 
     def create(self, afe_id: UUID, payload: AfeLineCreate, commit: bool = True) -> AfeLineRead:
         afe = self._afe(afe_id, must_be_draft=True)
-        self._validate_references(payload.model_dump())
+        values = payload.model_dump()
+        self._validate_references(values)
+        self._apply_rate_basis(values)
         item = AfeLine(
-            **payload.model_dump(),
+            **values,
             afe_id=afe.id,
             created_by=self.actor_id,
             updated_by=self.actor_id,
@@ -453,6 +462,29 @@ class AfeLineService:
         self._afe(item.afe_id, must_be_draft=True)
         values = payload.model_dump(exclude_unset=True)
         self._validate_references(values)
+        # A quantity the app computed is not a planner's choice: leave it out so a
+        # change to usage or planned days recomputes instead of reading as an override.
+        was_computed = (
+            item.computed_quantity is not None and item.quantity == item.computed_quantity
+        )
+        merged = {
+            "catalog_item_id": item.catalog_item_id,
+            "hole_section_id": item.hole_section_id,
+            "rate_basis": item.rate_basis,
+            "quantity": None if was_computed else item.quantity,
+            "daily_consumption": item.daily_consumption,
+            "planned_duration_days": item.planned_duration_days,
+            "quantity_override_reason": item.quantity_override_reason,
+            **values,
+        }
+        self._apply_rate_basis(merged)
+        for field in (
+            "rate_basis",
+            "quantity",
+            "computed_quantity",
+            "quantity_override_reason",
+        ):
+            values[field] = merged[field]
         for field, value in values.items():
             setattr(item, field, value)
         if (
@@ -495,13 +527,22 @@ class AfeLineService:
                     )
                 )
             seen.add(row.line_number)
+            values = row.model_dump()
             try:
-                self._validate_references(row.model_dump())
+                self._validate_references(values)
+            except BusinessValidationError as exc:
+                errors.append(
+                    BulkRowError(row_index=index, code="invalid_reference", message=exc.message)
+                )
+                continue
+            try:
+                self._apply_rate_basis(values)
             except BusinessValidationError as exc:
                 errors.append(
                     BulkRowError(
                         row_index=index,
-                        code="invalid_reference",
+                        column="rate_basis",
+                        code="invalid_rate_basis",
                         message=exc.message,
                     )
                 )
@@ -548,6 +589,7 @@ class AfeLineService:
             "cost_code_id": CostCode,
             "unit_id": Unit,
             "depth_unit_id": Unit,
+            "hole_section_id": HoleSection,
         }
         for field, model in references.items():
             value = values.get(field)
@@ -556,6 +598,45 @@ class AfeLineService:
             record = self.session.get(model, value)
             if record is None or not record.is_active:
                 raise BusinessValidationError(f"{field} must reference an active record")
+
+    def _apply_rate_basis(self, values: dict[str, Any]) -> None:
+        """Settle the line's rate basis and the quantity that follows from it.
+
+        The basis defaults to whatever the catalogue item is normally charged
+        on and the planner may override it for this line. On a daily-consumption
+        line the quantity is computed from consumption per day and planned days
+        unless a reasoned override is supplied.
+        """
+
+        item = self.session.get(CatalogItem, values["catalog_item_id"])
+        if item is None:
+            raise BusinessValidationError("catalog_item_id must reference an active record")
+        catalogue_basis = getattr(item, "rate_basis", None)
+        try:
+            basis = (
+                validate_rate_basis(item.item_type, values["rate_basis"])
+                if values.get("rate_basis")
+                else default_rate_basis(item.item_type, catalogue_basis)
+            )
+            resolved = resolve_planned_quantity(
+                rate_basis=basis,
+                quantity=values.get("quantity"),
+                daily_consumption=values.get("daily_consumption"),
+                planned_duration_days=values.get("planned_duration_days"),
+                override_reason=values.get("quantity_override_reason"),
+            )
+        except RateBasisError as exc:
+            raise BusinessValidationError(str(exc)) from exc
+        if requires_hole_section(basis) and values.get("hole_section_id") is None:
+            raise BusinessValidationError(
+                "hole_section_id is required when a line is charged per section"
+            )
+
+        values["rate_basis"] = basis
+        values["quantity"] = resolved.quantity
+        values["computed_quantity"] = resolved.computed_quantity
+        if not resolved.is_overridden:
+            values["quantity_override_reason"] = None
 
     @staticmethod
     def read(item: AfeLine) -> AfeLineRead:
@@ -572,6 +653,9 @@ class AfeLineService:
                         "cost_code",
                         "unit_code",
                         "depth_unit_code",
+                        "hole_section_code",
+                        "hole_section_name",
+                        "quantity_source",
                     }
                 },
                 "catalog_item_code": item.catalog_item.code,
@@ -580,5 +664,14 @@ class AfeLineService:
                 "cost_code": item.cost_code.code,
                 "unit_code": item.unit.code,
                 "depth_unit_code": item.depth_unit.code if item.depth_unit else None,
+                "hole_section_code": item.hole_section.code if item.hole_section else None,
+                "hole_section_name": item.hole_section.name if item.hole_section else None,
+                "quantity_source": AfeLineService._quantity_source(item),
             }
         )
+
+    @staticmethod
+    def _quantity_source(item: AfeLine) -> str:
+        if item.computed_quantity is None:
+            return "entered"
+        return "overridden" if item.quantity != item.computed_quantity else "computed"
