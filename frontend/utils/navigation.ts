@@ -27,6 +27,7 @@ export const appNavigation: AppNavigationItem[] = [
   { key: 'cost-control', label: 'Cost Control', icon: 'pi pi-arrow-right-arrow-left', to: '/cost-control', enabled: true },
   { key: 'reports', label: 'Reports', icon: 'pi pi-chart-bar', to: '/reports', enabled: true },
   { key: 'assurance', label: 'Assurance', icon: 'pi pi-shield', to: '/assurance', enabled: true },
+  { key: 'audit', label: 'Audit Log', icon: 'pi pi-history', to: '/audit', enabled: true },
   { key: 'administration', label: 'Administration', icon: 'pi pi-cog', to: '/administration/enterprise', enabled: true },
   { key: 'help', label: 'Help', icon: 'pi pi-question-circle', to: '/help', enabled: true },
 ]
@@ -38,7 +39,7 @@ const GROUPS: { key: string, label: string, keys: string[] }[] = [
   { key: 'home', label: 'Home', keys: ['dashboard'] },
   { key: 'foundation', label: 'Master Data', keys: ['master-data'] },
   { key: 'planning', label: 'Planning', keys: ['afe', 'cost-builder'] },
-  { key: 'execution', label: 'Execution', keys: ['daily-cost', 'cost-control', 'reports', 'assurance'] },
+  { key: 'execution', label: 'Execution', keys: ['daily-cost', 'cost-control', 'reports', 'assurance', 'audit'] },
   { key: 'configuration', label: 'Configuration', keys: ['administration'] },
   { key: 'support', label: 'Support', keys: ['help'] },
 ]

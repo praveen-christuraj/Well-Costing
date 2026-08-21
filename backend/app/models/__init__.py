@@ -59,6 +59,7 @@ from app.models.master_data import (
     Vendor,
 )
 from app.models.reporting import ReportExportAttempt
+from app.models.audit import AuditLog
 from app.models.role import Role
 from app.models.user import User, user_roles
 from app.models.well_costing import (
@@ -85,6 +86,7 @@ __all__ = [
     "AfeSnapshot",
     "AfeSnapshotAttempt",
     "AfeSnapshotLine",
+    "AuditLog",
     "CatalogItem",
     "CementAdditive",
     "CostBreakdownNode",

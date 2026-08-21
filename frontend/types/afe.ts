@@ -167,6 +167,8 @@ export interface AfeRecord {
   reopened_at?: string | null
   reopened_by?: string | null
   submitted_at: string | null
+  deleted_at?: string | null
+  deleted_by?: string | null
   is_active: boolean
   item_count: number
   sections: AfeSectionRecord[]

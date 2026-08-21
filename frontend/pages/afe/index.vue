@@ -225,6 +225,9 @@ const auditTargetAfeTitle = ref('')
 const phasesDialog = ref(false)
 const newPhaseForm = ref({ code: '', name: '', description: '', sequence: 1 })
 
+const deletedAfes = ref<AfeRecord[]>([])
+const loadingDeleted = ref(false)
+
 function openAfeDialog(record?: AfeRecord): void {
   const defaultWellId = wellFilter.value ?? wellOptions.value[0]?.id ?? ''
   const defaultDepthUnitId = units.value.find(u => u.code === 'M' || u.code === 'FT')?.id ?? units.value[0]?.id ?? ''
@@ -390,18 +393,48 @@ function showAuditHistory(afe: AfeRecord): void {
 }
 
 async function deactivateAfe(record: AfeRecord): Promise<void> {
-  if (!window.confirm(`Delete AFE ${record.code}? Only draft AFEs can be removed.`)) return
+  const isSubmitted = record.status === 'submitted'
+  const confirmMsg = isSubmitted
+    ? `Soft-delete submitted AFE ${record.code}? It will be moved to Deleted AFEs and can be recovered or permanently deleted there.`
+    : `Soft-delete draft AFE ${record.code}? It will be moved to Deleted AFEs and can be recovered or permanently deleted there.`
+  if (!window.confirm(confirmMsg)) return
   try { await api.deleteAfe(record.id) }
   catch (caught: unknown) {
     error.value = caught instanceof Error ? caught.message : 'The AFE could not be deleted.'
     return
   }
+  success.value = `AFE ${record.code} moved to Deleted AFEs.`
   if (selectedAfeId.value === record.id) {
     selectedAfeId.value = ''
     selectedAfe.value = null
     lines.value = []
   }
   await loadAll()
+  await loadDeletedAfes()
+}
+
+async function recoverAfe(record: AfeRecord): Promise<void> {
+  if (!window.confirm(`Recover AFE ${record.code} from Deleted AFEs?`)) return
+  error.value = null
+  try {
+    await api.recoverAfe(record.id)
+    success.value = `AFE ${record.code} recovered successfully.`
+    await loadAll()
+    await loadDeletedAfes()
+  } catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'Could not recover AFE. Another active AFE may already exist.'
+  }
+}
+
+async function hardDeleteAfe(record: AfeRecord): Promise<void> {
+  if (!window.confirm(`Permanently delete AFE ${record.code}? This cannot be undone and will remove all its lines and sections.`)) return
+  try { await api.hardDeleteAfe(record.id) }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The AFE could not be permanently deleted.'
+    return
+  }
+  success.value = `AFE ${record.code} permanently deleted.`
+  await loadDeletedAfes()
 }
 
 /* ------------------------------------------------- Drilling Phases ----------- */
@@ -767,18 +800,31 @@ async function loadLines(): Promise<void> {
 }
 
 async function loadAfes(): Promise<void> {
-  const page = await api.listAfes()
+  const page = await api.listAfes(undefined, undefined, true)
   afes.value = page.items
+}
+
+async function loadDeletedAfes(): Promise<void> {
+  loadingDeleted.value = true
+  try {
+    const page = await api.listDeletedAfes()
+    deletedAfes.value = page.items
+  } catch {
+    deletedAfes.value = []
+  } finally {
+    loadingDeleted.value = false
+  }
 }
 
 async function loadAll(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    const [projectPage, wellPage, afePage, phaseList, catalogue, codePage, unitPage, sectionPage] = await Promise.all([
+    const [projectPage, wellPage, afePage, deletedPage, phaseList, catalogue, codePage, unitPage, sectionPage] = await Promise.all([
       api.listProjects(),
       api.listWells(),
-      api.listAfes(),
+      api.listAfes(undefined, undefined, true),
+      api.listDeletedAfes(),
       api.listDrillingPhases(),
       Promise.all([
         master.list('services'),
@@ -795,6 +841,7 @@ async function loadAll(): Promise<void> {
     projects.value = projectPage.items
     wells.value = wellPage.items
     afes.value = afePage.items
+    deletedAfes.value = deletedPage.items
     phases.value = phaseList
     catalogueItems.value = catalogue.flatMap(page => page.items)
     costCodes.value = codePage.items
@@ -833,6 +880,7 @@ onMounted(() => void loadAll())
         <Tab value="wells">Wells</Tab>
         <Tab value="afes">AFEs</Tab>
         <Tab value="lines">AFE Lines</Tab>
+        <Tab value="deleted">Deleted AFEs ({{ deletedAfes.length }})</Tab>
       </TabList>
       <TabPanels>
         <!-- Projects -->
@@ -946,16 +994,53 @@ onMounted(() => void loadAll())
                   <Tag :value="data.status" :severity="data.status === 'submitted' ? 'success' : 'warn'" />
                 </template>
               </Column>
-              <Column header="Actions" :style="{ width: '280px' }">
+              <Column header="Actions" :style="{ width: '340px' }">
                 <template #body="{ data }">
                   <Button icon="pi pi-folder-open" size="small" text severity="secondary" aria-label="Open AFE lines" title="Open AFE lines" @click="openAfe(data.id)" />
                   <Button v-if="data.status === 'draft'" icon="pi pi-pencil" size="small" text severity="secondary" aria-label="Edit AFE" title="Edit AFE Header & Sections" @click="openAfeDialog(data)" />
                   <Button v-if="data.status === 'submitted'" icon="pi pi-lock-open" size="small" text severity="warn" aria-label="Reopen AFE" title="Reopen AFE for Revision" @click="promptReopen(data)" />
                   <Button icon="pi pi-history" size="small" text severity="info" aria-label="Audit History" title="View Audit Trail" @click="showAuditHistory(data)" />
-                  <Button v-if="data.status === 'draft'" icon="pi pi-ban" size="small" text severity="danger" aria-label="Delete AFE" title="Delete Draft AFE" @click="deactivateAfe(data)" />
+                  <Button icon="pi pi-trash" size="small" text severity="danger" aria-label="Delete AFE" :title="data.status === 'submitted' ? 'Soft-delete Submitted AFE' : 'Soft-delete Draft AFE'" @click="deactivateAfe(data)" />
                 </template>
               </Column>
               <template #empty>No AFEs yet — create one for a well, enter its section planning, then add its lines.</template>
+            </DataTable>
+          </section>
+        </TabPanel>
+
+        <!-- Deleted AFEs -->
+        <TabPanel value="deleted">
+          <section class="afe-section bulk-grid-panel">
+            <div class="grid-toolbar">
+              <div>
+                <strong>Deleted AFEs</strong><small class="toolbar-note">Soft-deleted AFEs (draft or submitted). Recover to restore, or permanently delete to remove completely. Recovery fails if another active AFE already exists.</small>
+              </div>
+              <div class="grid-toolbar__actions">
+                <Button label="Refresh" icon="pi pi-refresh" outlined :loading="loadingDeleted" @click="loadDeletedAfes" />
+              </div>
+            </div>
+            <Message v-if="deletedAfes.length && afes.length" severity="warn" :closable="false">An active AFE already exists ({{ afes.length }} active). Recovery is blocked until the active AFE is deleted — only one active AFE is allowed at a time for recovery.</Message>
+            <DataTable :value="deletedAfes" :loading="loadingDeleted" data-key="id" striped-rows show-gridlines size="small" :rows="10" paginator class="afe-table">
+              <Column field="code" header="AFE Code" sortable />
+              <Column field="title" header="Title" sortable />
+              <Column header="Well">
+                <template #body="{ data }">{{ wellName(data.well_id) }}</template>
+              </Column>
+              <Column header="Status">
+                <template #body="{ data }">
+                  <Tag :value="data.status" :severity="data.status === 'submitted' ? 'success' : 'warn'" />
+                </template>
+              </Column>
+              <Column header="Deleted">
+                <template #body="{ data }">{{ data.deleted_at ? new Date(data.deleted_at).toLocaleString() : '—' }}</template>
+              </Column>
+              <Column header="Actions" :style="{ width: '260px' }">
+                <template #body="{ data }">
+                  <Button label="Recover" icon="pi pi-undo" size="small" severity="success" outlined :disabled="!!afes.length" title="Recover — blocked if another active AFE exists" @click="recoverAfe(data)" />
+                  <Button label="Delete forever" icon="pi pi-trash" size="small" severity="danger" text @click="hardDeleteAfe(data)" />
+                </template>
+              </Column>
+              <template #empty>No deleted AFEs — soft-deleted AFEs (draft or submitted) will appear here for recovery or permanent deletion.</template>
             </DataTable>
           </section>
         </TabPanel>

@@ -10,6 +10,8 @@ const sections = [
   { id: 'master-data', label: 'Master Data — start here' },
   { id: 'afe-backbone', label: 'AFE — the costing backbone' },
   { id: 'reopen-afe', label: 'Reopening submitted AFEs & audit' },
+  { id: 'deleted-afes', label: 'Deleted AFEs & recovery' },
+  { id: 'audit-log', label: 'Audit Log' },
   { id: 'cost-builder-vs-daily', label: 'Cost Builder vs Daily Cost' },
   { id: 'daily-cost', label: 'Daily Cost Entry & analytics' },
   { id: 'cost-control', label: 'Cost Control & postings' },
@@ -112,6 +114,35 @@ const sections = [
             <li>The system records an immutable <strong>Audit Log entry</strong> capturing who reopened the AFE, the timestamp, previous status, and the remarks.</li>
             <li>Once reopened, lines, sections, and rates can be freely modified. All changes remain <strong>well-scoped</strong> (affecting only that well).</li>
             <li>When modifications are complete, click <strong>"Resubmit"</strong> to seal the updated baseline.</li>
+          </ul>
+        </section>
+
+        <!-- Deleted AFEs -->
+        <section id="deleted-afes" class="help-section">
+          <h2>Deleted AFEs & Recovery</h2>
+          <p>
+            Both draft and submitted AFEs can be soft-deleted. Hard-deletion is only allowed from the Deleted AFEs area.
+          </p>
+          <ul class="help-list">
+            <li><strong>Soft-delete:</strong> Click the trash icon on any AFE (draft or submitted). The AFE is moved to the <strong>Deleted AFEs</strong> tab and remains recoverable with all its lines, sections, and audit history intact.</li>
+            <li><strong>Deleted AFEs tab:</strong> Lists every soft-deleted AFE with its deleted timestamp. From here you can <strong>Recover</strong> or <strong>Delete forever</strong>.</li>
+            <li><strong>Recovery guard:</strong> If any active AFE already exists on the main AFEs tab, recovery is blocked — you must delete the active AFE first. This prevents duplicate active AFEs and keeps the financial backbone unambiguous.</li>
+            <li><strong>Permanent delete:</strong> In Deleted AFEs, click <strong>Delete forever</strong> to hard-delete the AFE and its orphaned lines/sections. This action is logged to the global Audit Log.</li>
+            <li><strong>Master Data:</strong> Reference records (units, vendors, services, hole sections, etc.) follow the same pattern: soft-delete via the grid, then recover or hard-delete when <strong>Include inactive</strong> is enabled. The grid shows <strong>Recover</strong> and <strong>Permanently delete</strong> for inactive rows, and recovery is blocked if an active record with the same code already exists.</li>
+          </ul>
+        </section>
+
+        <!-- Audit Log -->
+        <section id="audit-log" class="help-section">
+          <h2>Audit Log</h2>
+          <p>
+            Every user action is recorded to an immutable <strong>Audit Log</strong> for compliance, displayed at <strong>Audit Log</strong> in the sidebar.
+          </p>
+          <ul class="help-list">
+            <li><strong>Logged from login onward:</strong> login, create, update, submit, reopen, resubmit, soft-delete, recover, hard-delete, and bulk operations across AFE, projects, wells, master data, phases, and rates.</li>
+            <li><strong>What is stored:</strong> actor (email), timestamp, action, entity type, entity code, and a JSON details payload (e.g. previous status, remarks, or changed fields).</li>
+            <li><strong>Filtering:</strong> Search by actor, entity, or code; filter by action or entity type; paginate through history. The log is append-only and never edited.</li>
+            <li><strong>AFE audit vs global audit:</strong> The AFE detail also shows a per-AFE trail (created, submitted, reopened, soft-deleted, recovered). The global Audit Log aggregates these plus every master-data change for enterprise-wide oversight.</li>
           </ul>
         </section>
 

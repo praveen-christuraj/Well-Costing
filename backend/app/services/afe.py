@@ -66,6 +66,31 @@ def _page(items: list[Any], page: int, page_size: int, total: int) -> PageRespon
     )
 
 
+def _audit(session: Session, actor_id: UUID, action: str, entity_type: str, entity_id: UUID | None, entity_code: str | None = None, details: Any | None = None) -> None:
+    try:
+        from app.services.audit import AuditService
+        # Lazy import to avoid circular imports; fetch email if possible
+        actor_email = None
+        try:
+            from app.models.user import User
+            user = session.get(User, actor_id)
+            if user:
+                actor_email = user.email
+        except Exception:
+            pass
+        AuditService(session, actor_id, actor_email).log(
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            entity_code=entity_code,
+            details=details if isinstance(details, (str, dict)) else str(details) if details is not None else None,
+            commit=False,
+        )
+    except Exception:
+        # Audit failures should not block main operation
+        pass
+
+
 DEFAULT_DRILLING_PHASES = [
     {"code": "DRILL", "name": "Drilling", "description": "Hole drilling operations", "sequence": 1},
     {"code": "LOG", "name": "Logging", "description": "Wireline and formation evaluation logging", "sequence": 2},
@@ -118,6 +143,8 @@ class DrillingPhaseService:
                 existing.sequence = payload.sequence
                 existing.updated_by = self.actor_id
                 self.session.commit()
+                _audit(self.session, self.actor_id, "update", "drilling_phase", existing.id, existing.code, {"action": "reactivated"})
+                self.session.commit()
                 return DrillingPhaseRead.model_validate(existing)
             raise ConflictError(f"Drilling phase '{code}' already exists")
         phase = DrillingPhase(
@@ -132,6 +159,8 @@ class DrillingPhaseService:
         self.session.add(phase)
         self.session.commit()
         self.session.refresh(phase)
+        _audit(self.session, self.actor_id, "create", "drilling_phase", phase.id, phase.code, payload.model_dump())
+        self.session.commit()
         return DrillingPhaseRead.model_validate(phase)
 
     def update(self, phase_id: UUID, payload: DrillingPhaseUpdate) -> DrillingPhaseRead:
@@ -148,6 +177,8 @@ class DrillingPhaseService:
         phase.updated_by = self.actor_id
         self.session.commit()
         self.session.refresh(phase)
+        _audit(self.session, self.actor_id, "update", "drilling_phase", phase.id, phase.code, values)
+        self.session.commit()
         return DrillingPhaseRead.model_validate(phase)
 
     def delete(self, phase_id: UUID) -> None:
@@ -156,6 +187,8 @@ class DrillingPhaseService:
             raise NotFoundError("Drilling phase not found")
         phase.is_active = False
         phase.updated_by = self.actor_id
+        self.session.commit()
+        _audit(self.session, self.actor_id, "soft_delete", "drilling_phase", phase.id, phase.code, None)
         self.session.commit()
 
 
@@ -189,6 +222,7 @@ class ProjectService:
         self.session.add(project)
         try:
             self.session.flush()
+            _audit(self.session, self.actor_id, "create", "project", project.id, project.code, values)
             if commit:
                 self.session.commit()
                 self.session.refresh(project)
@@ -210,6 +244,7 @@ class ProjectService:
             setattr(project, field, value)
         project.updated_by = self.actor_id
         self.session.flush()
+        _audit(self.session, self.actor_id, "update", "project", project.id, project.code, values)
         if commit:
             self.session.commit()
             self.session.refresh(project)
@@ -229,6 +264,8 @@ class ProjectService:
         if project is None:
             raise NotFoundError("Project not found")
         project.is_active, project.updated_by = False, self.actor_id
+        self.session.flush()
+        _audit(self.session, self.actor_id, "soft_delete", "project", project.id, project.code, None)
         self.session.commit()
 
     def bulk_create(self, rows: list[ProjectCreate]) -> list[ProjectRead]:
@@ -297,6 +334,7 @@ class WellService:
         self.session.add(well)
         try:
             self.session.flush()
+            _audit(self.session, self.actor_id, "create", "well", well.id, well.code, values)
             if commit:
                 self.session.commit()
                 self.session.refresh(well)
@@ -322,6 +360,7 @@ class WellService:
             setattr(well, field, value)
         well.updated_by = self.actor_id
         self.session.flush()
+        _audit(self.session, self.actor_id, "update", "well", well.id, well.code, values)
         if commit:
             self.session.commit()
             self.session.refresh(well)
@@ -341,6 +380,8 @@ class WellService:
         if well is None:
             raise NotFoundError("Well not found")
         well.is_active, well.updated_by = False, self.actor_id
+        self.session.flush()
+        _audit(self.session, self.actor_id, "soft_delete", "well", well.id, well.code, None)
         self.session.commit()
 
     def bulk_create(self, rows: list[WellCreate]) -> list[WellRead]:
@@ -403,6 +444,13 @@ class AfeService:
             raise NotFoundError("AFE not found")
         return self._read(afe, include_items=True)
 
+    def get_any(self, afe_id: UUID) -> Afe:
+        """Get AFE regardless of is_active (for deleted view)."""
+        afe = self.repository.get(afe_id)
+        if afe is None:
+            raise NotFoundError("AFE not found")
+        return afe
+
     def create(self, payload: AfeCreate, commit: bool = True) -> AfeRead:
         well = self.session.get(Well, payload.well_id)
         if well is None or not well.is_active or not well.project.is_active:
@@ -458,6 +506,8 @@ class AfeService:
                 actor_id=self.actor_id,
             )
             self.session.add(audit_entry)
+            self.session.flush()
+            _audit(self.session, self.actor_id, "create", "afe", afe.id, afe.code, {"well_id": str(afe.well_id), "title": afe.title})
 
             if commit:
                 self.session.commit()
@@ -513,6 +563,7 @@ class AfeService:
             setattr(afe, field, value)
         afe.updated_by = self.actor_id
         self.session.flush()
+        _audit(self.session, self.actor_id, "update", "afe", afe.id, afe.code, values)
         if commit:
             self.session.commit()
             self.session.refresh(afe)
@@ -544,6 +595,8 @@ class AfeService:
             actor_id=self.actor_id,
         )
         self.session.add(audit_entry)
+        self.session.flush()
+        _audit(self.session, self.actor_id, "reopen", "afe", afe.id, afe.code, {"remarks": remarks.strip()})
         self.session.commit()
         self.session.refresh(afe)
         self.session.expire(afe, ["items", "sections", "audit_logs"])
@@ -589,6 +642,8 @@ class AfeService:
             actor_id=self.actor_id,
         )
         self.session.add(audit_entry)
+        self.session.flush()
+        _audit(self.session, self.actor_id, action_name, "afe", afe.id, afe.code, None)
 
         self.session.commit()
         self.session.refresh(afe)
@@ -596,9 +651,90 @@ class AfeService:
         return self._read(afe, include_items=True)
 
     def deactivate(self, afe_id: UUID) -> None:
-        """Delete a draft AFE outright, including its lines and sections."""
-        afe = self._draft(afe_id)
+        """Soft-delete an AFE (draft or submitted) — moves to deleted AFEs."""
+        afe = self.repository.get(afe_id)
+        if afe is None:
+            raise NotFoundError("AFE not found")
+        if not afe.is_active:
+            raise BusinessValidationError("AFE is already deleted")
+        # Soft delete regardless of status (draft or submitted)
+        afe.is_active = False
+        afe.deleted_at = datetime.now(UTC)
+        afe.deleted_by = self.actor_id
+        afe.updated_by = self.actor_id
+
+        audit_entry = AfeAuditLog(
+            afe_id=afe.id,
+            action="soft_deleted",
+            previous_status=afe.status,
+            new_status=afe.status,
+            remarks=f"AFE soft-deleted (status was {afe.status})",
+            actor_id=self.actor_id,
+        )
+        self.session.add(audit_entry)
+        self.session.flush()
+        _audit(self.session, self.actor_id, "soft_delete", "afe", afe.id, afe.code, {"previous_status": afe.status})
+        self.session.commit()
+
+    def recover(self, afe_id: UUID) -> AfeRead:
+        """Recover a soft-deleted AFE. Fails if another active AFE exists."""
+        afe = self.repository.get(afe_id)
+        if afe is None:
+            raise NotFoundError("AFE not found")
+        if afe.is_active:
+            raise BusinessValidationError("AFE is not deleted and cannot be recovered")
+
+        # Business rule: if any active AFE exists, recover should not work
+        active_count = self.session.scalar(select(func.count()).select_from(Afe).where(Afe.is_active.is_(True))) or 0
+        if active_count > 0:
+            raise BusinessValidationError("Cannot recover: another active AFE already exists at the AFE page. Delete the existing AFE before recovery.")
+
+        # Also check duplicate code/well/revision conflict
+        conflict = self.session.scalar(
+            select(Afe).where(
+                Afe.is_active.is_(True),
+                Afe.well_id == afe.well_id,
+                Afe.code == afe.code,
+                Afe.revision_number == afe.revision_number,
+                Afe.id != afe.id,
+            )
+        )
+        if conflict:
+            raise ConflictError(f"Cannot recover: an active AFE with code '{afe.code}' already exists for this well")
+
+        afe.is_active = True
+        afe.deleted_at = None
+        afe.deleted_by = None
+        afe.updated_by = self.actor_id
+
+        audit_entry = AfeAuditLog(
+            afe_id=afe.id,
+            action="recovered",
+            previous_status=afe.status,
+            new_status=afe.status,
+            remarks="AFE recovered from deleted",
+            actor_id=self.actor_id,
+        )
+        self.session.add(audit_entry)
+        self.session.flush()
+        _audit(self.session, self.actor_id, "recover", "afe", afe.id, afe.code, None)
+        self.session.commit()
+        self.session.refresh(afe)
+        self.session.expire(afe, ["items", "sections", "audit_logs"])
+        return self._read(afe, include_items=True)
+
+    def hard_delete(self, afe_id: UUID) -> None:
+        """Permanently delete a soft-deleted AFE."""
+        afe = self.repository.get(afe_id)
+        if afe is None:
+            raise NotFoundError("AFE not found")
+        if afe.is_active:
+            raise BusinessValidationError("AFE must be soft-deleted before permanent deletion. Soft-delete it first.")
+        # Keep code for audit before deletion
+        code = afe.code
         self.session.delete(afe)
+        self.session.flush()
+        _audit(self.session, self.actor_id, "hard_delete", "afe", afe_id, code, None)
         self.session.commit()
 
     def bulk_create(self, rows: list[AfeCreate]) -> list[AfeRead]:
@@ -618,7 +754,7 @@ class AfeService:
 
     def _draft(self, afe_id: UUID) -> Afe:
         afe = self.repository.get(afe_id)
-        if afe is None:
+        if afe is None or not afe.is_active:
             raise NotFoundError("AFE not found")
         if afe.status != "draft":
             raise BusinessValidationError(
@@ -723,6 +859,7 @@ class AfeLineService:
         self.session.add(item)
         try:
             self.session.flush()
+            _audit(self.session, self.actor_id, "create", "afe_line", item.id, f"{afe.code}:{values.get('line_number')}", values)
             if commit:
                 self.session.commit()
                 self.session.refresh(item)
@@ -773,6 +910,7 @@ class AfeLineService:
             raise BusinessValidationError("A depth unit is required when planned depth is supplied")
         item.updated_by = self.actor_id
         self.session.flush()
+        _audit(self.session, self.actor_id, "update", "afe_line", item.id, str(item.line_number), values)
         if commit:
             self.session.commit()
             self.session.refresh(item)
@@ -784,6 +922,8 @@ class AfeLineService:
             raise NotFoundError("AFE item not found")
         self._afe(item.afe_id, must_be_draft=True)
         item.is_active, item.updated_by = False, self.actor_id
+        self.session.flush()
+        _audit(self.session, self.actor_id, "soft_delete", "afe_line", item.id, str(item.line_number), None)
         self.session.commit()
 
     def validate_bulk(self, afe_id: UUID, rows: list[AfeLineCreate]) -> BulkValidationResult:

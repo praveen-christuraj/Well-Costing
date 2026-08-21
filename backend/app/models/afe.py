@@ -129,6 +129,8 @@ class Afe(TimestampMixin, AuditMixin, Base):
         ForeignKey("afes.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[UUID | None] = mapped_column(nullable=True)
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", index=True
     )

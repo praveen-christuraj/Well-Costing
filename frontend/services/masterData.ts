@@ -80,6 +80,14 @@ export class MasterDataApi {
     return this.api.delete(`/master-data/${entity}/${id}?hard=true`)
   }
 
+  recover(entity: string, id: string): Promise<MasterDataRecord> {
+    return this.api.post(`/master-data/${entity}/${id}/recover`, {})
+  }
+
+  hardDelete(entity: string, id: string): Promise<undefined> {
+    return this.api.delete(`/master-data/${entity}/${id}/hard`)
+  }
+
   listRates(): Promise<PageResponse<RateRecord>> {
     return this.api.get('/master-data/rates?page=1&page_size=500')
   }

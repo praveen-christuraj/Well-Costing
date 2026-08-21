@@ -343,5 +343,19 @@ def update_afe(
 
 @router.delete("/afes/{afe_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deactivate_afe(afe_id: UUID, current_user: CurrentUser, session: DbSession) -> Response:
+    """Soft-delete an AFE (draft or submitted) — moves to Deleted AFEs."""
     AfeService(session, current_user.id).deactivate(afe_id)
+    return Response(status_code=204)
+
+
+@router.post("/afes/{afe_id}/recover", response_model=AfeRead)
+def recover_afe(afe_id: UUID, current_user: CurrentUser, session: DbSession) -> AfeRead:
+    """Recover a soft-deleted AFE."""
+    return AfeService(session, current_user.id).recover(afe_id)
+
+
+@router.delete("/afes/{afe_id}/hard", status_code=status.HTTP_204_NO_CONTENT)
+def hard_delete_afe(afe_id: UUID, current_user: CurrentUser, session: DbSession) -> Response:
+    """Permanently delete a soft-deleted AFE."""
+    AfeService(session, current_user.id).hard_delete(afe_id)
     return Response(status_code=204)
