@@ -154,13 +154,13 @@ class EstimateExcelService:
         rows = [
             {
                 "line_number": item.line_number,
-                "item_code": item.catalog_item.code,
-                "item_type": item.catalog_item.item_type,
-                "cost_code": item.cost_code.code,
+                "item_code": item.catalog_item.code if item.catalog_item else None,
+                "item_type": item.catalog_item.item_type if item.catalog_item else None,
+                "cost_code": item.cost_code.code if item.cost_code else None,
                 "vendor_code": item.vendor.code if item.vendor else None,
                 "rate_id": str(item.rate_id) if item.rate_id else None,
                 "quantity": item.quantity,
-                "unit_code": item.unit.code,
+                "unit_code": item.unit.code if item.unit else None,
                 "notes": item.notes,
             }
             for item in version.items

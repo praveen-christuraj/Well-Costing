@@ -120,14 +120,14 @@ export interface AfeLineRecord {
   afe_id: string
   line_number: number
   catalog_item_id: string
-  catalog_item_code: string
-  catalog_item_name: string
-  item_type: string
+  catalog_item_code: string | null
+  catalog_item_name: string | null
+  item_type: string | null
   cost_code_id: string
-  cost_code: string
+  cost_code: string | null
   quantity: string
   unit_id: string
-  unit_code: string
+  unit_code: string | null
   hole_section_id: string | null
   hole_section_code: string | null
   hole_section_name: string | null

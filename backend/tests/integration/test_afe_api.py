@@ -466,3 +466,56 @@ def test_chemical_quantity_is_computed_from_daily_usage_and_planned_days(
     assert recomputed.status_code == 200, recomputed.text
     assert Decimal(recomputed.json()["quantity"]) == Decimal(200)
     assert recomputed.json()["quantity_source"] == "computed"
+
+
+def test_get_afe_survives_orphaned_catalogue_reference(client: TestClient) -> None:
+    """GET /afes/{id} must not 500 when a referenced catalogue item is missing.
+
+    Regression: ``AfeLineService.read`` and ``AfeService._read`` accessed
+    relationship attributes without a None guard, so an AFE line whose catalogue
+    item / cost code / unit had been hard-deleted crashed the whole AFE detail
+    endpoint with an unhandled AttributeError (HTTP 500, "An unexpected error
+    occurred"). The serializers now degrade to null placeholders instead.
+    """
+    auth = headers(client)
+    refs = setup_references(client, auth)
+    _, _, afe = setup_afe(client, auth)
+
+    line = post(
+        client,
+        f"/api/v1/afes/{afe['id']}/lines",
+        {
+            "line_number": 1,
+            "catalog_item_id": refs["service"]["id"],
+            "cost_code_id": refs["cost_code"]["id"],
+            "quantity": 1,
+            "unit_id": refs["day"]["id"],
+            "rate_basis": "daily",
+        },
+        auth,
+    )
+    assert line["catalog_item_code"] == "SVC-001"
+
+    # Permanently delete every referenced record (the FK is not enforced in the
+    # in-memory SQLite test DB, mirroring legacy/orphaned data).
+    for entity, record_id in (
+        ("services", refs["service"]["id"]),
+        ("cost-codes", refs["cost_code"]["id"]),
+        ("units", refs["day"]["id"]),
+    ):
+        deleted = client.delete(
+            f"/api/v1/master-data/{entity}/{record_id}?hard=true",
+            headers=auth,
+        )
+        assert deleted.status_code == 204, deleted.text
+
+    detail = client.get(f"/api/v1/afes/{afe['id']}", headers=auth)
+    assert detail.status_code == 200, detail.text
+    items = detail.json()["items"]
+    assert len(items) == 1
+    assert items[0]["catalog_item_code"] is None
+    assert items[0]["catalog_item_name"] is None
+    assert items[0]["item_type"] is None
+    assert items[0]["cost_code"] is None
+    assert items[0]["unit_code"] is None
+    assert detail.json()["item_count"] == 1

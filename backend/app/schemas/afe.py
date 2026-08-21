@@ -284,14 +284,14 @@ class AfeLineRead(BaseModel):
     afe_id: UUID
     line_number: int
     catalog_item_id: UUID
-    catalog_item_code: str
-    catalog_item_name: str
-    item_type: str
+    catalog_item_code: str | None = None
+    catalog_item_name: str | None = None
+    item_type: str | None = None
     cost_code_id: UUID
-    cost_code: str
+    cost_code: str | None = None
     quantity: Decimal
     unit_id: UUID
-    unit_code: str
+    unit_code: str | None = None
     hole_section_id: UUID | None
     hole_section_code: str | None
     hole_section_name: str | None

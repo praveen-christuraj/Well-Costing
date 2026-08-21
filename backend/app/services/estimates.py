@@ -353,6 +353,10 @@ class CostEstimateService:
 
     @staticmethod
     def read_item(item: EstimateItem) -> EstimateItemRead:
+        catalog_item = item.catalog_item
+        cost_code = item.cost_code
+        unit = item.unit
+        rate = item.rate
         return EstimateItemRead.model_validate(
             {
                 "id": item.id,
@@ -360,19 +364,19 @@ class CostEstimateService:
                 "line_number": item.line_number,
                 "afe_line_id": item.afe_line_id,
                 "catalog_item_id": item.catalog_item_id,
-                "catalog_item_code": item.catalog_item.code,
-                "catalog_item_name": item.catalog_item.name,
-                "item_type": item.catalog_item.item_type,
+                "catalog_item_code": catalog_item.code if catalog_item else None,
+                "catalog_item_name": catalog_item.name if catalog_item else None,
+                "item_type": catalog_item.item_type if catalog_item else None,
                 "cost_code_id": item.cost_code_id,
-                "cost_code": item.cost_code.code,
+                "cost_code": cost_code.code if cost_code else None,
                 "vendor_id": item.vendor_id,
                 "vendor_code": item.vendor.code if item.vendor else None,
                 "rate_id": item.rate_id,
-                "rate_amount": item.rate.amount if item.rate else None,
-                "rate_currency_code": item.rate.currency.code if item.rate else None,
+                "rate_amount": rate.amount if rate else None,
+                "rate_currency_code": rate.currency.code if rate else None,
                 "quantity": item.quantity,
                 "unit_id": item.unit_id,
-                "unit_code": item.unit.code,
+                "unit_code": unit.code if unit else None,
                 "notes": item.notes,
                 "base_cost": item.base_cost,
                 "contingency_cost": item.contingency_cost,

@@ -20,11 +20,11 @@ class EstimateItemRead(BaseModel):
     line_number: int
     afe_line_id: UUID | None
     catalog_item_id: UUID
-    catalog_item_code: str
-    catalog_item_name: str
-    item_type: str
+    catalog_item_code: str | None = None
+    catalog_item_name: str | None = None
+    item_type: str | None = None
     cost_code_id: UUID
-    cost_code: str
+    cost_code: str | None = None
     vendor_id: UUID | None
     vendor_code: str | None
     rate_id: UUID | None
@@ -32,7 +32,7 @@ class EstimateItemRead(BaseModel):
     rate_currency_code: str | None
     quantity: Decimal
     unit_id: UUID
-    unit_code: str
+    unit_code: str | None = None
     notes: str | None
     base_cost: Decimal | None
     contingency_cost: Decimal | None

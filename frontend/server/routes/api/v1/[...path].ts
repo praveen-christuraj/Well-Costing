@@ -60,7 +60,7 @@ export default defineEventHandler(async (event) => {
         504,
         'Gateway Timeout',
         'gateway_timeout',
-        'The API did not respond before the proxy timeout. Retry the upload; large workbooks can take longer to validate.',
+        'The API did not respond before the proxy timeout. Confirm the backend is running and try again.',
       )
     }
     const statusCode = typeof error === 'object' && error !== null && 'statusCode' in error
@@ -73,7 +73,7 @@ export default defineEventHandler(async (event) => {
       502,
       'Bad Gateway',
       'bad_gateway',
-      'The API could not be reached while processing the upload. Confirm the backend is running and try again.',
+      'The API could not be reached. Confirm the backend is running and try again.',
     )
   }
 })

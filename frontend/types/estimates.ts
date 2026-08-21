@@ -1,8 +1,8 @@
 export interface EstimateItem {
   id: string; estimate_version_id: string; line_number: number; catalog_item_id: string
-  catalog_item_code: string; catalog_item_name: string; item_type: string; cost_code: string
+  catalog_item_code: string | null; catalog_item_name: string | null; item_type: string | null; cost_code: string | null
   vendor_id: string | null; vendor_code: string | null; rate_id: string | null
-  rate_amount: string | null; quantity: string; unit_id: string; unit_code: string
+  rate_amount: string | null; quantity: string; unit_id: string; unit_code: string | null
   notes: string | null; base_cost: string | null; contingency_cost: string | null
   escalation_cost: string | null; total_cost: string | null
 }

@@ -917,6 +917,9 @@ class AfeLineService:
 
     @staticmethod
     def read(item: AfeLine) -> AfeLineRead:
+        catalog_item = item.catalog_item
+        cost_code = item.cost_code
+        unit = item.unit
         return AfeLineRead.model_validate(
             {
                 **{
@@ -935,11 +938,11 @@ class AfeLineService:
                         "quantity_source",
                     }
                 },
-                "catalog_item_code": item.catalog_item.code,
-                "catalog_item_name": item.catalog_item.name,
-                "item_type": item.catalog_item.item_type,
-                "cost_code": item.cost_code.code,
-                "unit_code": item.unit.code,
+                "catalog_item_code": catalog_item.code if catalog_item else None,
+                "catalog_item_name": catalog_item.name if catalog_item else None,
+                "item_type": catalog_item.item_type if catalog_item else None,
+                "cost_code": cost_code.code if cost_code else None,
+                "unit_code": unit.code if unit else None,
                 "depth_unit_code": item.depth_unit.code if item.depth_unit else None,
                 "hole_section_code": item.hole_section.code if item.hole_section else None,
                 "hole_section_name": item.hole_section.name if item.hole_section else None,

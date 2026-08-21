@@ -144,14 +144,17 @@ class AfeExcelService:
             raise NotFoundError("AFE not found")
         rows: list[dict[str, Any]] = []
         for item in afe.items:
+            catalog_item = item.catalog_item
+            cost_code = item.cost_code
+            unit = item.unit
             rows.append(
                 {
                     "line_number": item.line_number,
-                    "catalog_item_code": item.catalog_item.code,
-                    "item_type": item.catalog_item.item_type,
-                    "cost_code": item.cost_code.code,
+                    "catalog_item_code": catalog_item.code if catalog_item else None,
+                    "item_type": catalog_item.item_type if catalog_item else None,
+                    "cost_code": cost_code.code if cost_code else None,
                     "quantity": item.quantity,
-                    "unit_code": item.unit.code,
+                    "unit_code": unit.code if unit else None,
                     "hole_section_code": item.hole_section.code if item.hole_section else None,
                     "rate_basis": item.rate_basis,
                     "daily_consumption": item.daily_consumption,
