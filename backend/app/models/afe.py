@@ -20,7 +20,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import AuditMixin, Base, TimestampMixin
 from app.domain.afe.rate_basis import RATE_BASES
-from app.models.master_data import CatalogItem, CostCode, HoleSection, Unit, _sql_in
+from app.models.master_data import CatalogItem, CostCode, HoleSection, Unit, sql_in
 
 
 class Project(TimestampMixin, AuditMixin, Base):
@@ -120,7 +120,7 @@ class AfeLine(TimestampMixin, AuditMixin, Base):
             "OR planned_depth_to >= planned_depth_from",
             name="valid_depth_range",
         ),
-        CheckConstraint(f"rate_basis IN ({_sql_in(RATE_BASES)})", name="valid_rate_basis"),
+        CheckConstraint(f"rate_basis IN ({sql_in(RATE_BASES)})", name="valid_rate_basis"),
         CheckConstraint(
             "daily_consumption IS NULL OR daily_consumption >= 0",
             name="non_negative_daily_consumption",

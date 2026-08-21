@@ -164,8 +164,8 @@ class ReportingService:
         }
         rows: list[CostDrillThroughRow] = []
         for transaction in transactions:
-            afe = transaction.afe_snapshot
-            version = afe.estimate_version
+            snapshot = transaction.afe_snapshot
+            version = snapshot.estimate_version
             estimate = version.estimate
             afe = estimate.afe
             row = CostDrillThroughRow(
@@ -176,7 +176,7 @@ class ReportingService:
                 afe_code=afe.code,
                 estimate_code=estimate.code,
                 estimate_version_number=version.version_number,
-                afe_number=afe.afe_number,
+                afe_number=snapshot.afe_number,
                 cost_state=transaction.cost_state,
                 transaction_date=transaction.transaction_date,
                 cost_category_code=code_map.get(transaction.cost_code),

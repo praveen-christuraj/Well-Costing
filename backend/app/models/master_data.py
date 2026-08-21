@@ -22,7 +22,8 @@ from app.db.base import AuditMixin, Base, TimestampMixin
 from app.domain.afe.rate_basis import CONSUMABLE_RATE_BASES, SERVICE_RATE_BASES
 
 
-def _sql_in(values: tuple[str, ...]) -> str:
+def sql_in(values: tuple[str, ...]) -> str:
+    """Render a tuple of literals as the body of a SQL ``IN (...)`` clause."""
     return ",".join(f"'{value}'" for value in values)
 
 
@@ -195,7 +196,7 @@ class Service(CatalogItem):
     __tablename__ = "services"
     __table_args__ = (
         CheckConstraint(
-            f"rate_basis IN ({_sql_in(SERVICE_RATE_BASES)})",
+            f"rate_basis IN ({sql_in(SERVICE_RATE_BASES)})",
             name="valid_service_rate_basis",
         ),
     )
@@ -247,7 +248,7 @@ class MudChemical(CatalogItem):
     __tablename__ = "mud_chemicals"
     __table_args__ = (
         CheckConstraint(
-            f"rate_basis IN ({_sql_in(CONSUMABLE_RATE_BASES)})",
+            f"rate_basis IN ({sql_in(CONSUMABLE_RATE_BASES)})",
             name="valid_mud_chemical_rate_basis",
         ),
     )
@@ -267,7 +268,7 @@ class CementAdditive(CatalogItem):
     __tablename__ = "cement_additives"
     __table_args__ = (
         CheckConstraint(
-            f"rate_basis IN ({_sql_in(CONSUMABLE_RATE_BASES)})",
+            f"rate_basis IN ({sql_in(CONSUMABLE_RATE_BASES)})",
             name="valid_cement_additive_rate_basis",
         ),
     )

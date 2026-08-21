@@ -40,18 +40,24 @@ test('creates an AFE and bulk-pastes a validated line', async ({ page, request }
   await projectDialog.getByLabel('Code').fill(`PRJ-${suffix}`)
   await projectDialog.getByLabel('Name').fill('Phase 3 project')
   await projectDialog.getByRole('button', { name: 'Create project' }).click()
+  await expect(projectDialog).toBeHidden()
+  // The well dialog defaults its project from the reloaded list, so wait for it.
+  await expect(page.getByRole('cell', { name: `PRJ-${suffix}`, exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Add well' }).click()
   const wellDialog = page.getByRole('dialog', { name: 'Add well' })
   await wellDialog.getByLabel('Code').fill(`WELL-${suffix}`)
   await wellDialog.getByLabel('Name').fill('Phase 3 well')
   await wellDialog.getByRole('button', { name: 'Create well' }).click()
+  await expect(wellDialog).toBeHidden()
+  await expect(page.getByRole('cell', { name: `WELL-${suffix}`, exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'New AFE' }).first().click()
   const afeDialog = page.getByRole('dialog', { name: 'New AFE' })
   await afeDialog.getByLabel('AFE code').fill(`AFE-${suffix}`)
   await afeDialog.getByLabel('Title').fill('Phase 3 AFE')
   await afeDialog.getByRole('button', { name: 'Create and open' }).click()
+  await expect(afeDialog).toBeHidden()
 
   await page.getByRole('button', { name: 'Paste' }).click()
   await page.getByRole('dialog', { name: 'Paste AFE lines' }).getByRole('textbox').fill(

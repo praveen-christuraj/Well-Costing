@@ -81,12 +81,14 @@ async function saveProject(): Promise<void> {
     if (projectForm.value.id) await api.updateProject(projectForm.value.id, payload)
     else await api.createProject(payload)
     projectDialog.value = false
-    await loadAll()
   }
   catch (caught: unknown) {
     error.value = caught instanceof Error ? caught.message : 'The project could not be saved.'
+    return
   }
   finally { saving.value = false }
+  // Refreshed outside the saving flag so the other dialogs stay operable.
+  await loadAll()
 }
 
 async function deactivateProject(record: ProjectRecord): Promise<void> {
@@ -164,12 +166,13 @@ async function saveWell(): Promise<void> {
     if (wellForm.value.id) await api.updateWell(wellForm.value.id, payload)
     else await api.createWell(payload)
     wellDialog.value = false
-    await loadAll()
   }
   catch (caught: unknown) {
     error.value = caught instanceof Error ? caught.message : 'The well could not be saved.'
+    return
   }
   finally { saving.value = false }
+  await loadAll()
 }
 
 async function deactivateWell(record: WellRecord): Promise<void> {
@@ -193,24 +196,20 @@ function openAfeDialog(record?: AfeRecord): void {
 async function saveAfe(): Promise<void> {
   saving.value = true
   error.value = null
+  let createdId: string | null = null
   try {
     const payload = { well_id: afeForm.value.well_id, code: afeForm.value.code, title: afeForm.value.title, description: afeForm.value.description || null }
-    if (afeForm.value.id) {
-      await api.updateAfe(afeForm.value.id, payload)
-      afeDialog.value = false
-      await loadAll()
-    }
-    else {
-      const created = await api.createAfe(payload)
-      afeDialog.value = false
-      await loadAll()
-      await openAfe(created.id)
-    }
+    if (afeForm.value.id) await api.updateAfe(afeForm.value.id, payload)
+    else createdId = (await api.createAfe(payload)).id
+    afeDialog.value = false
   }
   catch (caught: unknown) {
     error.value = caught instanceof Error ? caught.message : 'The AFE could not be saved.'
+    return
   }
   finally { saving.value = false }
+  await loadAll()
+  if (createdId) await openAfe(createdId)
 }
 
 async function deactivateAfe(record: AfeRecord): Promise<void> {
