@@ -1,4 +1,4 @@
-"""Excel import/export workflow for requirement line items."""
+"""Excel import/export workflow for afe line items."""
 
 import hashlib
 from decimal import Decimal, InvalidOperation
@@ -16,41 +16,37 @@ from app.integrations.excel.exporter import ExcelExporter
 from app.integrations.excel.mapper import ExcelMapper
 from app.integrations.excel.reader import ExcelReader
 from app.integrations.excel.templates import ExcelTemplateService
+from app.models.afe import Afe, AfeLine
 from app.models.import_tracking import ImportBatch, ImportError
 from app.models.master_data import CatalogItem, CostCode, Unit
-from app.models.requirements import RequirementItem, WellRequirement
 from app.repositories.imports import ImportBatchRepository
+from app.schemas.afe import AfeLineCreate
 from app.schemas.imports import ImportCommitResponse, ImportPreviewResponse
 from app.schemas.master_data import BulkRowError
-from app.schemas.requirements import RequirementItemCreate
-from app.services.requirements import RequirementItemService
+from app.services.afe import AfeLineService
 
 
-class RequirementExcelService:
+class AfeExcelService:
     def __init__(self, session: Session, actor_id: UUID) -> None:
         self.session, self.actor_id = session, actor_id
         self.batches = ImportBatchRepository(session)
 
     def preview(
         self,
-        requirement_id: UUID,
+        afe_id: UUID,
         filename: str,
         content: bytes,
         mapping_overrides: dict[str, str] | None = None,
     ) -> ImportPreviewResponse:
-        self.draft_requirement(requirement_id)
+        self.draft_afe(afe_id)
         workbook = ExcelReader().read(content, filename)
-        mapped = ExcelMapper().map(
-            "requirement-items", workbook.columns, workbook.rows, mapping_overrides
-        )
+        mapped = ExcelMapper().map("afe-lines", workbook.columns, workbook.rows, mapping_overrides)
         valid_rows: list[dict[str, Any]] = []
         errors: list[BulkRowError] = []
         seen: set[int] = set()
         existing = {
             item.line_number
-            for item in self.session.scalars(
-                select(RequirementItem).where(RequirementItem.requirement_id == requirement_id)
-            )
+            for item in self.session.scalars(select(AfeLine).where(AfeLine.afe_id == afe_id))
         }
         for index, row in enumerate(mapped.rows):
             excel_row = index + 2
@@ -70,7 +66,7 @@ class RequirementExcelService:
                     )
                 )
         batch = ImportBatch(
-            entity_type=f"requirement-items:{requirement_id}",
+            entity_type=f"afe-lines:{afe_id}",
             filename=Path(filename).name[:255],
             file_sha256=hashlib.sha256(content).hexdigest(),
             mapping_profile=mapped.profile.name,
@@ -99,7 +95,7 @@ class RequirementExcelService:
         self.session.commit()
         return ImportPreviewResponse(
             batch_id=batch.id,
-            entity_type="requirement-items",
+            entity_type="afe-lines",
             status=batch.status,
             mapping_profile=batch.mapping_profile,
             mapping_version=batch.mapping_version,
@@ -112,23 +108,21 @@ class RequirementExcelService:
             sample=batch.staged_rows[:20],
         )
 
-    def commit(self, requirement_id: UUID, batch_id: UUID) -> ImportCommitResponse:
-        self.draft_requirement(requirement_id)
+    def commit(self, afe_id: UUID, batch_id: UUID) -> ImportCommitResponse:
+        self.draft_afe(afe_id)
         batch = self.batches.get(batch_id)
-        if batch is None or batch.entity_type != f"requirement-items:{requirement_id}":
-            raise NotFoundError("Requirement import batch not found")
+        if batch is None or batch.entity_type != f"afe-lines:{afe_id}":
+            raise NotFoundError("AFE import batch not found")
         if batch.status == "committed":
             return ImportCommitResponse(
                 batch_id=batch.id, status=batch.status, imported_rows=batch.imported_rows
             )
         if batch.status != "validated" or batch.error_rows:
             raise BusinessValidationError("Only a fully validated batch can be committed")
-        service = RequirementItemService(self.session, self.actor_id)
+        service = AfeLineService(self.session, self.actor_id)
         try:
             for row in batch.staged_rows:
-                service.create(
-                    requirement_id, RequirementItemCreate.model_validate(row), commit=False
-                )
+                service.create(afe_id, AfeLineCreate.model_validate(row), commit=False)
             batch.status = "committed"
             batch.imported_rows = len(batch.staged_rows)
             batch.updated_by = self.actor_id
@@ -142,14 +136,14 @@ class RequirementExcelService:
 
     @staticmethod
     def template() -> bytes:
-        return ExcelTemplateService().create_blank("requirement-items")
+        return ExcelTemplateService().create_blank("afe-lines")
 
-    def export(self, requirement_id: UUID) -> bytes:
-        requirement = self.session.get(WellRequirement, requirement_id)
-        if requirement is None:
-            raise NotFoundError("Requirement not found")
+    def export(self, afe_id: UUID) -> bytes:
+        afe = self.session.get(Afe, afe_id)
+        if afe is None:
+            raise NotFoundError("AFE not found")
         rows: list[dict[str, Any]] = []
-        for item in requirement.items:
+        for item in afe.items:
             rows.append(
                 {
                     "line_number": item.line_number,
@@ -167,7 +161,7 @@ class RequirementExcelService:
                     "is_active": item.is_active,
                 }
             )
-        return ExcelExporter().export("requirement-items", rows)
+        return ExcelExporter().export("afe-lines", rows)
 
     def _normalize(self, source: dict[str, Any]) -> dict[str, Any]:
         values = {key: value for key, value in source.items() if value not in (None, "")}
@@ -218,14 +212,12 @@ class RequirementExcelService:
                 "0",
                 "inactive",
             }
-        return RequirementItemCreate.model_validate(values).model_dump(
-            mode="json", exclude_none=True
-        )
+        return AfeLineCreate.model_validate(values).model_dump(mode="json", exclude_none=True)
 
-    def draft_requirement(self, requirement_id: UUID) -> WellRequirement:
-        requirement = self.session.get(WellRequirement, requirement_id)
-        if requirement is None or not requirement.is_active:
-            raise NotFoundError("Requirement not found")
-        if requirement.status != "draft":
-            raise BusinessValidationError("Only draft requirements can be imported")
-        return requirement
+    def draft_afe(self, afe_id: UUID) -> Afe:
+        afe = self.session.get(Afe, afe_id)
+        if afe is None or not afe.is_active:
+            raise NotFoundError("AFE not found")
+        if afe.status != "draft":
+            raise BusinessValidationError("Only draft afes can be imported")
+        return afe

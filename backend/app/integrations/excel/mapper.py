@@ -220,8 +220,8 @@ PROFILE_REGISTRY: dict[str, MappingProfile] = {
             "notes": frozenset({"notes", "remarks"}),
         },
     ),
-    "requirement-items": MappingProfile(
-        "requirement-items-default",
+    "afe-lines": MappingProfile(
+        "afe-lines-default",
         "1.0",
         frozenset(
             {

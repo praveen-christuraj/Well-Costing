@@ -4,6 +4,8 @@ from fastapi import APIRouter
 
 from app.api.v1.routes import (
     afe,
+    afe_imports,
+    afe_snapshots,
     assurance,
     auth,
     calculations,
@@ -16,8 +18,6 @@ from app.api.v1.routes import (
     procurement,
     rates,
     reporting,
-    requirement_imports,
-    requirements,
     well_costing,
     workflow,
 )
@@ -28,7 +28,7 @@ api_router.include_router(auth.router)
 api_router.include_router(assurance.router)
 api_router.include_router(enterprise_config.router)
 api_router.include_router(calculations.router)
-api_router.include_router(afe.router)
+api_router.include_router(afe_snapshots.router)
 api_router.include_router(workflow.router)
 api_router.include_router(cost_control.router)
 api_router.include_router(reporting.router)
@@ -37,6 +37,6 @@ api_router.include_router(procurement.router)
 api_router.include_router(rates.router)
 api_router.include_router(master_data.router)
 api_router.include_router(imports.router)
-api_router.include_router(requirement_imports.router)
-api_router.include_router(requirements.router)
+api_router.include_router(afe_imports.router)
+api_router.include_router(afe.router)
 api_router.include_router(well_costing.router)

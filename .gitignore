@@ -62,3 +62,6 @@ termux/.pids
 termux/.setup_done
 termux/*.log
 termux/build.log
+
+# Local python virtualenvs
+backend/.venv311/

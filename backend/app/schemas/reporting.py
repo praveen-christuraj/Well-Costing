@@ -13,7 +13,7 @@ CostStateFilter = Literal["field_estimate", "commitment", "accrual", "actual", "
 class CostReportFilters(BaseModel):
     project_code: str | None = None
     well_code: str | None = None
-    requirement_code: str | None = None
+    afe_code: str | None = None
     estimate_code: str | None = None
     afe_number: str | None = None
     cost_state: CostStateFilter | None = None
@@ -45,7 +45,7 @@ class CostDrillThroughRow(BaseModel):
     posting_reference: str
     project_code: str
     well_code: str
-    requirement_code: str
+    afe_code: str
     estimate_code: str
     estimate_version_number: int
     afe_number: str

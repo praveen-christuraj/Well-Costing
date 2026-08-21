@@ -1,6 +1,7 @@
 """SQLAlchemy model exports used by Alembic metadata discovery."""
 
-from app.models.afe import AfeSnapshot, AfeSnapshotAttempt, AfeSnapshotLine
+from app.models.afe import Afe, AfeLine, Project, Well
+from app.models.afe_snapshots import AfeSnapshot, AfeSnapshotAttempt, AfeSnapshotLine
 from app.models.calculations import EstimateCalculation
 from app.models.cost_control import (
     CostControlBatch,
@@ -45,7 +46,6 @@ from app.models.master_data import (
     Vendor,
 )
 from app.models.reporting import ReportExportAttempt
-from app.models.requirements import Project, RequirementItem, Well, WellRequirement
 from app.models.role import Role
 from app.models.user import User, user_roles
 from app.models.well_costing import (
@@ -65,6 +65,8 @@ from app.models.workflow import (
 )
 
 __all__ = [
+    "Afe",
+    "AfeLine",
     "AfeSnapshot",
     "AfeSnapshotAttempt",
     "AfeSnapshotLine",
@@ -108,7 +110,6 @@ __all__ = [
     "RateRevision",
     "ReportExportAttempt",
     "ReportingMapping",
-    "RequirementItem",
     "Role",
     "Service",
     "ServiceOrder",
@@ -118,7 +119,6 @@ __all__ = [
     "Vendor",
     "Well",
     "WellRateRevision",
-    "WellRequirement",
     "WellServiceRate",
     "WellTangibleRate",
     "WellUnplannedItem",

@@ -19,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import AuditMixin, Base, TimestampMixin
-from app.models.afe import AfeSnapshot
+from app.models.afe_snapshots import AfeSnapshot
 from app.models.estimates import EstimateVersion
 
 COST_STATE_CHECK = "cost_state IN ('field_estimate','commitment','accrual','actual','forecast')"

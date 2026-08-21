@@ -2,11 +2,11 @@
 
 from fastapi.testclient import TestClient
 
-from tests.integration.test_estimate_build import auth, create, submitted_requirement
+from tests.integration.test_estimate_build import auth, create, submitted_afe
 
 
 def estimate_for_review(client: TestClient, headers: dict[str, str]) -> dict[str, object]:
-    requirement, _refs = submitted_requirement(client, headers)
+    afe, _refs = submitted_afe(client, headers)
     currency = create(
         client,
         "/api/v1/master-data/currencies",
@@ -15,9 +15,9 @@ def estimate_for_review(client: TestClient, headers: dict[str, str]) -> dict[str
     )
     return create(
         client,
-        "/api/v1/estimates/from-requirement",
+        "/api/v1/estimates/from-afe",
         {
-            "requirement_id": requirement["id"],
+            "afe_id": afe["id"],
             "code": "EST-P6-REVIEW",
             "title": "Pending review workflow",
             "currency_id": currency["id"],

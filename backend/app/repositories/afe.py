@@ -1,4 +1,4 @@
-"""Persistence queries for Phase 3 requirement intake."""
+"""Persistence queries for Phase 3 afe intake."""
 
 from collections.abc import Sequence
 from uuid import UUID
@@ -7,7 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.models.requirements import Project, RequirementItem, Well, WellRequirement
+from app.models.afe import Afe, AfeLine, Project, Well
 
 
 class ProjectRepository:
@@ -69,12 +69,12 @@ class WellRepository:
         return self.session.scalars(statement).unique().all(), int(self.session.scalar(count) or 0)
 
 
-class RequirementRepository:
+class AfeRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def get(self, requirement_id: UUID) -> WellRequirement | None:
-        return self.session.get(WellRequirement, requirement_id)
+    def get(self, afe_id: UUID) -> Afe | None:
+        return self.session.get(Afe, afe_id)
 
     def list(
         self,
@@ -86,16 +86,16 @@ class RequirementRepository:
         well_id: UUID | None,
         status: str | None,
         is_active: bool | None,
-    ) -> tuple[Sequence[WellRequirement], int]:
-        statement = select(WellRequirement).join(Well).join(Project)
-        count = select(func.count()).select_from(WellRequirement).join(Well).join(Project)
+    ) -> tuple[Sequence[Afe], int]:
+        statement = select(Afe).join(Well).join(Project)
+        count = select(func.count()).select_from(Afe).join(Well).join(Project)
         clauses: list[ColumnElement[bool]] = []
         if search:
             pattern = f"%{search}%"
             clauses.append(
                 or_(
-                    WellRequirement.code.ilike(pattern),
-                    WellRequirement.title.ilike(pattern),
+                    Afe.code.ilike(pattern),
+                    Afe.title.ilike(pattern),
                     Well.code.ilike(pattern),
                     Project.code.ilike(pattern),
                 )
@@ -105,30 +105,26 @@ class RequirementRepository:
         if well_id:
             clauses.append(Well.id == well_id)
         if status:
-            clauses.append(WellRequirement.status == status)
+            clauses.append(Afe.status == status)
         if is_active is not None:
-            clauses.append(WellRequirement.is_active == is_active)
+            clauses.append(Afe.is_active == is_active)
         if clauses:
             statement, count = statement.where(*clauses), count.where(*clauses)
         statement = (
-            statement.order_by(WellRequirement.updated_at.desc())
+            statement.order_by(Afe.updated_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
         return self.session.scalars(statement).unique().all(), int(self.session.scalar(count) or 0)
 
 
-class RequirementItemRepository:
+class AfeLineRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def get(self, item_id: UUID) -> RequirementItem | None:
-        return self.session.get(RequirementItem, item_id)
+    def get(self, item_id: UUID) -> AfeLine | None:
+        return self.session.get(AfeLine, item_id)
 
-    def list_for_requirement(self, requirement_id: UUID) -> Sequence[RequirementItem]:
-        statement = (
-            select(RequirementItem)
-            .where(RequirementItem.requirement_id == requirement_id)
-            .order_by(RequirementItem.line_number)
-        )
+    def list_for_afe(self, afe_id: UUID) -> Sequence[AfeLine]:
+        statement = select(AfeLine).where(AfeLine.afe_id == afe_id).order_by(AfeLine.line_number)
         return self.session.scalars(statement).unique().all()

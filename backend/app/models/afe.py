@@ -1,15 +1,15 @@
-"""Immutable baseline AFE snapshots and audited creation attempts."""
+"""Phase 3 project, well, afe, and afe-item models."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
-    JSON,
+    Boolean,
     CheckConstraint,
     Date,
+    DateTime,
     ForeignKey,
-    Index,
     Integer,
     Numeric,
     String,
@@ -19,103 +19,133 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import AuditMixin, Base, TimestampMixin
-from app.models.calculations import EstimateCalculation
-from app.models.estimates import EstimateVersion
+from app.models.master_data import CatalogItem, CostCode, Unit
 
 
-class AfeSnapshot(TimestampMixin, AuditMixin, Base):
-    __tablename__ = "afe_snapshots"
+class Project(TimestampMixin, AuditMixin, Base):
+    __tablename__ = "projects"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    code: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", index=True
+    )
+
+    wells: Mapped[list["Well"]] = relationship(back_populates="project", lazy="selectin")
+
+
+class Well(TimestampMixin, AuditMixin, Base):
+    __tablename__ = "wells"
     __table_args__ = (
-        UniqueConstraint("estimate_version_id", name="uq_afe_snapshots_estimate_version"),
-        CheckConstraint("snapshot_type = 'baseline'", name="baseline_only"),
+        UniqueConstraint("project_id", "code", name="uq_wells_project_code"),
+        CheckConstraint(
+            "status IN ('planning','active','suspended','completed','abandoned')",
+            name="valid_well_status",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    afe_number: Mapped[str] = mapped_column(String(100), unique=True, index=True)
-    snapshot_type: Mapped[str] = mapped_column(
-        String(20), default="baseline", server_default="baseline"
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="RESTRICT"), index=True
     )
-    estimate_version_id: Mapped[UUID] = mapped_column(
-        ForeignKey("estimate_versions.id", ondelete="RESTRICT"), index=True
+    code: Mapped[str] = mapped_column(String(100), index=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rig_name: Mapped[str | None] = mapped_column(String(150), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(
+        String(20), default="planning", server_default="planning", index=True
     )
-    calculation_run_id: Mapped[UUID] = mapped_column(
-        ForeignKey("estimate_calculations.id", ondelete="RESTRICT"), index=True
+    spud_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    completion_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    rates_locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rate_lock_reference: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", index=True
     )
-    issue_date: Mapped[date] = mapped_column(Date)
-    estimate_code: Mapped[str] = mapped_column(String(100))
-    estimate_title: Mapped[str] = mapped_column(String(255))
-    requirement_code: Mapped[str] = mapped_column(String(100))
-    project_code: Mapped[str] = mapped_column(String(100))
-    well_code: Mapped[str] = mapped_column(String(100))
-    currency_code: Mapped[str] = mapped_column(String(3))
-    engine_version: Mapped[str] = mapped_column(String(50))
-    rule_set_version: Mapped[str] = mapped_column(String(50))
-    base_total: Mapped[Decimal] = mapped_column(Numeric(18, 4))
-    contingency_total: Mapped[Decimal] = mapped_column(Numeric(18, 4))
-    escalation_total: Mapped[Decimal] = mapped_column(Numeric(18, 4))
-    grand_total: Mapped[Decimal] = mapped_column(Numeric(18, 4))
-    source_snapshot: Mapped[dict[str, object]] = mapped_column(JSON)
 
-    estimate_version: Mapped[EstimateVersion] = relationship(lazy="joined")
-    calculation_run: Mapped[EstimateCalculation] = relationship(lazy="joined")
-    lines: Mapped[list["AfeSnapshotLine"]] = relationship(
-        back_populates="afe_snapshot",
+    project: Mapped[Project] = relationship(back_populates="wells", lazy="joined")
+    afes: Mapped[list["Afe"]] = relationship(back_populates="well", lazy="selectin")
+
+
+class Afe(TimestampMixin, AuditMixin, Base):
+    __tablename__ = "afes"
+    __table_args__ = (
+        UniqueConstraint("well_id", "code", "revision_number", name="uq_afes_well_code_revision"),
+        CheckConstraint("status IN ('draft','submitted')", name="valid_status"),
+        CheckConstraint("revision_number >= 1", name="positive_revision"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    well_id: Mapped[UUID] = mapped_column(ForeignKey("wells.id", ondelete="RESTRICT"), index=True)
+    code: Mapped[str] = mapped_column(String(100), index=True)
+    title: Mapped[str] = mapped_column(String(255), index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(30), default="draft", server_default="draft", index=True
+    )
+    revision_number: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    supersedes_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("afes.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", index=True
+    )
+
+    well: Mapped[Well] = relationship(back_populates="afes", lazy="joined")
+    supersedes: Mapped["Afe | None"] = relationship(remote_side="Afe.id", lazy="joined")
+    items: Mapped[list["AfeLine"]] = relationship(
+        back_populates="afe",
         cascade="all, delete-orphan",
-        order_by="AfeSnapshotLine.line_number",
+        order_by="AfeLine.line_number",
         lazy="selectin",
     )
 
 
-class AfeSnapshotLine(TimestampMixin, AuditMixin, Base):
-    __tablename__ = "afe_snapshot_lines"
+class AfeLine(TimestampMixin, AuditMixin, Base):
+    __tablename__ = "afe_lines"
     __table_args__ = (
-        UniqueConstraint("afe_snapshot_id", "line_number", name="uq_afe_snapshot_lines_number"),
+        UniqueConstraint("afe_id", "line_number", name="uq_afe_lines_afe_line"),
         CheckConstraint("line_number >= 1", name="positive_line_number"),
         CheckConstraint("quantity >= 0", name="non_negative_quantity"),
+        CheckConstraint(
+            "planned_duration_days IS NULL OR planned_duration_days >= 0",
+            name="non_negative_duration",
+        ),
+        CheckConstraint(
+            "planned_depth_from IS NULL OR planned_depth_to IS NULL "
+            "OR planned_depth_to >= planned_depth_from",
+            name="valid_depth_range",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    afe_snapshot_id: Mapped[UUID] = mapped_column(
-        ForeignKey("afe_snapshots.id", ondelete="CASCADE"), index=True
-    )
-    source_estimate_item_id: Mapped[UUID] = mapped_column(index=True)
+    afe_id: Mapped[UUID] = mapped_column(ForeignKey("afes.id", ondelete="CASCADE"), index=True)
     line_number: Mapped[int] = mapped_column(Integer)
-    item_code: Mapped[str] = mapped_column(String(100))
-    item_description: Mapped[str] = mapped_column(String(255))
-    item_type: Mapped[str] = mapped_column(String(30))
-    cost_code: Mapped[str] = mapped_column(String(100))
-    cost_category_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    vendor_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    catalog_item_id: Mapped[UUID] = mapped_column(
+        ForeignKey("catalog_items.id", ondelete="RESTRICT"), index=True
+    )
+    cost_code_id: Mapped[UUID] = mapped_column(
+        ForeignKey("cost_codes.id", ondelete="RESTRICT"), index=True
+    )
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
-    unit_code: Mapped[str] = mapped_column(String(50))
-    rate_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
-    rate_currency_code: Mapped[str | None] = mapped_column(String(3), nullable=True)
-    base_cost: Mapped[Decimal] = mapped_column(Numeric(18, 4))
-    contingency_cost: Mapped[Decimal] = mapped_column(Numeric(18, 4))
-    escalation_cost: Mapped[Decimal] = mapped_column(Numeric(18, 4))
-    total_cost: Mapped[Decimal] = mapped_column(Numeric(18, 4))
-
-    afe_snapshot: Mapped[AfeSnapshot] = relationship(back_populates="lines")
-
-
-class AfeSnapshotAttempt(TimestampMixin, AuditMixin, Base):
-    __tablename__ = "afe_snapshot_attempts"
-    __table_args__ = (
-        CheckConstraint("status IN ('completed','blocked','denied','failed')", name="valid_status"),
-        Index("ix_afe_snapshot_attempts_version_created", "estimate_version_id", "created_at"),
+    unit_id: Mapped[UUID] = mapped_column(ForeignKey("units.id", ondelete="RESTRICT"), index=True)
+    section_name: Mapped[str | None] = mapped_column(String(150), nullable=True, index=True)
+    planned_duration_days: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    planned_depth_from: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
+    planned_depth_to: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
+    depth_unit_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("units.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", index=True
     )
 
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    estimate_version_id: Mapped[UUID] = mapped_column(
-        ForeignKey("estimate_versions.id", ondelete="CASCADE"), index=True
-    )
-    resulting_snapshot_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("afe_snapshots.id", ondelete="RESTRICT"), nullable=True, index=True
-    )
-    requested_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), index=True)
-    message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    eligibility_snapshot: Mapped[dict[str, object]] = mapped_column(JSON)
-
-    estimate_version: Mapped[EstimateVersion] = relationship(lazy="joined")
-    resulting_snapshot: Mapped[AfeSnapshot | None] = relationship(lazy="joined")
+    afe: Mapped[Afe] = relationship(back_populates="items")
+    catalog_item: Mapped[CatalogItem] = relationship(lazy="joined")
+    cost_code: Mapped[CostCode] = relationship(lazy="joined")
+    unit: Mapped[Unit] = relationship(foreign_keys=[unit_id], lazy="joined")
+    depth_unit: Mapped[Unit | None] = relationship(foreign_keys=[depth_unit_id], lazy="joined")

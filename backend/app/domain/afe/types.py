@@ -31,7 +31,7 @@ class BaselineAfeInput:
     estimate_version_id: str
     estimate_code: str
     estimate_title: str
-    requirement_code: str
+    afe_code: str
     project_code: str
     well_code: str
     currency_code: str

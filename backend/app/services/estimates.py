@@ -9,9 +9,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BusinessValidationError, ConflictError, NotFoundError
+from app.models.afe import Afe
 from app.models.estimates import CostEstimate, EstimateAssumption, EstimateItem, EstimateVersion
 from app.models.master_data import CostCategory, Currency, Rate, Unit, Vendor
-from app.models.requirements import WellRequirement
 from app.schemas.estimates import (
     AssumptionUpsert,
     BulkAssignRequest,
@@ -61,16 +61,16 @@ class CostEstimateService:
         return self.read(estimate, include_versions=True)
 
     def generate(self, payload: EstimateGenerateRequest) -> EstimateRead:
-        requirement = self.session.get(WellRequirement, payload.requirement_id)
-        if requirement is None or not requirement.is_active:
-            raise NotFoundError("Requirement not found")
-        if requirement.status != "submitted":
-            raise BusinessValidationError("Only a submitted requirement can generate an estimate")
+        afe = self.session.get(Afe, payload.afe_id)
+        if afe is None or not afe.is_active:
+            raise NotFoundError("AFE not found")
+        if afe.status != "submitted":
+            raise BusinessValidationError("Only a submitted afe can generate an estimate")
         currency = self.session.get(Currency, payload.currency_id)
         if currency is None or not currency.is_active:
             raise BusinessValidationError("currency_id must reference an active currency")
         estimate = CostEstimate(
-            requirement_id=requirement.id,
+            afe_id=afe.id,
             code=payload.code.strip().upper(),
             title=payload.title.strip(),
             currency_id=currency.id,
@@ -85,13 +85,13 @@ class CostEstimateService:
             updated_by=self.actor_id,
         )
         estimate.versions.append(version)
-        for source in requirement.items:
+        for source in afe.items:
             if not source.is_active:
                 continue
             version.items.append(
                 EstimateItem(
                     line_number=source.line_number,
-                    requirement_item_id=source.id,
+                    afe_line_id=source.id,
                     catalog_item_id=source.catalog_item_id,
                     cost_code_id=source.cost_code_id,
                     vendor_id=None,
@@ -174,7 +174,7 @@ class CostEstimateService:
             copy = EstimateItem(
                 estimate_version_id=version.id,
                 line_number=next_line,
-                requirement_item_id=source.requirement_item_id,
+                afe_line_id=source.afe_line_id,
                 catalog_item_id=source.catalog_item_id,
                 cost_code_id=source.cost_code_id,
                 vendor_id=source.vendor_id,
@@ -239,7 +239,7 @@ class CostEstimateService:
             version.items.append(
                 EstimateItem(
                     line_number=item.line_number,
-                    requirement_item_id=item.requirement_item_id,
+                    afe_line_id=item.afe_line_id,
                     catalog_item_id=item.catalog_item_id,
                     cost_code_id=item.cost_code_id,
                     vendor_id=item.vendor_id,
@@ -309,15 +309,15 @@ class CostEstimateService:
 
     @classmethod
     def read(cls, estimate: CostEstimate, include_versions: bool) -> EstimateRead:
-        requirement = estimate.requirement
+        afe = estimate.afe
         return EstimateRead.model_validate(
             {
                 "id": estimate.id,
-                "requirement_id": estimate.requirement_id,
-                "requirement_code": requirement.code,
-                "well_id": requirement.well_id,
-                "well_code": requirement.well.code,
-                "project_code": requirement.well.project.code,
+                "afe_id": estimate.afe_id,
+                "afe_code": afe.code,
+                "well_id": afe.well_id,
+                "well_code": afe.well.code,
+                "project_code": afe.well.project.code,
                 "code": estimate.code,
                 "title": estimate.title,
                 "currency_id": estimate.currency_id,
@@ -358,7 +358,7 @@ class CostEstimateService:
                 "id": item.id,
                 "estimate_version_id": item.estimate_version_id,
                 "line_number": item.line_number,
-                "requirement_item_id": item.requirement_item_id,
+                "afe_line_id": item.afe_line_id,
                 "catalog_item_id": item.catalog_item_id,
                 "catalog_item_code": item.catalog_item.code,
                 "catalog_item_name": item.catalog_item.name,

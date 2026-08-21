@@ -28,7 +28,8 @@ from app.domain.well_costing import (
     summarise_exposure,
     unplanned_transition,
 )
-from app.models.afe import AfeSnapshot
+from app.models.afe import Afe, Well
+from app.models.afe_snapshots import AfeSnapshot
 from app.models.estimates import CostEstimate, EstimateVersion
 from app.models.master_data import (
     CatalogItem,
@@ -39,7 +40,6 @@ from app.models.master_data import (
     Unit,
     Vendor,
 )
-from app.models.requirements import Well, WellRequirement
 from app.models.well_costing import (
     WellRateRevision,
     WellServiceRate,
@@ -1112,8 +1112,8 @@ class WellUnplannedItemService(_WellScopedService):
             select(AfeSnapshot)
             .join(EstimateVersion, AfeSnapshot.estimate_version_id == EstimateVersion.id)
             .join(CostEstimate, EstimateVersion.estimate_id == CostEstimate.id)
-            .join(WellRequirement, CostEstimate.requirement_id == WellRequirement.id)
-            .where(WellRequirement.well_id == well_id)
+            .join(Afe, CostEstimate.afe_id == Afe.id)
+            .where(Afe.well_id == well_id)
             .order_by(AfeSnapshot.issue_date.desc(), AfeSnapshot.created_at.desc())
         ).first()
         return snapshot.id if snapshot else None
@@ -1206,8 +1206,8 @@ class WellCostExposureService(_WellScopedService):
             select(AfeSnapshot)
             .join(EstimateVersion, AfeSnapshot.estimate_version_id == EstimateVersion.id)
             .join(CostEstimate, EstimateVersion.estimate_id == CostEstimate.id)
-            .join(WellRequirement, CostEstimate.requirement_id == WellRequirement.id)
-            .where(WellRequirement.well_id == well_id)
+            .join(Afe, CostEstimate.afe_id == Afe.id)
+            .where(Afe.well_id == well_id)
             .order_by(AfeSnapshot.issue_date.desc(), AfeSnapshot.created_at.desc())
         ).first()
 

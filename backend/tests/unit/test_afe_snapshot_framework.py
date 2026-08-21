@@ -13,7 +13,7 @@ def test_unconfirmed_baseline_afe_policy_fails_loudly() -> None:
         estimate_version_id="version-1",
         estimate_code="EST-001",
         estimate_title="Test estimate",
-        requirement_code="REQ-001",
+        afe_code="REQ-001",
         project_code="PRJ-001",
         well_code="WELL-001",
         currency_code="USD",

@@ -8,13 +8,13 @@ from openpyxl import Workbook, load_workbook
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from tests.integration.test_estimate_build import auth, create, submitted_requirement
+from tests.integration.test_estimate_build import auth, create, submitted_afe
 
 COST_STATES = ["field_estimate", "commitment", "accrual", "actual", "forecast"]
 
 
 def setup_estimate(client: TestClient, headers: dict[str, str]) -> tuple[dict, dict]:
-    requirement, refs = submitted_requirement(client, headers)
+    afe, refs = submitted_afe(client, headers)
     currency = create(
         client,
         "/api/v1/master-data/currencies",
@@ -29,9 +29,9 @@ def setup_estimate(client: TestClient, headers: dict[str, str]) -> tuple[dict, d
     )
     estimate = create(
         client,
-        "/api/v1/estimates/from-requirement",
+        "/api/v1/estimates/from-afe",
         {
-            "requirement_id": requirement["id"],
+            "afe_id": afe["id"],
             "code": "EST-P8-CONTROL",
             "title": "Phase 8 cost control",
             "currency_id": currency["id"],
