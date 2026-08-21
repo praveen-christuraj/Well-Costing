@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from tests.conftest import TEST_PASSWORD
 
@@ -519,3 +520,95 @@ def test_get_afe_survives_orphaned_catalogue_reference(client: TestClient) -> No
     assert items[0]["cost_code"] is None
     assert items[0]["unit_code"] is None
     assert detail.json()["item_count"] == 1
+
+
+def test_list_endpoints_survive_orphaned_project(client: TestClient, db_session: Session) -> None:
+    """List serializers degrade to null placeholders when a project is gone.
+
+    Regression: ``WellService._read`` / ``AfeService._read`` /
+    ``CostEstimateService.read`` dereferenced ``project`` without a None guard,
+    so a hard-deleted project made the wells, estimates, and AFE detail
+    endpoints 500. The list serializers now degrade relationship-derived
+    fields to null, matching the detail endpoints.
+    """
+    from uuid import UUID
+
+    from app.models.estimates import CostEstimate
+    from app.models.master_data import Currency
+    from sqlalchemy import text
+
+    auth = headers(client)
+    _, well, afe = setup_afe(client, auth)
+    currency = Currency(code="USD", name="US Dollar", is_active=True)
+    estimate = CostEstimate(
+        afe_id=UUID(afe["id"]),
+        currency=currency,
+        code="EST-001",
+        title="First cost build",
+        current_version_number=1,
+    )
+    db_session.add_all([currency, estimate])
+    db_session.commit()
+
+    db_session.execute(text("DELETE FROM projects"))
+    db_session.commit()
+    db_session.expire_all()  # drop cached ORM state so reads see the deletion
+
+    wells = client.get("/api/v1/wells?page=1&page_size=500", headers=auth)
+    assert wells.status_code == 200, wells.text
+    assert wells.json()["items"][0]["project_code"] is None
+
+    estimates = client.get("/api/v1/estimates?page=1&page_size=500", headers=auth)
+    assert estimates.status_code == 200, estimates.text
+    assert estimates.json()["items"][0]["project_code"] is None
+
+    # The AFE list inner-joins to well/project, so the orphaned AFE is simply
+    # absent rather than crashing the page.
+    afes = client.get("/api/v1/afes?page=1&page_size=500", headers=auth)
+    assert afes.status_code == 200, afes.text
+    assert afes.json()["total"] == 0
+
+    # The well itself still exists, so its code (and its stored project FK)
+    # resolve; only the hard-deleted project's derived fields degrade to null.
+    detail = client.get(f"/api/v1/afes/{afe['id']}", headers=auth)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["well_code"] == "WELL-A1"
+    assert detail.json()["project_id"] == well["project_id"]
+    assert detail.json()["project_code"] is None
+
+
+def test_list_estimates_survive_orphaned_afe_and_currency(
+    client: TestClient, db_session: Session
+) -> None:
+    """An estimate whose AFE or currency was hard-deleted still lists."""
+    from uuid import UUID
+
+    from app.models.estimates import CostEstimate
+    from app.models.master_data import Currency
+    from sqlalchemy import text
+
+    auth = headers(client)
+    _, _, afe = setup_afe(client, auth)
+    currency = Currency(code="USD", name="US Dollar", is_active=True)
+    estimate = CostEstimate(
+        afe_id=UUID(afe["id"]),
+        currency=currency,
+        code="EST-002",
+        title="Second cost build",
+        current_version_number=1,
+    )
+    db_session.add_all([currency, estimate])
+    db_session.commit()
+
+    db_session.execute(text("DELETE FROM afes"))
+    db_session.execute(text("DELETE FROM currencies"))
+    db_session.commit()
+    db_session.expire_all()  # drop cached ORM state so reads see the deletions
+
+    estimates = client.get("/api/v1/estimates?page=1&page_size=500", headers=auth)
+    assert estimates.status_code == 200, estimates.text
+    item = estimates.json()["items"][0]
+    assert item["afe_code"] is None
+    assert item["well_code"] is None
+    assert item["project_code"] is None
+    assert item["currency_code"] is None

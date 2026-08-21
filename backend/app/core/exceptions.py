@@ -1,6 +1,7 @@
 """Application exception hierarchy and normalized FastAPI handlers."""
 
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -8,8 +9,19 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import DBAPIError
 
 from app.core.config import Settings
+
+# PostgreSQL and SQLite spell "the migration never ran" differently; both mean
+# the database schema is behind the application code and every endpoint that
+# touches the missing table/column will fail.
+_MISSING_SCHEMA_PATTERNS = (
+    re.compile(r'relation "[\w.]+" does not exist', re.IGNORECASE),
+    re.compile(r"column [\w.\"]+ does not exist", re.IGNORECASE),
+    re.compile(r"no such table", re.IGNORECASE),
+    re.compile(r"no such column", re.IGNORECASE),
+)
 
 logger = logging.getLogger("app")
 
@@ -134,7 +146,35 @@ def register_exception_handlers(app: FastAPI, settings: Settings) -> None:
             details=None,
         )
 
+    def _is_schema_drift(exc: Exception) -> bool:
+        """Whether a database error means missing tables/columns (pending migrations)."""
+        if not isinstance(exc, DBAPIError):
+            return False
+        original = getattr(exc, "orig", None)
+        return any(
+            pattern.search(str(original) if original is not None else "")
+            for pattern in _MISSING_SCHEMA_PATTERNS
+        )
+
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        original_error = str(getattr(exc, "orig", exc)) if isinstance(exc, DBAPIError) else None
+        if _is_schema_drift(exc):
+            logger.warning(
+                "Database schema drift detected — the database is behind the "
+                "application code",
+                extra={"path": request.url.path, "method": request.method, "error": original_error},
+            )
+            return _error_response(
+                status_code=503,
+                code="database_schema_outdated",
+                message=(
+                    "The database schema is behind the application code. Apply the "
+                    "pending migrations with `cd backend && python -m alembic upgrade "
+                    "head` (the local dev servers do this automatically on startup) and "
+                    "then reload the page."
+                ),
+                details=original_error,
+            )
         logger.exception(
             "Unhandled application exception",
             extra={"path": request.url.path, "method": request.method},

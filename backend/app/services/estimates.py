@@ -310,18 +310,20 @@ class CostEstimateService:
     @classmethod
     def read(cls, estimate: CostEstimate, include_versions: bool) -> EstimateRead:
         afe = estimate.afe
+        well = afe.well if afe else None
+        currency = estimate.currency
         return EstimateRead.model_validate(
             {
                 "id": estimate.id,
                 "afe_id": estimate.afe_id,
-                "afe_code": afe.code,
-                "well_id": afe.well_id,
-                "well_code": afe.well.code,
-                "project_code": afe.well.project.code,
+                "afe_code": afe.code if afe else None,
+                "well_id": afe.well_id if afe else None,
+                "well_code": well.code if well else None,
+                "project_code": well.project.code if well and well.project else None,
                 "code": estimate.code,
                 "title": estimate.title,
                 "currency_id": estimate.currency_id,
-                "currency_code": estimate.currency.code,
+                "currency_code": currency.code if currency else None,
                 "current_version_number": estimate.current_version_number,
                 "versions": [cls.read_version(version) for version in estimate.versions]
                 if include_versions

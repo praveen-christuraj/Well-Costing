@@ -2,6 +2,53 @@
 
 All notable project changes are documented here.
 
+## 2026-08-21 — Schema-drift self-healing, actionable 503s, and SQLite migrations
+
+The 500s on `/afes`, `/wells`, `/projects`, and `/estimates` had two roots and
+both are closed. A database left behind the application's migrations made every
+planning endpoint fail with a generic "An unexpected error occurred"; migration
+`20260821_0018` had also shipped `afe_audit_logs` without the `updated_at`
+column the model selects, so even a fully migrated database failed the same
+four endpoints (every AFE query eagerly loads its audit log). Now the backend
+keeps the local database current itself, and when the schema is behind it says
+so instead of 500ing.
+
+### Added
+
+- **Development auto-migration.** In `development`/`termux` environments the
+  backend applies pending Alembic migrations on startup (opt out with
+  `AUTO_MIGRATE=false`), and `start-dev.sh` runs `alembic upgrade head` before
+  boot like the Windows script already did. A pulled update can no longer
+  strand a local database behind the code.
+- **Schema drift detection.** Startup and `/health` (and `/ready`, which now
+  returns 503) compare the live database against the migration head and a set
+  of critical planning tables/columns (`afes`, `afe_lines`, `wells`,
+  `cost_estimates`, …) and report `database: "schema_outdated"` with the exact
+  remediation. The dashboard shows a warning banner with the message.
+- **Actionable errors.** Database "missing table/column" errors on any
+  endpoint now return `503 {"error": {"code": "database_schema_outdated", …}}`
+  with the migration command to run, instead of a generic 500.
+- **Migration `20260821_0019`** adds the missing `afe_audit_logs.updated_at`
+  column for databases that already applied 0018.
+- **SQLite migrations reach head.** The SQLite dev path was broken in three
+  places: the reporting-contract views used the reserved word `transaction`
+  as a table alias (0010/0017), several migrations tried to add constraints to
+  existing tables (unsupported by SQLite; 0012/0016/0017/0018), and an earlier
+  batch migration left `PRAGMA legacy_alter_table=ON`, which stopped the
+  AFE table renames from retargeting foreign keys. The views use a `txn`
+  alias, constraint DDL is dialect-guarded (catalogue checks on SQLite are
+  swapped by a safe table rebuild), and `server_default` uses `func.now()`
+  so defaults work on every dialect.
+
+### Changed
+
+- **List serializers tolerate orphaned records.** Hard-deleted projects,
+  wells, AFEs, or currencies no longer crash the wells/estimates/AFE list and
+  detail endpoints — relationship-derived fields (`project_code`,
+  `well_code`, `afe_code`, `currency_code`) degrade to `null` (the API
+  schemas and frontend types are now nullable). This extends the previous
+  orphaned-catalogue-item fix from AFE lines to the whole planning chain.
+
 ## 2026-08-21 — AFE consolidation, rate basis, and the Sakai shell
 
 Well requirements and the AFE were two names for one document, so they are now

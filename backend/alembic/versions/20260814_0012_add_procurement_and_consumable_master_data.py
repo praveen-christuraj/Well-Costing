@@ -25,19 +25,81 @@ VALID_ITEM_TYPES = (
 )
 OLD_ITEM_TYPES = "item_type IN ('service','tangible','material','equipment')"
 
+_NEW_ITEM_TYPE_CHECK = (
+    "CONSTRAINT valid_item_type CHECK (item_type IN ('service','tangible',"
+    "'material','equipment','mud_chemical','cement_additive'))"
+)
+
+
+def _is_sqlite() -> bool:
+    return op.get_bind().dialect.name == "sqlite"
+
+
+def _sqlite_rebuild_catalog_items_constraints(bind) -> None:
+    """Replace the restrictive item-type CHECK on catalog_items on SQLite.
+
+    SQLite cannot ALTER or DROP a CHECK constraint, so the table is rebuilt in
+    the standard rename-copy dance. ``PRAGMA legacy_alter_table=ON`` keeps
+    every other table's FOREIGN KEY clause pointing at the original table name
+    (the default OFF behaviour would retarget them onto the scratch table),
+    and all indexes are reflected and recreated on the rebuilt table.
+    """
+    import re
+
+    inspector = sa.inspect(bind)
+    indexes = inspector.get_indexes("catalog_items")
+    columns = [column["name"] for column in inspector.get_columns("catalog_items")]
+    create_sql = bind.execute(
+        sa.text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :name"),
+        {"name": "catalog_items"},
+    ).scalar_one()
+
+    pattern = re.compile(
+        r"CONSTRAINT ck_catalog_items_valid_item_type CHECK \(item_type IN \([^)]*\)\)"
+    )
+    rebuilt_sql, replacements = pattern.subn(_NEW_ITEM_TYPE_CHECK, create_sql)
+    if replacements != 1:
+        raise RuntimeError(
+            "Could not locate the catalog_items item-type CHECK constraint to replace"
+        )
+    rebuilt_sql = (
+        rebuilt_sql.rstrip()[:-1]
+        + ", CONSTRAINT fk_catalog_items_item_category_id_item_categories"
+        + " FOREIGN KEY(item_category_id) REFERENCES item_categories(id))"
+    )
+
+    temporary = "_swap_catalog_items"
+    bind.exec_driver_sql("PRAGMA legacy_alter_table=ON")
+    bind.exec_driver_sql('ALTER TABLE "catalog_items" RENAME TO "{}"'.format(temporary))
+    bind.exec_driver_sql(rebuilt_sql)
+    column_list = ", ".join('"{}"'.format(column) for column in columns)
+    bind.exec_driver_sql(
+        'INSERT INTO "catalog_items" ({columns}) SELECT {columns} FROM "{temporary}"'.format(
+            columns=column_list, temporary=temporary
+        )
+    )
+    bind.exec_driver_sql('DROP TABLE "{}"'.format(temporary))
+    for index in indexes:
+        op.create_index(
+            index["name"],
+            "catalog_items",
+            list(index["column_names"]),
+            unique=bool(index["unique"]),
+        )
+
 
 def _audit_columns() -> list[sa.Column]:
     return [
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.func.now(),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.func.now(),
             nullable=False,
         ),
         sa.Column("created_by", sa.Uuid(), nullable=True),
@@ -61,9 +123,10 @@ def upgrade() -> None:
     op.add_column("vendors", sa.Column("phone", sa.String(length=50), nullable=True))
     op.add_column("vendors", sa.Column("country", sa.String(length=100), nullable=True))
     op.create_index(op.f("ix_vendors_vendor_type"), "vendors", ["vendor_type"])
-    op.create_check_constraint(
-        "valid_vendor_type", "vendors", "vendor_type IN ('third_party','inhouse')"
-    )
+    if not _is_sqlite():  # SQLite cannot add constraints to existing tables
+        op.create_check_constraint(
+            "valid_vendor_type", "vendors", "vendor_type IN ('third_party','inhouse')"
+        )
 
     # --- item categories -------------------------------------------------------
     op.create_table(
@@ -101,16 +164,24 @@ def upgrade() -> None:
     op.create_index(
         op.f("ix_catalog_items_material_number"), "catalog_items", ["material_number"]
     )
-    op.create_foreign_key(
-        op.f("fk_catalog_items_item_category_id_item_categories"),
-        "catalog_items",
-        "item_categories",
-        ["item_category_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
-    op.drop_constraint(op.f("ck_catalog_items_valid_item_type"), "catalog_items", type_="check")
-    op.create_check_constraint("valid_item_type", "catalog_items", VALID_ITEM_TYPES)
+    if _is_sqlite():
+        # SQLite cannot ALTER constraints, so the old item-type CHECK (which
+        # would reject mud_chemical/cement_additive rows) is swapped out by
+        # rebuilding the table; the item-category FK is added in the same DDL.
+        _sqlite_rebuild_catalog_items_constraints(op.get_bind())
+    else:
+        op.create_foreign_key(
+            op.f("fk_catalog_items_item_category_id_item_categories"),
+            "catalog_items",
+            "item_categories",
+            ["item_category_id"],
+            ["id"],
+            ondelete="RESTRICT",
+        )
+        op.drop_constraint(
+            op.f("ck_catalog_items_valid_item_type"), "catalog_items", type_="check"
+        )
+        op.create_check_constraint("valid_item_type", "catalog_items", VALID_ITEM_TYPES)
 
     # --- consumable subtype tables --------------------------------------------
     for table in ("mud_chemicals", "cement_additives"):
@@ -382,7 +453,8 @@ def downgrade() -> None:
     op.drop_table("mud_chemicals")
 
     op.drop_constraint(op.f("ck_catalog_items_valid_item_type"), "catalog_items", type_="check")
-    op.create_check_constraint("valid_item_type", "catalog_items", OLD_ITEM_TYPES)
+    if not _is_sqlite():  # constraint DDL is skipped on SQLite (see upgrade)
+        op.create_check_constraint("valid_item_type", "catalog_items", OLD_ITEM_TYPES)
     op.drop_constraint(
         op.f("fk_catalog_items_item_category_id_item_categories"),
         "catalog_items",

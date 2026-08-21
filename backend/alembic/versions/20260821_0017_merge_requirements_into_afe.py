@@ -130,6 +130,22 @@ def _is_sqlite() -> bool:
     return op.get_bind().dialect.name == "sqlite"
 
 
+def _sqlite_allow_reference_rewrites() -> None:
+    """Re-enable SQLite's FOREIGN KEY clause rewriting for RENAME.
+
+    Earlier migrations' batch operations leave ``PRAGMA legacy_alter_table``
+    ON for the shared migration connection. With it ON, ``ALTER TABLE ...
+    RENAME`` does *not* update the FOREIGN KEY clauses of the tables that
+    reference the renamed one, so the renames below would leave ``afe_lines``
+    still pointing at ``well_requirements`` and the following batch
+    reflection would fail with ``NoSuchTableError``. Here the rewrite is
+    exactly what is wanted — references should follow the new table names.
+    """
+
+    if _is_sqlite():
+        op.get_bind().exec_driver_sql("PRAGMA legacy_alter_table=OFF")
+
+
 # ── reporting contract views ─────────────────────────────────────────────────
 
 
@@ -147,23 +163,23 @@ def _fact_sql(afe_table: str, afe_id_column: str, afe_code_column: str) -> str:
 
     return f"""
         SELECT
-            transaction.id AS transaction_id,
-            transaction.posting_reference,
-            transaction.cost_state,
-            transaction.transaction_date,
-            transaction.currency_code,
-            transaction.amount AS source_amount,
-            transaction.quantity,
-            transaction.unit_code,
-            transaction.cost_code,
+            txn.id AS transaction_id,
+            txn.posting_reference,
+            txn.cost_state,
+            txn.transaction_date AS transaction_date,
+            txn.currency_code,
+            txn.amount AS source_amount,
+            txn.quantity,
+            txn.unit_code,
+            txn.cost_code,
             category.code AS cost_category_code,
             NULL AS item_nature,
-            transaction.vendor_code,
-            transaction.source_document_type,
-            transaction.source_document_reference,
-            transaction.external_transaction_id,
-            transaction.correction_kind,
-            transaction.reverses_transaction_id,
+            txn.vendor_code,
+            txn.source_document_type,
+            txn.source_document_reference,
+            txn.external_transaction_id AS external_transaction_id,
+            txn.correction_kind,
+            txn.reverses_transaction_id AS reverses_transaction_id,
             snapshot.id AS afe_snapshot_id,
             snapshot.afe_number,
             snapshot.issue_date AS afe_issue_date,
@@ -177,16 +193,16 @@ def _fact_sql(afe_table: str, afe_id_column: str, afe_code_column: str) -> str:
             well.code AS well_code,
             project.id AS project_id,
             project.code AS project_code,
-            transaction.created_at AS posted_at,
-            transaction.created_by AS posted_by
-        FROM cost_transactions AS transaction
-        JOIN afe_snapshots AS snapshot ON snapshot.id = transaction.afe_snapshot_id
+            txn.created_at AS posted_at,
+            txn.created_by AS posted_by
+        FROM cost_transactions AS txn
+        JOIN afe_snapshots AS snapshot ON snapshot.id = txn.afe_snapshot_id
         JOIN estimate_versions AS version ON version.id = snapshot.estimate_version_id
         JOIN cost_estimates AS estimate ON estimate.id = version.estimate_id
         JOIN {afe_table} AS afe ON afe.id = estimate.{afe_id_column}
         JOIN wells AS well ON well.id = afe.well_id
         JOIN projects AS project ON project.id = well.project_id
-        LEFT JOIN cost_codes AS cost_code ON cost_code.code = transaction.cost_code
+        LEFT JOIN cost_codes AS cost_code ON cost_code.code = txn.cost_code
         LEFT JOIN cost_categories AS category ON category.id = cost_code.cost_category_id
     """
 
@@ -280,6 +296,7 @@ def _create_reporting_views(
 
 def upgrade() -> None:
     _drop_reporting_views()
+    _sqlite_allow_reference_rewrites()
 
     for old, new in TABLE_RENAMES:
         op.rename_table(old, new)
@@ -304,14 +321,15 @@ def upgrade() -> None:
 
     # --- AFE line: configured section, rate basis, daily consumption ---------
     op.add_column("afe_lines", sa.Column("hole_section_id", sa.Uuid(), nullable=True))
-    op.create_foreign_key(
-        op.f("fk_afe_lines_hole_section_id_hole_sections"),
-        "afe_lines",
-        "hole_sections",
-        ["hole_section_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
+    if not _is_sqlite():  # SQLite cannot add constraints to existing tables
+        op.create_foreign_key(
+            op.f("fk_afe_lines_hole_section_id_hole_sections"),
+            "afe_lines",
+            "hole_sections",
+            ["hole_section_id"],
+            ["id"],
+            ondelete="RESTRICT",
+        )
     op.create_index(op.f("ix_afe_lines_hole_section_id"), "afe_lines", ["hole_section_id"])
 
     # Existing free text becomes a configured section wherever one matches.
@@ -336,22 +354,23 @@ def upgrade() -> None:
     op.add_column("afe_lines", sa.Column("computed_quantity", sa.Numeric(18, 4), nullable=True))
     op.add_column("afe_lines", sa.Column("quantity_override_reason", sa.Text(), nullable=True))
     op.create_index(op.f("ix_afe_lines_rate_basis"), "afe_lines", ["rate_basis"])
-    op.create_check_constraint("valid_rate_basis", "afe_lines", LINE_RATE_BASIS_CHECK)
-    op.create_check_constraint(
-        "non_negative_daily_consumption",
-        "afe_lines",
-        "daily_consumption IS NULL OR daily_consumption >= 0",
-    )
-    op.create_check_constraint(
-        "non_negative_computed_quantity",
-        "afe_lines",
-        "computed_quantity IS NULL OR computed_quantity >= 0",
-    )
-    op.create_check_constraint(
-        "override_reason_not_blank",
-        "afe_lines",
-        "quantity_override_reason IS NULL OR length(trim(quantity_override_reason)) > 0",
-    )
+    if not _is_sqlite():  # SQLite cannot add constraints to existing tables
+        op.create_check_constraint("valid_rate_basis", "afe_lines", LINE_RATE_BASIS_CHECK)
+        op.create_check_constraint(
+            "non_negative_daily_consumption",
+            "afe_lines",
+            "daily_consumption IS NULL OR daily_consumption >= 0",
+        )
+        op.create_check_constraint(
+            "non_negative_computed_quantity",
+            "afe_lines",
+            "computed_quantity IS NULL OR computed_quantity >= 0",
+        )
+        op.create_check_constraint(
+            "override_reason_not_blank",
+            "afe_lines",
+            "quantity_override_reason IS NULL OR length(trim(quantity_override_reason)) > 0",
+        )
 
     # Lines already recorded keep the basis their catalogue item is charged on:
     # services carry theirs, equipment defaults to daily, everything else per unit.
@@ -383,9 +402,10 @@ def upgrade() -> None:
             sa.Column("rate_basis", sa.String(20), server_default="per_unit", nullable=False),
         )
         op.create_index(op.f(f"ix_{table}_rate_basis"), table, ["rate_basis"])
-        op.create_check_constraint(
-            f"valid_{table[:-1]}_rate_basis", table, CONSUMABLE_RATE_BASIS_CHECK
-        )
+        if not _is_sqlite():  # SQLite cannot add constraints to existing tables
+            op.create_check_constraint(
+                f"valid_{table[:-1]}_rate_basis", table, CONSUMABLE_RATE_BASIS_CHECK
+            )
 
     _create_reporting_views(
         afe_table="afes",
@@ -460,6 +480,7 @@ def downgrade() -> None:
         _rename_constraint(table, new, old)
     for old, new, table in INDEX_RENAMES:
         _rename_index(new, old, table)
+    _sqlite_allow_reference_rewrites()
     for old, new in TABLE_RENAMES:
         op.rename_table(new, old)
 

@@ -6,11 +6,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
+from app.db import schema
+from app.db.session import SessionLocal
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -29,6 +32,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "version": runtime_settings.APP_VERSION,
             },
         )
+        if runtime_settings.ENVIRONMENT in {"development", "termux"}:
+            schema.auto_upgrade_head(runtime_settings)
+        if runtime_settings.ENVIRONMENT != "test":
+            # Test clients override the session dependency, so this startup
+            # probe would only inspect an unrelated scratch database there.
+            try:
+                with SessionLocal() as session:
+                    drift = schema.detect_schema_drift(session)
+            except SQLAlchemyError:
+                drift = None
+            if drift is not None:
+                logger.critical(
+                    "Database schema is behind the application code — list and detail "
+                    "endpoints will fail with 503/500 until migrations are applied",
+                    extra={"schema_drift": drift},
+                )
         yield
         logger.info("Application stopped")
 

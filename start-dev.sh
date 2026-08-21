@@ -28,9 +28,15 @@ if [ ! -d "$REPO_DIR/backend/.venv" ]; then
     exit 1
 fi
 
-echo "Starting backend (FastAPI) on http://localhost:8000 ..."
+echo "Running database migrations ..."
 cd "$REPO_DIR/backend"
 source .venv/bin/activate
+if ! python -m alembic upgrade head; then
+    echo "ERROR: Migration failed. Check your DATABASE_URL in backend/.env"
+    exit 1
+fi
+
+echo "Starting backend (FastAPI) on http://localhost:8000 ..."
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 cd "$REPO_DIR"

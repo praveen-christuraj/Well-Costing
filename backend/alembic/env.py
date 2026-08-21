@@ -13,10 +13,15 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 settings = get_settings()
-config.set_main_option(
-    "sqlalchemy.url",
-    settings.MIGRATION_DATABASE_URL or settings.DATABASE_URL,
-)
+# When the application's startup auto-migration drives Alembic it already
+# placed the resolved URL in the config; only replace the ini placeholder
+# otherwise, so programmatic runs stay bound to the app's own database.
+configured_url = config.get_main_option("sqlalchemy.url")
+if not configured_url or configured_url == "driver://user:pass@localhost/dbname":
+    config.set_main_option(
+        "sqlalchemy.url",
+        settings.MIGRATION_DATABASE_URL or settings.DATABASE_URL,
+    )
 target_metadata = Base.metadata
 
 

@@ -26,7 +26,7 @@ definePageMeta({ middleware: 'auth' })
 const afeApi = useAfe()
 const estimateApi = useEstimates()
 const reportingApi = useReporting()
-const { health, isHealthy, checkHealth } = useHealth()
+const { health, isHealthy, isSchemaOutdated, schemaMessage, checkHealth } = useHealth()
 
 const afes = ref<AfeRecord[]>([])
 const wells = ref<WellRecord[]>([])
@@ -102,6 +102,10 @@ onMounted(() => void load())
     </PageHeader>
 
     <Message v-if="error" severity="error" :closable="true" @close="error = null">{{ error }}</Message>
+
+    <Message v-if="isSchemaOutdated" severity="warn" :closable="false">
+      {{ schemaMessage ?? 'The database schema is behind the application code — apply the pending migrations and reload.' }}
+    </Message>
 
     <div class="dashboard-grid">
       <div class="dashboard-col dashboard-col--3">

@@ -11,7 +11,8 @@ export interface ProjectRecord {
 export interface WellRecord {
   id: string
   project_id: string
-  project_code: string
+  /** Null when the referenced project was hard-deleted. */
+  project_code: string | null
   code: string
   name: string
   description: string | null
@@ -148,9 +149,10 @@ export interface AfeLineRecord {
 export interface AfeRecord {
   id: string
   well_id: string
-  well_code: string
-  project_id: string
-  project_code: string
+  /** Null when the referenced well/project was hard-deleted. */
+  well_code: string | null
+  project_id: string | null
+  project_code: string | null
   code: string
   title: string
   description: string | null

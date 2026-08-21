@@ -8,4 +8,5 @@ export interface EstimateItem {
 }
 export interface EstimateAssumption { id: string; cost_category_id: string | null; contingency_percent: string | null; escalation_percent: string | null; notes: string | null }
 export interface EstimateVersion { id: string; estimate_id: string; version_number: number; status: string; notes: string | null; items: EstimateItem[]; assumptions: EstimateAssumption[] }
-export interface Estimate { id: string; afe_id: string; afe_code: string; well_code: string; project_code: string; code: string; title: string; currency_id: string; currency_code: string; current_version_number: number; versions: EstimateVersion[] }
+/** Relationship-derived fields degrade to null when the referenced record was hard-deleted. */
+export interface Estimate { id: string; afe_id: string; afe_code: string | null; well_code: string | null; project_code: string | null; code: string; title: string; currency_id: string; currency_code: string | null; current_version_number: number; versions: EstimateVersion[] }

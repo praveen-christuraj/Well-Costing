@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60, ge=1, le=1440)
     API_V1_PREFIX: str = "/api/v1"
     APP_VERSION: str = "0.1.0"
+    # In development/termux environments the backend applies pending Alembic
+    # migrations on startup so a pulled update can never leave the local
+    # database behind the application schema. Hosted environments run
+    # migrations in the build step instead. Set AUTO_MIGRATE=false to opt out.
+    AUTO_MIGRATE: bool = True
     SUPABASE_URL: str | None = None
     SUPABASE_ANON_KEY: str | None = None
     SUPABASE_SERVICE_ROLE_KEY: str | None = None
