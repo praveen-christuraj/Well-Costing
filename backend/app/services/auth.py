@@ -59,6 +59,22 @@ class AuthService:
 
     def _issue_token(self, user: User) -> TokenResponse:
         token = create_access_token(str(user.id))
+        # Audit login success
+        try:
+            from app.services.audit import AuditService
+
+            session = getattr(self._users, "_session", None) or getattr(self._users, "session", None)
+            if session is not None:
+                AuditService(session, user.id, user.email).log(
+                    action="login",
+                    entity_type="user",
+                    entity_id=user.id,
+                    entity_code=user.email,
+                    details={"email": user.email},
+                    commit=True,
+                )
+        except Exception:
+            pass
         return TokenResponse(
             access_token=token,
             expires_in=self._settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,

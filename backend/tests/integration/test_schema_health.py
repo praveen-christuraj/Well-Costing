@@ -171,7 +171,7 @@ def test_development_startup_auto_applies_pending_migrations(tmp_path: Path) -> 
     with engine.connect() as connection:
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
     engine.dispose()
-    assert version == "20260821_0019"
+    assert version == "20260821_0020"
 
 
 def test_migrations_round_trip_on_sqlite(tmp_path: Path) -> None:
@@ -193,4 +193,4 @@ def test_migrations_round_trip_on_sqlite(tmp_path: Path) -> None:
     with engine.connect() as connection:
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
     engine.dispose()
-    assert version == "20260821_0019"
+    assert version == "20260821_0020"

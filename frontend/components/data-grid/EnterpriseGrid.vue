@@ -280,6 +280,61 @@ async function removeRow(row: EditableRow): Promise<void> {
   }
 }
 
+function confirmRecover(row: EditableRow): void {
+  clearFeedback()
+  if (!row.id) return
+  confirm.require({
+    message: `Recover this ${props.singular}? It will be restored to active records.`,
+    header: `Recover ${props.singular}`,
+    icon: 'pi pi-undo',
+    rejectProps: { label: 'Cancel', severity: 'secondary', outlined: true },
+    acceptProps: { label: 'Recover', severity: 'success' },
+    accept: () => void recoverRow(row),
+  })
+}
+
+async function recoverRow(row: EditableRow): Promise<void> {
+  loading.value = true
+  try {
+    const entity = props.importEntity || props.exportEntity || props.title.toLowerCase().replace(/\s+/g, '-')
+    // Master data recover endpoint
+    await masterData.recover(entity, String(row.id))
+    success.value = `The ${props.singular} was recovered.`
+    await load()
+  } catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The record could not be recovered.'
+  } finally {
+    loading.value = false
+  }
+}
+
+function confirmHardDelete(row: EditableRow): void {
+  clearFeedback()
+  if (!row.id) return
+  confirm.require({
+    message: `Permanently delete this ${props.singular}? This cannot be undone.`,
+    header: `Permanently delete ${props.singular}`,
+    icon: 'pi pi-exclamation-triangle',
+    rejectProps: { label: 'Cancel', severity: 'secondary', outlined: true },
+    acceptProps: { label: 'Delete forever', severity: 'danger' },
+    accept: () => void hardDeleteRow(row),
+  })
+}
+
+async function hardDeleteRow(row: EditableRow): Promise<void> {
+  loading.value = true
+  try {
+    const entity = props.importEntity || props.exportEntity || props.title.toLowerCase().replace(/\s+/g, '-')
+    await masterData.hardDelete(entity, String(row.id))
+    success.value = `The ${props.singular} was permanently deleted.`
+    await load()
+  } catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The record could not be permanently deleted.'
+  } finally {
+    loading.value = false
+  }
+}
+
 function confirmDeactivateSelected(): void {
   clearFeedback()
   confirm.require({
@@ -694,33 +749,55 @@ defineExpose({ reload: load })
             <template v-else>
               <!-- Entity-specific actions, e.g. "Revise rate" on master rates. -->
               <slot name="row-actions" :row="data" />
-              <Button
-                v-tooltip.top="'Edit'"
-                icon="pi pi-pencil"
-                size="small"
-                severity="secondary"
-                text
-                aria-label="Edit"
-                @click="startEdit(data)"
-              />
-              <Button
-                v-tooltip.top="'Duplicate'"
-                icon="pi pi-copy"
-                size="small"
-                severity="secondary"
-                text
-                aria-label="Duplicate"
-                @click="duplicateRow(data)"
-              />
-              <Button
-                v-tooltip.top="'Delete'"
-                icon="pi pi-trash"
-                size="small"
-                severity="danger"
-                text
-                aria-label="Delete"
-                @click="confirmDelete(data)"
-              />
+              <template v-if="data.is_active === false">
+                <Button
+                  v-tooltip.top="'Recover'"
+                  icon="pi pi-undo"
+                  size="small"
+                  severity="success"
+                  text
+                  aria-label="Recover"
+                  @click="confirmRecover(data)"
+                />
+                <Button
+                  v-tooltip.top="'Permanently delete'"
+                  icon="pi pi-trash"
+                  size="small"
+                  severity="danger"
+                  text
+                  aria-label="Permanently delete"
+                  @click="confirmHardDelete(data)"
+                />
+              </template>
+              <template v-else>
+                <Button
+                  v-tooltip.top="'Edit'"
+                  icon="pi pi-pencil"
+                  size="small"
+                  severity="secondary"
+                  text
+                  aria-label="Edit"
+                  @click="startEdit(data)"
+                />
+                <Button
+                  v-tooltip.top="'Duplicate'"
+                  icon="pi pi-copy"
+                  size="small"
+                  severity="secondary"
+                  text
+                  aria-label="Duplicate"
+                  @click="duplicateRow(data)"
+                />
+                <Button
+                  v-tooltip.top="'Delete'"
+                  icon="pi pi-trash"
+                  size="small"
+                  severity="danger"
+                  text
+                  aria-label="Delete"
+                  @click="confirmDelete(data)"
+                />
+              </template>
             </template>
           </div>
         </template>

@@ -53,6 +53,8 @@ CRITICAL_SCHEMA: dict[str, tuple[str, ...]] = {
         "reopen_remarks",
         "reopened_at",
         "reopened_by",
+        "deleted_at",
+        "deleted_by",
         "is_active",
     ),
     "afe_lines": (
@@ -69,6 +71,7 @@ CRITICAL_SCHEMA: dict[str, tuple[str, ...]] = {
     ),
     "afe_sections": ("afe_id", "sequence", "hole_section_id", "phase"),
     "afe_audit_logs": ("afe_id", "action", "new_status", "created_at", "updated_at"),
+    "audit_logs": ("actor_id", "action", "entity_type", "created_at"),
     "drilling_phases": ("code", "name", "sequence"),
     "daily_cost_entries": ("well_id", "afe_id", "entry_date", "cumulative_cost"),
     "cost_estimates": ("afe_id", "code", "title", "currency_id"),

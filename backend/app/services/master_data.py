@@ -100,6 +100,28 @@ def get_entity_config(entity: str) -> EntityConfig:
         raise NotFoundError(f"Unknown master-data entity: {entity}") from exc
 
 
+def _audit_master(session, actor_id, action, entity_type, entity_id, entity_code=None, details=None):
+    try:
+        from app.services.audit import AuditService
+        actor_email = None
+        try:
+            from app.models.user import User
+            u = session.get(User, actor_id)
+            if u:
+                actor_email = u.email
+        except Exception:
+            pass
+        AuditService(session, actor_id, actor_email).log(
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            entity_code=entity_code,
+            details=details,
+            commit=False,
+        )
+    except Exception:
+        pass
+
 class MasterDataService:
     """Generic audited workflow for reference and catalogue entities."""
 
@@ -153,6 +175,8 @@ class MasterDataService:
         instance = model(**values, created_by=self.actor_id, updated_by=self.actor_id)
         try:
             self.repository.add(instance)
+            self.session.flush()
+            _audit_master(self.session, self.actor_id, "create", self.entity, instance.id, instance.code, values)
             if commit:
                 self.session.commit()
                 self.session.refresh(instance)
@@ -176,6 +200,7 @@ class MasterDataService:
         instance.updated_by = self.actor_id
         try:
             self.session.flush()
+            _audit_master(self.session, self.actor_id, "update", self.entity, instance.id, instance.code, values)
             if commit:
                 self.session.commit()
                 self.session.refresh(instance)
@@ -190,7 +215,45 @@ class MasterDataService:
             raise NotFoundError(f"{self.entity} record not found")
         instance.is_active = False
         instance.updated_by = self.actor_id
+        self.session.flush()
+        _audit_master(self.session, self.actor_id, "soft_delete", self.entity, instance.id, instance.code, None)
         self.session.commit()
+
+    def recover(self, item_id: UUID) -> MasterDataRead:
+        instance = self.repository.get(item_id)
+        if instance is None:
+            raise NotFoundError(f"{self.entity} record not found")
+        if instance.is_active:
+            raise BusinessValidationError("Record is not deleted and cannot be recovered")
+        # Check if another active record with same code exists (prevent duplicate)
+        existing = self.repository.get_by_code(instance.code)
+        if existing is not None and existing.id != instance.id and existing.is_active:
+            raise BusinessValidationError(f"Cannot recover: an active {self.entity} with code '{instance.code}' already exists")
+        instance.is_active = True
+        instance.updated_by = self.actor_id
+        self.session.flush()
+        _audit_master(self.session, self.actor_id, "recover", self.entity, instance.id, instance.code, None)
+        self.session.commit()
+        self.session.refresh(instance)
+        return self._serialize(instance)
+
+    def hard_delete(self, item_id: UUID) -> None:
+        instance = self.repository.get(item_id)
+        if instance is None:
+            raise NotFoundError(f"{self.entity} record not found")
+        if instance.is_active:
+            raise BusinessValidationError("Record must be soft-deleted before permanent deletion")
+        code = instance.code
+        try:
+            self.repository.delete(instance)
+            self.session.flush()
+            _audit_master(self.session, self.actor_id, "hard_delete", self.entity, item_id, code, None)
+            self.session.commit()
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise ConflictError(
+                f"This {self.entity} record is referenced by other records and cannot be deleted. Deactivate it instead."
+            ) from exc
 
     def delete(self, item_id: UUID) -> None:
         """Permanently remove a record, refusing when it is still referenced."""
@@ -198,8 +261,11 @@ class MasterDataService:
         instance = self.repository.get(item_id)
         if instance is None:
             raise NotFoundError(f"{self.entity} record not found")
+        code = instance.code
         try:
             self.repository.delete(instance)
+            self.session.flush()
+            _audit_master(self.session, self.actor_id, "hard_delete", self.entity, item_id, code, None)
             self.session.commit()
         except IntegrityError as exc:
             self.session.rollback()
@@ -259,6 +325,8 @@ class MasterDataService:
         try:
             for row in rows:
                 created.append(self.create(row, commit=False))
+            self.session.commit()
+            _audit_master(self.session, self.actor_id, "bulk_create", self.entity, None, None, {"count": len(rows)})
             self.session.commit()
         except Exception:
             self.session.rollback()
@@ -440,6 +508,8 @@ class RateService:
         self._validate_references(values)
         rate = Rate(**values, created_by=self.actor_id, updated_by=self.actor_id)
         self.repository.add(rate)
+        self.session.flush()
+        _audit_master(self.session, self.actor_id, "create", "rates", rate.id, None, values)
         if commit:
             self.session.commit()
             self.session.refresh(rate)
@@ -457,6 +527,7 @@ class RateService:
             raise BusinessValidationError("effective_to must be on or after effective_from")
         rate.updated_by = self.actor_id
         self.session.flush()
+        _audit_master(self.session, self.actor_id, "update", "rates", rate.id, None, values)
         if commit:
             self.session.commit()
             self.session.refresh(rate)
@@ -468,6 +539,8 @@ class RateService:
             raise NotFoundError("Rate not found")
         rate.is_active = False
         rate.updated_by = self.actor_id
+        self.session.flush()
+        _audit_master(self.session, self.actor_id, "soft_delete", "rates", rate.id, None, None)
         self.session.commit()
 
     def validate_bulk(self, rows: list[RateCreate]) -> BulkValidationResult:

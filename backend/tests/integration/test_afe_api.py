@@ -263,11 +263,32 @@ def test_draft_afe_can_be_deleted_outright(client: TestClient) -> None:
     deleted = client.delete(f"/api/v1/afes/{afe['id']}", headers=auth)
     assert deleted.status_code == 204
 
+    # Soft-deleted AFE is still retrievable but marked inactive and appears in deleted list
     gone = client.get(f"/api/v1/afes/{afe['id']}", headers=auth)
-    assert gone.status_code == 404
+    assert gone.status_code == 200
+    assert gone.json()["is_active"] is False
 
-    remaining = client.get("/api/v1/afes?page=1&page_size=500", headers=auth)
+    remaining = client.get("/api/v1/afes?is_active=true&page=1&page_size=500", headers=auth)
     assert remaining.json()["total"] == 0
+
+    deleted_list = client.get("/api/v1/afes?is_active=false&page=1&page_size=500", headers=auth)
+    assert deleted_list.json()["total"] == 1
+
+    # Recovery should succeed when no other active AFE exists
+    recovered = client.post(f"/api/v1/afes/{afe['id']}/recover", headers=auth)
+    assert recovered.status_code == 200
+    assert recovered.json()["is_active"] is True
+
+    # Soft-delete again and permanently delete
+    assert client.delete(f"/api/v1/afes/{afe['id']}", headers=auth).status_code == 204
+    hard = client.delete(f"/api/v1/afes/{afe['id']}/hard", headers=auth)
+    assert hard.status_code == 204
+
+    gone2 = client.get(f"/api/v1/afes/{afe['id']}", headers=auth)
+    assert gone2.status_code == 404
+
+    remaining2 = client.get("/api/v1/afes?page=1&page_size=500", headers=auth)
+    assert remaining2.json()["total"] == 0
 
 
 def test_submitted_afe_cannot_be_deleted(client: TestClient) -> None:
@@ -289,9 +310,36 @@ def test_submitted_afe_cannot_be_deleted(client: TestClient) -> None:
     )
     assert client.post(f"/api/v1/afes/{afe['id']}/submit", headers=auth).status_code == 200
 
+    # Submitted AFE can now be soft-deleted (moved to Deleted AFEs)
     deleted = client.delete(f"/api/v1/afes/{afe['id']}", headers=auth)
-    assert deleted.status_code == 422
-    assert "read-only" in deleted.json()["error"]["message"]
+    assert deleted.status_code == 204
+
+    check = client.get(f"/api/v1/afes/{afe['id']}", headers=auth)
+    assert check.status_code == 200
+    assert check.json()["is_active"] is False
+    assert check.json()["status"] == "submitted"
+
+    # Recovery should succeed when no other active AFE exists
+    recovered = client.post(f"/api/v1/afes/{afe['id']}/recover", headers=auth)
+    assert recovered.status_code == 200
+
+    # Create another active AFE, soft-delete first again, then recovery should be blocked
+    afe2 = post(
+        client,
+        "/api/v1/afes",
+        {"well_id": afe["well_id"], "code": "REQ-002", "title": "Second AFE"},
+        auth,
+    )
+    assert client.delete(f"/api/v1/afes/{afe['id']}", headers=auth).status_code == 204
+
+    blocked = client.post(f"/api/v1/afes/{afe['id']}/recover", headers=auth)
+    assert blocked.status_code == 422
+    assert "another active AFE" in blocked.json()["error"]["message"]
+
+    # Permanent deletion after soft-delete
+    hard = client.delete(f"/api/v1/afes/{afe['id']}/hard", headers=auth)
+    assert hard.status_code == 204
+    assert client.get(f"/api/v1/afes/{afe['id']}", headers=auth).status_code == 404
 
 
 def test_section_must_be_a_configured_hole_section(client: TestClient) -> None:

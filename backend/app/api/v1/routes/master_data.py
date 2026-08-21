@@ -148,3 +148,26 @@ def deactivate_record(
     else:
         service.deactivate(item_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{entity}/{item_id}/recover", response_model=MasterDataRead)
+def recover_record(
+    entity: str,
+    item_id: UUID,
+    current_user: CurrentUser,
+    session: Annotated[Session, Depends(get_db)],
+) -> MasterDataRead:
+    """Recover a soft-deleted record."""
+    return _service(session, entity, current_user).recover(item_id)
+
+
+@router.delete("/{entity}/{item_id}/hard", status_code=status.HTTP_204_NO_CONTENT)
+def hard_delete_record(
+    entity: str,
+    item_id: UUID,
+    current_user: CurrentUser,
+    session: Annotated[Session, Depends(get_db)],
+) -> Response:
+    """Permanently delete a soft-deleted record."""
+    _service(session, entity, current_user).hard_delete(item_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

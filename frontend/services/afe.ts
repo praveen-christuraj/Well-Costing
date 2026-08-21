@@ -39,11 +39,16 @@ export class AfeApi {
     return this.api.delete(`/wells/${id}`)
   }
 
-  listAfes(wellId?: string, status?: string): Promise<PageResponse<AfeRecord>> {
+  listAfes(wellId?: string, status?: string, isActive: boolean | null = true): Promise<PageResponse<AfeRecord>> {
     const query = new URLSearchParams({ page: '1', page_size: '500' })
     if (wellId) query.set('well_id', wellId)
     if (status) query.set('status', status)
+    if (isActive !== null) query.set('is_active', String(isActive))
     return this.api.get(`/afes?${query}`)
+  }
+
+  listDeletedAfes(): Promise<PageResponse<AfeRecord>> {
+    return this.listAfes(undefined, undefined, false)
   }
 
   getAfe(id: string): Promise<AfeRecord> {
@@ -60,6 +65,14 @@ export class AfeApi {
 
   deleteAfe(id: string): Promise<undefined> {
     return this.api.delete(`/afes/${id}`)
+  }
+
+  recoverAfe(id: string): Promise<AfeRecord> {
+    return this.api.post(`/afes/${id}/recover`, {})
+  }
+
+  hardDeleteAfe(id: string): Promise<undefined> {
+    return this.api.delete(`/afes/${id}/hard`)
   }
 
   reopen(id: string, remarks: string): Promise<AfeRecord> {
