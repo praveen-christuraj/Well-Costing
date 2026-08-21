@@ -10,6 +10,7 @@ from app.api.v1.routes import (
     auth,
     calculations,
     cost_control,
+    daily_cost,
     enterprise_config,
     estimates,
     health,
@@ -40,3 +41,4 @@ api_router.include_router(imports.router)
 api_router.include_router(afe_imports.router)
 api_router.include_router(afe.router)
 api_router.include_router(well_costing.router)
+api_router.include_router(daily_cost.router)

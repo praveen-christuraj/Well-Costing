@@ -1,4 +1,4 @@
-"""Phase 3 project, well, AFE, and bulk AFE-line routes."""
+"""Phase 3 project, well, AFE, AFE sections, and bulk AFE-line routes."""
 
 from typing import Annotated
 from uuid import UUID
@@ -14,6 +14,7 @@ from app.schemas.afe import (
     AfeLineRead,
     AfeLineUpdate,
     AfeRead,
+    AfeReopenRequest,
     AfeUpdate,
     BulkAfeCreate,
     BulkAfeLinesCreate,
@@ -23,6 +24,9 @@ from app.schemas.afe import (
     BulkProjectUpdate,
     BulkWellCreate,
     BulkWellUpdate,
+    DrillingPhaseCreate,
+    DrillingPhaseRead,
+    DrillingPhaseUpdate,
     ProjectCreate,
     ProjectRead,
     ProjectUpdate,
@@ -34,6 +38,7 @@ from app.schemas.master_data import BulkValidationResult, PageResponse
 from app.services.afe import (
     AfeLineService,
     AfeService,
+    DrillingPhaseService,
     ProjectService,
     WellService,
 )
@@ -42,6 +47,38 @@ router = APIRouter(tags=["AFE"])
 DbSession = Annotated[Session, Depends(get_db)]
 
 
+# ----------------------------------------------------------- Drilling Phases
+@router.get("/drilling-phases", response_model=list[DrillingPhaseRead])
+def list_drilling_phases(current_user: CurrentUser, session: DbSession) -> list[DrillingPhaseRead]:
+    return DrillingPhaseService(session, current_user.id).list_all()
+
+
+@router.post("/drilling-phases", response_model=DrillingPhaseRead, status_code=201)
+def create_drilling_phase(
+    payload: DrillingPhaseCreate, current_user: CurrentUser, session: DbSession
+) -> DrillingPhaseRead:
+    return DrillingPhaseService(session, current_user.id).create(payload)
+
+
+@router.patch("/drilling-phases/{phase_id}", response_model=DrillingPhaseRead)
+def update_drilling_phase(
+    phase_id: UUID,
+    payload: DrillingPhaseUpdate,
+    current_user: CurrentUser,
+    session: DbSession,
+) -> DrillingPhaseRead:
+    return DrillingPhaseService(session, current_user.id).update(phase_id, payload)
+
+
+@router.delete("/drilling-phases/{phase_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_drilling_phase(
+    phase_id: UUID, current_user: CurrentUser, session: DbSession
+) -> Response:
+    DrillingPhaseService(session, current_user.id).delete(phase_id)
+    return Response(status_code=204)
+
+
+# ------------------------------------------------------------------ Projects
 @router.get("/projects", response_model=PageResponse)
 def list_projects(
     current_user: CurrentUser,
@@ -97,6 +134,7 @@ def deactivate_project(project_id: UUID, current_user: CurrentUser, session: DbS
     return Response(status_code=204)
 
 
+# --------------------------------------------------------------------- Wells
 @router.get("/wells", response_model=PageResponse)
 def list_wells(
     current_user: CurrentUser,
@@ -153,6 +191,7 @@ def deactivate_well(well_id: UUID, current_user: CurrentUser, session: DbSession
     return Response(status_code=204)
 
 
+# ---------------------------------------------------------------------- AFEs
 @router.get("/afes", response_model=PageResponse)
 def list_afes(
     current_user: CurrentUser,
@@ -205,6 +244,13 @@ def bulk_update_afes(
 @router.post("/afes/{afe_id}/submit", response_model=AfeRead)
 def submit_afe(afe_id: UUID, current_user: CurrentUser, session: DbSession) -> AfeRead:
     return AfeService(session, current_user.id).submit(afe_id)
+
+
+@router.post("/afes/{afe_id}/reopen", response_model=AfeRead)
+def reopen_afe(
+    afe_id: UUID, payload: AfeReopenRequest, current_user: CurrentUser, session: DbSession
+) -> AfeRead:
+    return AfeService(session, current_user.id).reopen(afe_id, payload.remarks)
 
 
 @router.post("/afes/{afe_id}/lines/bulk/validate", response_model=BulkValidationResult)

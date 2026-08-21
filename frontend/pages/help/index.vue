@@ -8,12 +8,12 @@ const sections = [
   { id: 'overview', label: 'How the modules link together' },
   { id: 'workflow', label: 'Recommended workflow' },
   { id: 'master-data', label: 'Master Data — start here' },
-  { id: 'cost-codes', label: 'Cost codes explained' },
-  { id: 'afe', label: 'AFE — projects, wells, AFEs, lines' },
-  { id: 'afe-data', label: 'What data an AFE line needs' },
-  { id: 'cost-builder', label: 'Cost Builder' },
-  { id: 'cost-control', label: 'Cost Control' },
-  { id: 'reports', label: 'Reports' },
+  { id: 'afe-backbone', label: 'AFE — the costing backbone' },
+  { id: 'reopen-afe', label: 'Reopening submitted AFEs & audit' },
+  { id: 'cost-builder-vs-daily', label: 'Cost Builder vs Daily Cost' },
+  { id: 'daily-cost', label: 'Daily Cost Entry & analytics' },
+  { id: 'cost-control', label: 'Cost Control & postings' },
+  { id: 'reports', label: 'Reports & export' },
   { id: 'assurance', label: 'Assurance' },
   { id: 'administration', label: 'Administration' },
 ]
@@ -23,7 +23,7 @@ const sections = [
   <div class="help-page">
     <PageHeader
       title="Help & User Manual"
-      description="How the modules fit together, the order to work in, and what each screen needs before you can make an entry."
+      description="Comprehensive guide explaining module roles, AFE backbone planning, reopening submitted AFEs, Daily Cost tracking, and Cost Builder vs Daily Execution."
     />
 
     <div class="help-layout">
@@ -36,35 +36,30 @@ const sections = [
         <section id="overview" class="help-section">
           <h2>How the modules link together</h2>
           <p>
-            The application is a single data pipeline. Information flows in one direction, and each module
-            consumes what the previous one produced — so it is important to work in order.
+            The application is an end-to-end well costing and execution pipeline. Information flows in a structured sequence:
           </p>
           <ol class="help-flow">
-            <li><strong>Master Data</strong> — the reference lists every other module reads from.</li>
-            <li><strong>AFE</strong> — the authorised scope, built from those reference lists.</li>
-            <li><strong>Cost Builder</strong> — prices the AFE lines to produce a cost build.</li>
-            <li><strong>Cost Control</strong> — posts the actuals against that plan.</li>
-            <li><strong>Reports</strong> — compares plan vs actual across the shared dimensions.</li>
-            <li><strong>Assurance</strong> — tracks review and approval state throughout.</li>
+            <li><strong>Master Data</strong> — reference catalogues: services, tangibles, mud chemicals, cement additives, vendors, units, and rates.</li>
+            <li><strong>AFE (Authorisation for Expenditure)</strong> — the technical and financial backbone of the well: budget amount, hole sections, phases, planned days, and depths.</li>
+            <li><strong>Cost Builder</strong> — pre-drill financial baseline modeling: assigns vendor contracts, escalation, contingency, and locks the AFE baseline.</li>
+            <li><strong>Daily Cost</strong> — operational field tracking: records daily service hours (hours/24 = operating days × rate) and chemical usage (qty × unit rate), comparing live spend against the AFE budget and generating end-of-well forecasts.</li>
+            <li><strong>Cost Control</strong> — stages and posts multi-state financial transactions (field estimates, commitments, accruals, actuals, forecasts).</li>
+            <li><strong>Reports & Assurance</strong> — multidimensional variance analytics and formal approval governance.</li>
           </ol>
-          <p>
-            The key rule: <strong>Master Data comes first</strong>. The AFE's dropdowns — items, cost codes,
-            units, sections, categories — are all populated from Master Data. Until those lists exist, there is
-            nothing to select on an AFE line. That is why Master Data sits immediately after the Dashboard in the menu.
-          </p>
         </section>
 
         <!-- Workflow -->
         <section id="workflow" class="help-section">
           <h2>Recommended workflow</h2>
           <ol class="help-steps">
-            <li>Configure <strong>Master Data</strong>: units, currencies, categories, hole sections, cost categories, cost codes, vendors, services, tangibles, consumables, and rates.</li>
-            <li>Open <strong>AFE</strong> and register a <strong>project</strong>, then its <strong>wells</strong>.</li>
-            <li>Raise an <strong>AFE</strong> against a well and add its <strong>lines</strong>.</li>
-            <li><strong>Submit</strong> the AFE so it becomes available to the Cost Builder.</li>
-            <li>Build and price the cost in <strong>Cost Builder</strong>.</li>
-            <li>Post actuals in <strong>Cost Control</strong> as work proceeds.</li>
-            <li>Review the comparison in <strong>Reports</strong>.</li>
+            <li>Set up <strong>Master Data</strong>: units, currencies, hole sections, cost codes, vendors, services, and chemicals.</li>
+            <li>Open <strong>AFE</strong>: register the <strong>Project</strong>, then the <strong>Well</strong>.</li>
+            <li>Create the <strong>AFE</strong> on the AFEs tab: enter the budget amount and configure the <strong>Well Section & Phase Breakdown</strong> (hole sizes, configurable phases, planned days, and depths).</li>
+            <li>On the <strong>AFE Lines</strong> tab, add planned services and chemicals. (Daily consumption chemicals multiply daily usage by the section's planned days).</li>
+            <li><strong>Submit</strong> the AFE. If changes are later needed, use <strong>Reopen AFE</strong> with mandatory remarks.</li>
+            <li>Use <strong>Cost Builder</strong> for pre-drill financial baseline modeling and vendor pricing.</li>
+            <li>During drilling/operations, open <strong>Daily Cost</strong> to record daily service hours and chemical usage, tracking burn rate, balance amount, and 5/7-day trends.</li>
+            <li>Review reconciliation and management charts in <strong>Reports</strong>.</li>
           </ol>
         </section>
 
@@ -72,9 +67,7 @@ const sections = [
         <section id="master-data" class="help-section">
           <h2>Master Data — start here</h2>
           <p>
-            Master Data is a set of tabs under one menu. Configure them roughly in the order they appear, because
-            later lists reference earlier ones. Every page works the same way: a grid you can edit inline, bulk-add,
-            paste from Excel, import, or export.
+            Master Data provides the foundational reference records used across the entire platform:
           </p>
           <div class="help-table-wrap">
             <table class="help-table">
@@ -82,100 +75,86 @@ const sections = [
                 <tr><th>Page</th><th>What it holds</th><th>Used by</th></tr>
               </thead>
               <tbody>
-                <tr><td>Units of Measure</td><td>UOMs such as M, DAY, EA, BBL</td><td>Every quantity and rate</td></tr>
-                <tr><td>Currencies</td><td>Currency codes such as USD, GBP</td><td>Rates, orders, reports</td></tr>
-                <tr><td>Item Categories / Sub Categories</td><td>Groupings such as Bits, Casings</td><td>Classifying catalogue items</td></tr>
-                <tr><td>Hole Sections</td><td>Drilling sections such as 17-1/2", 12-1/4"</td><td>Section-charged AFE lines</td></tr>
-                <tr><td>Cost Categories</td><td>Top-level cost groups such as Drilling, Services</td><td>Grouping cost codes</td></tr>
-                <tr><td>Cost Codes</td><td>The identifiers each AFE line is charged to</td><td>AFE lines, reports, postings</td></tr>
-                <tr><td>Vendors</td><td>Suppliers (3rd party or in-house)</td><td>Orders and rates</td></tr>
-                <tr><td>Service / Purchase Orders</td><td>The contracts vendors work under</td><td>Rates and procurement</td></tr>
-                <tr><td>Services, Tangibles, Consumables</td><td>The catalogue of items you can plan</td><td>AFE lines</td></tr>
-                <tr><td>Tangible Rates / Rate Revisions</td><td>Prices for tangibles and consumables</td><td>Cost Builder</td></tr>
+                <tr><td>Units of Measure</td><td>UOMs such as M, FT, DAY, EA, BBL, SACK</td><td>Quantities, depths, rates</td></tr>
+                <tr><td>Currencies</td><td>Currency codes such as USD, GBP, EUR</td><td>Rates, orders, reporting</td></tr>
+                <tr><td>Hole Sections</td><td>Well hole sizes (e.g. 36", 26", 17-1/2", 12-1/4", 8-1/2", 6")</td><td>AFE section planning & lines</td></tr>
+                <tr><td>Cost Categories & Codes</td><td>Classification hierarchy (e.g. Rig, Fluids, Directional)</td><td>AFE lines, Daily Cost, Postings</td></tr>
+                <tr><td>Vendors</td><td>Suppliers and service providers</td><td>Rate books and purchase orders</td></tr>
+                <tr><td>Services & Consumables</td><td>Catalog of services, mud chemicals, cement additives</td><td>AFE lines and Daily Cost logs</td></tr>
               </tbody>
             </table>
           </div>
-          <p class="help-note">
-            <i class="pi pi-info-circle" aria-hidden="true" />
-            Each catalogue item (a service, tangible, or chemical) can carry a default cost code and default unit.
-            Set those so AFE lines pre-fill correctly when the item is picked.
-          </p>
         </section>
 
-        <!-- Cost codes -->
-        <section id="cost-codes" class="help-section">
-          <h2>Cost codes explained</h2>
+        <!-- AFE Backbone -->
+        <section id="afe-backbone" class="help-section">
+          <h2>AFE — The Costing Backbone</h2>
           <p>
-            A <strong>cost code</strong> is the short, stable identifier that says <em>where a cost belongs</em>.
-            It is not a price — it is the classification every AFE line carries, so planned and actual spend can be
-            grouped and compared like-for-like.
+            The AFE is the central technical and financial anchor for the well:
           </p>
           <ul class="help-list">
-            <li><strong>Cost category</strong> groups several codes (for example “Drilling”).</li>
-            <li><strong>Cost code</strong> sits under a category (for example “2010 – Rig day rate”).</li>
-            <li>Every AFE line is charged to exactly one cost code.</li>
-            <li>Cost builds roll line totals up by code and category; reports filter on them.</li>
+            <li><strong>Budget Amount:</strong> The authorised spending limit for the well.</li>
+            <li><strong>Section & Phase Breakdown:</strong> Established on the <strong>AFEs tab</strong> before entering line items. Users enter the hole sections, operational phases (e.g. Drilling, Logging, Casing & Cementing, Completion), planned days, and planned depth intervals.</li>
+            <li><strong>Configurable Phases:</strong> Operational phases are fully configurable by the user via the "Configure Phases" button.</li>
+            <li><strong>Streamlined AFE Lines:</strong> On the AFE lines grid, planned days and depths are not repeated on every row. Chemical daily usage automatically multiplies by the configured section planned days.</li>
           </ul>
-          <p>To configure: create <strong>Cost Categories</strong> first, then add <strong>Cost Codes</strong> and pick a category for each.</p>
         </section>
 
-        <!-- AFE -->
-        <section id="afe" class="help-section">
-          <h2>AFE — projects, wells, AFEs, lines</h2>
-          <p>The AFE page is split into four tabs that follow the dependency order:</p>
-          <ol class="help-list">
-            <li><strong>Projects</strong> — add the top-level grouping (e.g. a drilling campaign).</li>
-            <li><strong>Wells</strong> — add wells and assign each to a project.</li>
-            <li><strong>AFEs</strong> — raise an AFE against a well (code, title, description).</li>
-            <li><strong>AFE Lines</strong> — pick the AFE and enter its line items.</li>
-          </ol>
+        <!-- Reopen AFE -->
+        <section id="reopen-afe" class="help-section">
+          <h2>Reopening Submitted AFEs & Audit Trail</h2>
           <p>
-            A draft AFE can be edited freely. When it is complete, choose <strong>Submit</strong>: it becomes
-            read-only and appears in the Cost Builder. A draft AFE can be deleted; a submitted one cannot.
+            Submitted AFEs can be edited when operational changes occur:
           </p>
+          <ul class="help-list">
+            <li>Click <strong>"Reopen AFE"</strong> on the AFEs tab or AFE Lines tab.</li>
+            <li>A mandatory <strong>Remarks / Reason</strong> must be provided explaining the purpose of the revision.</li>
+            <li>The system records an immutable <strong>Audit Log entry</strong> capturing who reopened the AFE, the timestamp, previous status, and the remarks.</li>
+            <li>Once reopened, lines, sections, and rates can be freely modified. All changes remain <strong>well-scoped</strong> (affecting only that well).</li>
+            <li>When modifications are complete, click <strong>"Resubmit"</strong> to seal the updated baseline.</li>
+          </ul>
         </section>
 
-        <!-- AFE data -->
-        <section id="afe-data" class="help-section">
-          <h2>What data an AFE line needs</h2>
-          <p>Each line records a single planned item and how it will be charged. The required fields are:</p>
+        <!-- Cost Builder vs Daily Cost -->
+        <section id="cost-builder-vs-daily" class="help-section">
+          <h2>Cost Builder vs Daily Cost Entry</h2>
           <div class="help-table-wrap">
             <table class="help-table">
-              <thead><tr><th>Field</th><th>Where it comes from</th><th>Notes</th></tr></thead>
+              <thead>
+                <tr><th>Feature</th><th>Cost Builder (Planning)</th><th>Daily Cost Entry (Execution)</th></tr>
+              </thead>
               <tbody>
-                <tr><td>Item</td><td>Master Data catalogue (services, tangibles, materials, equipment, chemicals)</td><td>Pre-fills the rate basis, unit, and cost code when set on the item.</td></tr>
-                <tr><td>Cost code</td><td>Master Data › Cost Codes</td><td>Mandatory — classifies the line.</td></tr>
-                <tr><td>Rate basis</td><td>Item default, overridable per line</td><td>Daily, per section, per service, fixed, per unit, or daily usage.</td></tr>
-                <tr><td>Section</td><td>Master Data › Hole Sections</td><td>Required only for lines charged per section.</td></tr>
-                <tr><td>Quantity / Unit</td><td>You enter; unit from Master Data › Units</td><td>Chemicals on daily usage compute quantity = usage/day × days.</td></tr>
-                <tr><td>Usage / day &amp; planned days</td><td>You enter</td><td>For daily-consumption lines only.</td></tr>
-                <tr><td>Depth from / to / unit</td><td>You enter; unit from Master Data › Units</td><td>Optional depth range context.</td></tr>
+                <tr><td><strong>Purpose</strong></td><td>Pre-drill financial pricing and baseline budgeting</td><td>Real-time operational daily cost tracking</td></tr>
+                <tr><td><strong>Timing</strong></td><td>Planning phase before spudding the well</td><td>Daily during active drilling & completion</td></tr>
+                <tr><td><strong>Input data</strong></td><td>AFE lines, vendor selection, contingency & escalation %</td><td>Service hours (0-24) and chemical quantities consumed</td></tr>
+                <tr><td><strong>Calculation</strong></td><td>Baseline cost estimates by cost code & vendor</td><td>Hours/24 × rate basis; Qty × unit rate; cumulative spend</td></tr>
+                <tr><td><strong>Key Output</strong></td><td>Approved AFE baseline financial snapshot</td><td>Daily burn rate, remaining AFE balance, end-of-well forecast</td></tr>
               </tbody>
             </table>
           </div>
-          <p class="help-note">
-            <i class="pi pi-info-circle" aria-hidden="true" />
-            If a chemical line's quantity differs from the computed total, you must give an override reason.
-          </p>
         </section>
 
-        <!-- Cost Builder -->
-        <section id="cost-builder" class="help-section">
-          <h2>Cost Builder</h2>
+        <!-- Daily Cost -->
+        <section id="daily-cost" class="help-section">
+          <h2>Daily Cost Entry & Comparative Analytics</h2>
           <p>
-            Once an AFE is submitted, open the Cost Builder to turn it into a cost build. Assign a vendor and rate to
-            each line (rates come from Master Data), set contingency and escalation assumptions, and save the build.
-            Submitted AFEs are listed automatically; pick one to start.
+            The <strong>Daily Cost</strong> module provides live rig-site operational tracking:
           </p>
+          <ul class="help-list">
+            <li><strong>Service Hours Calculation:</strong> User enters the hours a service was active on that date (e.g. 12h, 24h). The system divides by 24 to compute operating days (e.g. 12h = 0.5000 days), and multiplies by the daily rate (or charges fixed / per-section / per-service rate).</li>
+            <li><strong>Chemicals & Additives:</strong> User enters the quantity of mud chemicals or cement additives used; the system multiplies by unit rate.</li>
+            <li><strong>AFE Balance Comparison:</strong> Live calculation of <code>Balance = AFE Budget - Cumulative Actual Spend</code>.</li>
+            <li><strong>Burn Rate & Forecast:</strong> Calculates average daily burn rate (<code>Cumulative / Days Elapsed</code>) and projects total cost at completion (<code>Cumulative + Remaining Planned Days × Burn Rate</code>).</li>
+            <li><strong>Trend & Drill-Through Charts:</strong> Toggle between Last 5 Days, Last 7 Days, and Full Drill-Through to analyze service consumption and daily spend trends.</li>
+          </ul>
         </section>
 
         <!-- Cost Control -->
         <section id="cost-control" class="help-section">
-          <h2>Cost Control</h2>
+          <h2>Cost Control & Staging</h2>
           <p>
-            Post the actual costs as they happen — commitments, accruals, actuals, and forecasts — each tagged with
-            the same project, well, AFE, and cost code used at planning. Matching the dimensions here is what lets
-            Reports compare plan against actual.
+            Cost Control stages and reconciles financial transactions across distinct recognition states:
+            commitments (POs/SOs), accruals (earned services), booked actuals (invoices), and financial forecasts.
           </p>
         </section>
 
@@ -183,9 +162,7 @@ const sections = [
         <section id="reports" class="help-section">
           <h2>Reports</h2>
           <p>
-            Reports join the plan (from AFEs and cost builds) with the actuals (from Cost Control) across the shared
-            dimensions: project, well, AFE, cost state, cost code, vendor, and currency. Filter on any of them and
-            export to Excel for distribution.
+            Reports join plan dimensions (from AFE and Cost Builder) with actual spend (from Daily Cost and Cost Control) across shared dimensions: project, well, AFE, cost code, vendor, and currency.
           </p>
         </section>
 
@@ -193,9 +170,7 @@ const sections = [
         <section id="assurance" class="help-section">
           <h2>Assurance</h2>
           <p>
-            Assurance records the review and approval trail for cost builds — who reviewed, what state it is in, and
-            any notes attached along the way. It exists so a financial figure can always be traced back to its
-            approval.
+            Tracks review, verification, and sign-off workflows for cost estimates and AFE revisions.
           </p>
         </section>
 
@@ -203,9 +178,7 @@ const sections = [
         <section id="administration" class="help-section">
           <h2>Administration</h2>
           <p>
-            Administration holds the enterprise-level costing model: the organisation hierarchy, cost structures,
-            rate books, estimate templates, and reporting mappings. Configuration here is created as versioned,
-            audited drafts until separately published, so changing it never silently rewrites history.
+            Enterprise costing hierarchy, organization nodes, cost structures, and corporate rate books.
           </p>
         </section>
       </main>
@@ -221,7 +194,7 @@ const sections = [
 
 .help-layout {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 240px minmax(0, 1fr);
   gap: 24px;
   align-items: start;
 }

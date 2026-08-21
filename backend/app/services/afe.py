@@ -1,6 +1,7 @@
-"""Application workflows for project, well, and AFE preparation."""
+"""Application workflows for project, well, AFE preparation, and sections/phases."""
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from math import ceil
 from typing import Any, Never
 from uuid import UUID
@@ -17,7 +18,15 @@ from app.domain.afe.rate_basis import (
     resolve_planned_quantity,
     validate_rate_basis,
 )
-from app.models.afe import Afe, AfeLine, Project, Well
+from app.models.afe import (
+    Afe,
+    AfeAuditLog,
+    AfeLine,
+    AfeSection,
+    DrillingPhase,
+    Project,
+    Well,
+)
 from app.models.master_data import CatalogItem, CostCode, HoleSection, Unit
 from app.repositories.afe import (
     AfeLineRepository,
@@ -26,12 +35,18 @@ from app.repositories.afe import (
     WellRepository,
 )
 from app.schemas.afe import (
+    AfeAuditLogRead,
     AfeCreate,
     AfeLineCreate,
     AfeLineRead,
     AfeLineUpdate,
     AfeRead,
+    AfeSectionCreate,
+    AfeSectionRead,
     AfeUpdate,
+    DrillingPhaseCreate,
+    DrillingPhaseRead,
+    DrillingPhaseUpdate,
     ProjectCreate,
     ProjectRead,
     ProjectUpdate,
@@ -50,6 +65,99 @@ def _page(items: list[Any], page: int, page_size: int, total: int) -> PageRespon
         total=total,
         pages=ceil(total / page_size) if total else 0,
     )
+
+
+DEFAULT_DRILLING_PHASES = [
+    {"code": "DRILL", "name": "Drilling", "description": "Hole drilling operations", "sequence": 1},
+    {"code": "LOG", "name": "Logging", "description": "Wireline and formation evaluation logging", "sequence": 2},
+    {"code": "CAS_CEM", "name": "Casing & Cementing", "description": "Running casing and primary cementing", "sequence": 3},
+    {"code": "COMP", "name": "Completion", "description": "Lower and upper completion operations", "sequence": 4},
+    {"code": "TEST", "name": "Well Testing", "description": "Flow testing and well cleanup", "sequence": 5},
+    {"code": "MOB", "name": "Mobilisation & Rig Move", "description": "Rig move, positioning, and rig up", "sequence": 6},
+    {"code": "ABAN", "name": "Plug & Abandonment", "description": "Well plugging and decommissioning", "sequence": 7},
+]
+
+
+class DrillingPhaseService:
+    def __init__(self, session: Session, actor_id: UUID) -> None:
+        self.session, self.actor_id = session, actor_id
+
+    def list_all(self) -> list[DrillingPhaseRead]:
+        phases = self.session.scalars(
+            select(DrillingPhase)
+            .where(DrillingPhase.is_active.is_(True))
+            .order_by(DrillingPhase.sequence, DrillingPhase.name)
+        ).all()
+        if not phases:
+            for item in DEFAULT_DRILLING_PHASES:
+                phase = DrillingPhase(
+                    code=item["code"],
+                    name=item["name"],
+                    description=item["description"],
+                    sequence=item["sequence"],
+                    is_active=True,
+                    created_by=self.actor_id,
+                    updated_by=self.actor_id,
+                )
+                self.session.add(phase)
+            self.session.commit()
+            phases = self.session.scalars(
+                select(DrillingPhase)
+                .where(DrillingPhase.is_active.is_(True))
+                .order_by(DrillingPhase.sequence, DrillingPhase.name)
+            ).all()
+        return [DrillingPhaseRead.model_validate(p) for p in phases]
+
+    def create(self, payload: DrillingPhaseCreate) -> DrillingPhaseRead:
+        code = payload.code.strip().upper()
+        existing = self.session.scalar(select(DrillingPhase).where(DrillingPhase.code == code))
+        if existing:
+            if not existing.is_active:
+                existing.is_active = True
+                existing.name = payload.name.strip()
+                existing.description = payload.description
+                existing.sequence = payload.sequence
+                existing.updated_by = self.actor_id
+                self.session.commit()
+                return DrillingPhaseRead.model_validate(existing)
+            raise ConflictError(f"Drilling phase '{code}' already exists")
+        phase = DrillingPhase(
+            code=code,
+            name=payload.name.strip(),
+            description=payload.description,
+            sequence=payload.sequence,
+            is_active=payload.is_active,
+            created_by=self.actor_id,
+            updated_by=self.actor_id,
+        )
+        self.session.add(phase)
+        self.session.commit()
+        self.session.refresh(phase)
+        return DrillingPhaseRead.model_validate(phase)
+
+    def update(self, phase_id: UUID, payload: DrillingPhaseUpdate) -> DrillingPhaseRead:
+        phase = self.session.get(DrillingPhase, phase_id)
+        if not phase or not phase.is_active:
+            raise NotFoundError("Drilling phase not found")
+        values = payload.model_dump(exclude_unset=True)
+        if "code" in values and values["code"]:
+            values["code"] = str(values["code"]).strip().upper()
+        if "name" in values and values["name"]:
+            values["name"] = str(values["name"]).strip()
+        for k, v in values.items():
+            setattr(phase, k, v)
+        phase.updated_by = self.actor_id
+        self.session.commit()
+        self.session.refresh(phase)
+        return DrillingPhaseRead.model_validate(phase)
+
+    def delete(self, phase_id: UUID) -> None:
+        phase = self.session.get(DrillingPhase, phase_id)
+        if not phase:
+            raise NotFoundError("Drilling phase not found")
+        phase.is_active = False
+        phase.updated_by = self.actor_id
+        self.session.commit()
 
 
 class ProjectService:
@@ -300,8 +408,19 @@ class AfeService:
         well = self.session.get(Well, payload.well_id)
         if well is None or not well.is_active or not well.project.is_active:
             raise BusinessValidationError("well_id must reference an active well and project")
-        values = payload.model_dump()
+        values = payload.model_dump(exclude={"sections"})
         values.update(code=payload.code.strip().upper(), title=payload.title.strip())
+
+        sections_input = payload.sections
+        if sections_input:
+            if not values.get("total_planned_days") or values["total_planned_days"] == Decimal("0"):
+                values["total_planned_days"] = sum((s.planned_days for s in sections_input), Decimal("0"))
+            if not values.get("total_planned_depth") or values["total_planned_depth"] == Decimal("0"):
+                values["total_planned_depth"] = max(
+                    (s.planned_depth_to for s in sections_input if s.planned_depth_to is not None),
+                    default=Decimal("0"),
+                )
+
         afe = Afe(
             **values,
             status="draft",
@@ -312,6 +431,35 @@ class AfeService:
         self.session.add(afe)
         try:
             self.session.flush()
+            if sections_input:
+                for idx, sec_input in enumerate(sections_input):
+                    sec = AfeSection(
+                        afe_id=afe.id,
+                        sequence=sec_input.sequence or (idx + 1),
+                        hole_section_id=sec_input.hole_section_id,
+                        phase=sec_input.phase,
+                        planned_days=sec_input.planned_days,
+                        planned_depth_from=sec_input.planned_depth_from,
+                        planned_depth_to=sec_input.planned_depth_to,
+                        depth_unit_id=sec_input.depth_unit_id or afe.depth_unit_id,
+                        notes=sec_input.notes,
+                        is_active=sec_input.is_active,
+                        created_by=self.actor_id,
+                        updated_by=self.actor_id,
+                    )
+                    self.session.add(sec)
+                self.session.flush()
+
+            audit_entry = AfeAuditLog(
+                afe_id=afe.id,
+                action="created",
+                previous_status=None,
+                new_status="draft",
+                remarks="AFE created",
+                actor_id=self.actor_id,
+            )
+            self.session.add(audit_entry)
+
             if commit:
                 self.session.commit()
                 self.session.refresh(afe)
@@ -322,8 +470,8 @@ class AfeService:
 
     def update(self, afe_id: UUID, payload: AfeUpdate, commit: bool = True) -> AfeRead:
         afe = self._draft(afe_id)
-        values = payload.model_dump(exclude_unset=True)
-        if "well_id" in values:
+        values = payload.model_dump(exclude_unset=True, exclude={"sections"})
+        if "well_id" in values and values["well_id"]:
             well = self.session.get(Well, values["well_id"])
             if well is None or not well.is_active:
                 raise BusinessValidationError("well_id must reference an active well")
@@ -331,6 +479,37 @@ class AfeService:
             values["code"] = str(values["code"]).strip().upper()
         if values.get("title"):
             values["title"] = str(values["title"]).strip()
+
+        sections_input = payload.sections
+        if sections_input is not None:
+            # Replace existing sections
+            for old_sec in list(afe.sections):
+                self.session.delete(old_sec)
+            self.session.flush()
+            for idx, sec_input in enumerate(sections_input):
+                sec = AfeSection(
+                    afe_id=afe.id,
+                    sequence=sec_input.sequence or (idx + 1),
+                    hole_section_id=sec_input.hole_section_id,
+                    phase=sec_input.phase,
+                    planned_days=sec_input.planned_days,
+                    planned_depth_from=sec_input.planned_depth_from,
+                    planned_depth_to=sec_input.planned_depth_to,
+                    depth_unit_id=sec_input.depth_unit_id or values.get("depth_unit_id", afe.depth_unit_id),
+                    notes=sec_input.notes,
+                    is_active=sec_input.is_active,
+                    created_by=self.actor_id,
+                    updated_by=self.actor_id,
+                )
+                self.session.add(sec)
+            if "total_planned_days" not in values or values["total_planned_days"] is None:
+                values["total_planned_days"] = sum((s.planned_days for s in sections_input), Decimal("0"))
+            if "total_planned_depth" not in values or values["total_planned_depth"] is None:
+                values["total_planned_depth"] = max(
+                    (s.planned_depth_to for s in sections_input if s.planned_depth_to is not None),
+                    default=Decimal("0"),
+                )
+
         for field, value in values.items():
             setattr(afe, field, value)
         afe.updated_by = self.actor_id
@@ -338,6 +517,37 @@ class AfeService:
         if commit:
             self.session.commit()
             self.session.refresh(afe)
+        return self._read(afe, include_items=True)
+
+    def reopen(self, afe_id: UUID, remarks: str) -> AfeRead:
+        """Reopen a submitted AFE for editing with an audited reason."""
+        if not remarks or not remarks.strip():
+            raise BusinessValidationError("Remarks are mandatory when reopening a submitted AFE")
+        afe = self.repository.get(afe_id)
+        if afe is None or not afe.is_active:
+            raise NotFoundError("AFE not found")
+        if afe.status != "submitted":
+            raise BusinessValidationError("Only submitted AFEs can be reopened for editing")
+
+        previous_status = afe.status
+        afe.status = "draft"
+        afe.reopen_remarks = remarks.strip()
+        afe.reopened_at = datetime.now(UTC)
+        afe.reopened_by = self.actor_id
+        afe.updated_by = self.actor_id
+
+        audit_entry = AfeAuditLog(
+            afe_id=afe.id,
+            action="reopened",
+            previous_status=previous_status,
+            new_status="draft",
+            remarks=remarks.strip(),
+            actor_id=self.actor_id,
+        )
+        self.session.add(audit_entry)
+        self.session.commit()
+        self.session.refresh(afe)
+        self.session.expire(afe, ["items", "sections", "audit_logs"])
         return self._read(afe, include_items=True)
 
     def bulk_update(self, rows: list[tuple[UUID, AfeUpdate]]) -> list[AfeRead]:
@@ -349,7 +559,7 @@ class AfeService:
             self.session.rollback()
             raise
 
-    def submit(self, afe_id: UUID) -> AfeRead:
+    def submit(self, afe_id: UUID, remarks: str | None = None) -> AfeRead:
         afe = self._draft(afe_id)
         active_items = int(
             self.session.scalar(
@@ -363,23 +573,31 @@ class AfeService:
             or 0
         )
         if active_items == 0:
-            raise BusinessValidationError("A afe needs at least one active item before submission")
+            raise BusinessValidationError("An AFE needs at least one active item before submission")
+
+        previous_status = afe.status
         afe.status = "submitted"
         afe.submitted_at = datetime.now(UTC)
         afe.updated_by = self.actor_id
+
+        action_name = "resubmitted" if afe.reopened_at else "submitted"
+        audit_entry = AfeAuditLog(
+            afe_id=afe.id,
+            action=action_name,
+            previous_status=previous_status,
+            new_status="submitted",
+            remarks=remarks.strip() if remarks else ("Resubmitted after edits" if afe.reopened_at else "Initial submission"),
+            actor_id=self.actor_id,
+        )
+        self.session.add(audit_entry)
+
         self.session.commit()
         self.session.refresh(afe)
-        self.session.expire(afe, ["items"])
+        self.session.expire(afe, ["items", "sections", "audit_logs"])
         return self._read(afe, include_items=True)
 
     def deactivate(self, afe_id: UUID) -> None:
-        """Delete a draft AFE outright, including its lines.
-
-        Only draft AFEs may be removed (``_draft`` enforces this), so there is
-        no cost build or snapshot to preserve. The ``items`` relationship
-        cascades, so deleting the AFE removes its lines too.
-        """
-
+        """Delete a draft AFE outright, including its lines and sections."""
         afe = self._draft(afe_id)
         self.session.delete(afe)
         self.session.commit()
@@ -394,8 +612,6 @@ class AfeService:
             raise
 
     def create_revision(self, afe_id: UUID) -> Never:
-        """Business rule to be confirmed during Excel/business-rule discovery."""
-
         del afe_id
         raise NotImplementedError(
             "Business rule to be confirmed during Excel/business-rule discovery."
@@ -407,26 +623,78 @@ class AfeService:
             raise NotFoundError("AFE not found")
         if afe.status != "draft":
             raise BusinessValidationError(
-                "Submitted afes are read-only until revision rules are confirmed"
+                "Submitted AFEs are read-only. Use 'Reopen AFE' with remarks to make changes."
             )
         return afe
 
     @staticmethod
     def _read(afe: Afe, include_items: bool) -> AfeRead:
-        items = [AfeLineService.read(item) for item in afe.items]
+        items = [AfeLineService.read(item) for item in afe.items] if include_items else []
+        sections = [
+            AfeSectionRead(
+                id=s.id,
+                afe_id=s.afe_id,
+                sequence=s.sequence,
+                hole_section_id=s.hole_section_id,
+                hole_section_code=s.hole_section.code if s.hole_section else None,
+                hole_section_name=s.hole_section.name if s.hole_section else None,
+                phase=s.phase,
+                planned_days=s.planned_days,
+                planned_depth_from=s.planned_depth_from,
+                planned_depth_to=s.planned_depth_to,
+                depth_unit_id=s.depth_unit_id,
+                depth_unit_code=s.depth_unit.code if s.depth_unit else None,
+                notes=s.notes,
+                is_active=s.is_active,
+                created_at=s.created_at,
+                updated_at=s.updated_at,
+            )
+            for s in (afe.sections or [])
+            if s.is_active
+        ]
+        sorted_logs = sorted(
+            afe.audit_logs or [],
+            key=lambda a: (a.created_at, str(a.id)),
+            reverse=True,
+        )
+        audit_logs = [
+            AfeAuditLogRead(
+                id=a.id,
+                afe_id=a.afe_id,
+                action=a.action,
+                previous_status=a.previous_status,
+                new_status=a.new_status,
+                remarks=a.remarks,
+                actor_id=a.actor_id,
+                created_at=a.created_at,
+            )
+            for a in sorted_logs
+        ]
         return AfeRead.model_validate(
             {
                 **{
                     field: getattr(afe, field)
                     for field in AfeRead.model_fields
                     if field
-                    not in {"well_code", "project_id", "project_code", "item_count", "items"}
+                    not in {
+                        "well_code",
+                        "project_id",
+                        "project_code",
+                        "item_count",
+                        "items",
+                        "sections",
+                        "audit_logs",
+                        "depth_unit_code",
+                    }
                 },
                 "well_code": afe.well.code,
                 "project_id": afe.well.project_id,
                 "project_code": afe.well.project.code,
-                "item_count": len(items),
-                "items": items if include_items else [],
+                "depth_unit_code": afe.depth_unit.code if afe.depth_unit else None,
+                "item_count": len(items) if include_items else len(afe.items),
+                "sections": sections,
+                "items": items,
+                "audit_logs": audit_logs,
             }
         )
 
@@ -444,7 +712,7 @@ class AfeLineService:
         afe = self._afe(afe_id, must_be_draft=True)
         values = payload.model_dump()
         self._validate_references(values)
-        self._apply_rate_basis(values)
+        self._apply_rate_basis(afe, values)
         item = AfeLine(
             **values,
             afe_id=afe.id,
@@ -466,11 +734,9 @@ class AfeLineService:
         item = self.repository.get(item_id)
         if item is None:
             raise NotFoundError("AFE item not found")
-        self._afe(item.afe_id, must_be_draft=True)
+        afe = self._afe(item.afe_id, must_be_draft=True)
         values = payload.model_dump(exclude_unset=True)
         self._validate_references(values)
-        # A quantity the app computed is not a planner's choice: leave it out so a
-        # change to usage or planned days recomputes instead of reading as an override.
         was_computed = (
             item.computed_quantity is not None and item.quantity == item.computed_quantity
         )
@@ -484,7 +750,7 @@ class AfeLineService:
             "quantity_override_reason": item.quantity_override_reason,
             **values,
         }
-        self._apply_rate_basis(merged)
+        self._apply_rate_basis(afe, merged)
         for field in (
             "rate_basis",
             "quantity",
@@ -520,7 +786,7 @@ class AfeLineService:
         self.session.commit()
 
     def validate_bulk(self, afe_id: UUID, rows: list[AfeLineCreate]) -> BulkValidationResult:
-        self._afe(afe_id, must_be_draft=True)
+        afe = self._afe(afe_id, must_be_draft=True)
         errors: list[BulkRowError] = []
         seen: set[int] = set()
         for index, row in enumerate(rows):
@@ -543,7 +809,7 @@ class AfeLineService:
                 )
                 continue
             try:
-                self._apply_rate_basis(values)
+                self._apply_rate_basis(afe, values)
             except BusinessValidationError as exc:
                 errors.append(
                     BulkRowError(
@@ -587,7 +853,7 @@ class AfeLineService:
         if afe is None or not afe.is_active:
             raise NotFoundError("AFE not found")
         if must_be_draft and afe.status != "draft":
-            raise BusinessValidationError("Submitted afe items are read-only")
+            raise BusinessValidationError("Submitted AFE items are read-only. Reopen the AFE to edit.")
         return afe
 
     def _validate_references(self, values: dict[str, Any]) -> None:
@@ -606,19 +872,23 @@ class AfeLineService:
             if record is None or not record.is_active:
                 raise BusinessValidationError(f"{field} must reference an active record")
 
-    def _apply_rate_basis(self, values: dict[str, Any]) -> None:
-        """Settle the line's rate basis and the quantity that follows from it.
-
-        The basis defaults to whatever the catalogue item is normally charged
-        on and the planner may override it for this line. On a daily-consumption
-        line the quantity is computed from consumption per day and planned days
-        unless a reasoned override is supplied.
-        """
-
+    def _apply_rate_basis(self, afe: Afe, values: dict[str, Any]) -> None:
         item = self.session.get(CatalogItem, values["catalog_item_id"])
         if item is None:
             raise BusinessValidationError("catalog_item_id must reference an active record")
         catalogue_basis = getattr(item, "rate_basis", None)
+
+        # Derive planned duration days from section if not explicitly given
+        planned_duration = values.get("planned_duration_days")
+        if (planned_duration is None or planned_duration == 0) and values.get("hole_section_id"):
+            # Check AFE sections
+            for sec in afe.sections:
+                if sec.hole_section_id == values["hole_section_id"] and sec.is_active:
+                    planned_duration = sec.planned_days
+                    break
+        if planned_duration is None or planned_duration == 0:
+            planned_duration = afe.total_planned_days if afe.total_planned_days > 0 else Decimal("1")
+
         try:
             basis = (
                 validate_rate_basis(item.item_type, values["rate_basis"])
@@ -629,7 +899,7 @@ class AfeLineService:
                 rate_basis=basis,
                 quantity=values.get("quantity"),
                 daily_consumption=values.get("daily_consumption"),
-                planned_duration_days=values.get("planned_duration_days"),
+                planned_duration_days=planned_duration,
                 override_reason=values.get("quantity_override_reason"),
             )
         except RateBasisError as exc:

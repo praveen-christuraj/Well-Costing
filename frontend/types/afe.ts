@@ -24,6 +24,57 @@ export interface WellRecord {
   is_active: boolean
 }
 
+export interface DrillingPhaseRecord {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  sequence: number
+  is_active: boolean
+}
+
+export interface AfeSectionRecord {
+  id: string
+  afe_id: string
+  sequence: number
+  hole_section_id: string | null
+  hole_section_code?: string | null
+  hole_section_name?: string | null
+  phase: string
+  planned_days: number | string
+  planned_depth_from?: number | string | null
+  planned_depth_to?: number | string | null
+  depth_unit_id?: string | null
+  depth_unit_code?: string | null
+  notes?: string | null
+  is_active: boolean
+}
+
+export interface EditableAfeSection {
+  id?: string
+  sequence: number
+  hole_section_id: string
+  phase: string
+  planned_days: number | string
+  planned_depth_from: number | string | null
+  planned_depth_to: number | string | null
+  depth_unit_id: string
+  notes: string
+  is_active: boolean
+  _state?: 'clean' | 'new' | 'dirty'
+}
+
+export interface AfeAuditLogRecord {
+  id: string
+  afe_id: string
+  action: string
+  previous_status: string | null
+  new_status: string
+  remarks: string | null
+  actor_id: string | null
+  created_at: string
+}
+
 /** How a line is charged. Services take the first four; chemicals the last two. */
 export type RateBasis =
   | 'daily'
@@ -105,10 +156,20 @@ export interface AfeRecord {
   description: string | null
   status: 'draft' | 'submitted'
   revision_number: number
+  budget_amount: string | number
+  total_planned_days: string | number
+  total_planned_depth: string | number
+  depth_unit_id: string | null
+  depth_unit_code?: string | null
+  reopen_remarks?: string | null
+  reopened_at?: string | null
+  reopened_by?: string | null
   submitted_at: string | null
   is_active: boolean
   item_count: number
+  sections: AfeSectionRecord[]
   items: AfeLineRecord[]
+  audit_logs: AfeAuditLogRecord[]
 }
 
 export interface EditableAfeLine {
@@ -137,4 +198,5 @@ export interface AfeLookups {
   costCodes: MasterDataRecord[]
   units: MasterDataRecord[]
   holeSections: MasterDataRecord[]
+  phases?: DrillingPhaseRecord[]
 }

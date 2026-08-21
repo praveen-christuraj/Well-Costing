@@ -8,6 +8,7 @@ describe('application navigation', () => {
       'master-data',
       'afe',
       'cost-builder',
+      'daily-cost',
       'cost-control',
       'reports',
       'assurance',
