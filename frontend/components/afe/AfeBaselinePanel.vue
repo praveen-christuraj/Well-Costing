@@ -2,7 +2,7 @@
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import Tag from 'primevue/tag'
-import type { EstimateAfeStatus } from '~/types/afe'
+import type { EstimateAfeStatus } from '~/types/afeSnapshots'
 
 defineProps<{
   status: EstimateAfeStatus | null

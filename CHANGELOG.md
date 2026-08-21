@@ -2,6 +2,64 @@
 
 All notable project changes are documented here.
 
+## 2026-08-21 — AFE consolidation, rate basis, and the Sakai shell
+
+Well requirements and the AFE were two names for one document, so they are now
+one: **AFE** holds the project, the well, the AFE, and every AFE line on a single
+page, and the separate Well Intake module is gone. Lines now say how they are
+charged, sections come from configuration rather than free text, and the app
+wears the PrimeVue Sakai layout.
+
+### Added
+
+- **Section is configured, not typed.** An AFE line carries `hole_section_id`, a
+  foreign key to the hole sections maintained under Master Data, in place of the
+  free-text `section_name`. The line grid, the Excel profile
+  (`hole_section_code`), and the paste dialog all resolve a section by code or
+  name and reject one that is not configured.
+- **Rate basis per line.** `afe_lines.rate_basis` records how a line is charged —
+  `daily`, `per_service`, `per_section`, `fixed`, `per_unit`, or
+  `daily_consumption`. The catalogue item supplies the default (services already
+  carried `rate_basis`; mud chemicals and cement additives gained one) and the
+  planner may override it for a single line. A basis the item type does not allow
+  is refused, and a `per_section` line must name its section.
+- **Daily usage for chemicals and additives.** Enter consumption per day and
+  planned days and the app computes the total quantity
+  (`computed_quantity = daily_consumption × planned_duration_days`). The planner
+  may still enter a different quantity, but only with a
+  `quantity_override_reason`; an unexplained mismatch is rejected rather than
+  silently accepted, and the computed figure stays recorded beside the override.
+  Changing usage or planned days recomputes a computed line and leaves an
+  explained override alone.
+- **Dashboard.** `/dashboard` is the post-login landing page: AFEs in draft and
+  submitted, active wells, cost builds, recent AFEs, posted cost states, platform
+  health, and the metrics still pending a confirmed policy. Every figure comes
+  from a live endpoint; nothing is invented to fill a widget.
+- **Sakai layout shell.** A grouped sidebar (Home, Planning, Execution,
+  Configuration), a topbar with a light/dark switch, and a theme configurator for
+  the preset (Aura/Lara/Nora), primary colour, surface palette, and static or
+  overlay menu. The choice is remembered between sessions. Modelled on
+  [primefaces/sakai-vue](https://github.com/primefaces/sakai-vue) and re-expressed
+  in the project's own CSS, since this app does not use Tailwind.
+
+### Changed
+
+- **Breaking — requirements are AFEs.** Migration `20260821_0017` renames
+  `well_requirements` → `afes` and `requirement_items` → `afe_lines`, with
+  `cost_estimates.afe_id`, `estimate_items.afe_line_id`, and
+  `afe_snapshots.afe_code`, and rebuilds the reporting contract views on the
+  renamed tables. Existing `section_name` text is matched to a configured hole
+  section by code or name where one exists.
+- **Breaking — API.** `/requirements` → `/afes`, `/requirement-items` →
+  `/afe-lines`, `/requirements/{id}/items` → `/afes/{id}/lines`, and
+  `/estimates/from-requirement` → `/estimates/from-afe`. The standalone baseline
+  snapshot read moved from `/afes/{snapshot_id}` to
+  `/afe-snapshots/{snapshot_id}` so it no longer collides with the AFE itself.
+  The AFE-line Excel profile is version `2.0`.
+- **Navigation.** Well Intake and the separate requirement detail page are gone;
+  Dashboard and Administration are in the sidebar, and the post-login landing
+  route is the Dashboard rather than Master Data.
+
 ## 2026-08-20 — Well intake, AFE builder, and catalogue classification
 
 The full workflow is now reachable from the navigation bar instead of being

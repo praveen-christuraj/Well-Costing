@@ -76,3 +76,59 @@ The structure is adopted, while formulas and organization-specific policies stil
 - Approved financial snapshots will not be overwritten.
 - Templates, mappings, cost structures, and workflow profiles will be versioned configuration.
 - Phase 1 may proceed by explicit sponsor approval even though the Phase 0 workbook package remains incomplete; no business calculations or assumed business tables are introduced by this exception.
+
+## ADR-006 — The AFE is the well requirement
+
+**Status:** Accepted  
+**Date:** 2026-08-21
+
+### Decision
+
+Merge well-requirement intake into the AFE. `well_requirements` becomes `afes`
+and `requirement_items` becomes `afe_lines`, with the API, Excel profiles, docs,
+and UI renamed to match; the separate Well Intake page and requirement detail
+page are replaced by one AFE page that holds every entry row.
+
+The rename is complete rather than a UI relabel: two names for one document is
+exactly the ambiguity that lets a planner build a scope in one place and an
+approver read a different number somewhere else.
+
+### Consequences
+
+- Breaking API change: `/requirements*` is gone, replaced by `/afes` and
+  `/afe-lines`, and `/estimates/from-requirement` becomes `/estimates/from-afe`.
+- The immutable baseline snapshot keeps the `afe_snapshots` tables and its own
+  routes; only its standalone read moved to `/afe-snapshots/{id}` so it no longer
+  collides with the AFE document itself. Baseline snapshots stay a separate,
+  later artefact — the merge did not blur that boundary.
+- ADR-005's chain reads AFE → estimate → baseline AFE snapshot → field cost →
+  actual → forecast → reporting; the first two names collapsed into one, the
+  sequence did not change.
+
+## ADR-007 — Rate basis is catalogue default plus per-line override
+
+**Status:** Accepted  
+**Date:** 2026-08-21
+
+### Decision
+
+A catalogue item carries the rate basis it is normally charged on; an AFE line
+copies that as its default and the planner may override it for that line alone.
+Services allow `daily`, `per_service`, `per_section`, and `fixed`; mud chemicals
+and cement additives allow `per_unit` and `daily_consumption`. A basis outside
+the item type's set is rejected.
+
+For a `daily_consumption` line the app computes the total quantity from
+consumption per day and planned days. A different quantity is accepted only with
+a recorded reason, and the computed figure is kept beside it.
+
+### Consequences
+
+- The classification lives in `app/domain/afe/rate_basis.py`, framework-free and
+  unit-tested, so the same rules govern the API, Excel import, and the UI.
+- An override is always an explained decision with the app's own figure still
+  visible next to it — the audit question "why is this number not what the
+  method gives?" has an answer stored on the line.
+- What a rate is *worth* is still not decided here. Rate resolution, contingency,
+  and escalation remain unimplemented and continue to fail loudly until the
+  business rules are confirmed.

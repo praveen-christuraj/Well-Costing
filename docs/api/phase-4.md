@@ -1,7 +1,7 @@
 # Phase 4 API
 
 - `GET /api/v1/estimates`
-- `POST /api/v1/estimates/from-requirement`
+- `POST /api/v1/estimates/from-afe`
 - `GET /api/v1/estimates/{id}`
 - `PATCH /api/v1/estimates/items/bulk`
 - `POST /api/v1/estimates/versions/{version_id}/bulk-assign`

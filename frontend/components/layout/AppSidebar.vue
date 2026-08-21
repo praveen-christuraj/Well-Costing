@@ -1,20 +1,52 @@
-/** Primary navigation. Only modules enabled in `utils/navigation` are shown. */
 <script setup lang="ts">
-import { enabledNavigation } from '~/utils/navigation'
+/**
+ * Sidebar navigation, modelled on the PrimeVue Sakai shell.
+ *
+ * An open overlay or mobile menu closes when the user clicks away from it; the
+ * menu items close it themselves when a destination is chosen.
+ */
+import { onBeforeUnmount, useTemplateRef, watch } from 'vue'
+import AppMenu from '~/components/layout/AppMenu.vue'
+import { useLayout } from '~/composables/useLayout'
+
+const { layoutState, hasOpenOverlay } = useLayout()
+const sidebarRef = useTemplateRef<HTMLElement>('sidebarRef')
+let outsideClickListener: ((event: MouseEvent) => void) | null = null
+
+function isOutsideClicked(event: MouseEvent): boolean {
+  const sidebar = sidebarRef.value
+  const toggle = document.querySelector('.layout-menu-button')
+  const target = event.target as Node | null
+  if (!sidebar || !target) return false
+  return !(sidebar.contains(target) || toggle?.contains(target))
+}
+
+function bindOutsideClickListener(): void {
+  if (outsideClickListener) return
+  outsideClickListener = (event: MouseEvent) => {
+    if (!isOutsideClicked(event)) return
+    layoutState.overlayMenuActive = false
+    layoutState.mobileMenuActive = false
+  }
+  document.addEventListener('click', outsideClickListener)
+}
+
+function unbindOutsideClickListener(): void {
+  if (!outsideClickListener) return
+  document.removeEventListener('click', outsideClickListener)
+  outsideClickListener = null
+}
+
+watch(hasOpenOverlay, (open) => {
+  if (open) bindOutsideClickListener()
+  else unbindOutsideClickListener()
+})
+
+onBeforeUnmount(unbindOutsideClickListener)
 </script>
 
 <template>
-  <nav class="app-topnav" aria-label="Primary navigation">
-    <ul class="app-topnav__list">
-      <li v-for="item in enabledNavigation" :key="item.key">
-        <NuxtLink
-          :to="item.to"
-          class="app-topnav__item"
-        >
-          <i :class="item.icon" aria-hidden="true" />
-          <span>{{ item.label }}</span>
-        </NuxtLink>
-      </li>
-    </ul>
-  </nav>
+  <aside ref="sidebarRef" class="layout-sidebar" aria-label="Primary navigation">
+    <AppMenu />
+  </aside>
 </template>

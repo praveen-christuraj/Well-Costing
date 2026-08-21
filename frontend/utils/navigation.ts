@@ -1,10 +1,8 @@
 /**
- * Single source of truth for the application's top-level modules.
+ * Single source of truth for the application's navigation.
  *
- * Every module is enabled and reachable from the navigation bar. The post-login
- * landing stays on Master Data (the established entry point the full-stack
- * regression test asserts); Well Intake, the AFE builder, Cost Control,
- * Reports, and Assurance are one click away.
+ * The sidebar renders these groups in order. `appNavigation` keeps the flat
+ * list of top-level modules that other code (and the tests) rely on.
  */
 export interface AppNavigationItem {
   key: string
@@ -14,21 +12,43 @@ export interface AppNavigationItem {
   enabled: boolean
 }
 
+export interface AppNavigationGroup {
+  key: string
+  label: string
+  items: AppNavigationItem[]
+}
+
 export const appNavigation: AppNavigationItem[] = [
-  { key: 'requirements', label: 'Well Intake', icon: 'pi pi-clipboard', to: '/requirements', enabled: true },
-  { key: 'cost-builder', label: 'Cost Builder (AFE)', icon: 'pi pi-calculator', to: '/cost-builder', enabled: true },
+  { key: 'dashboard', label: 'Dashboard', icon: 'pi pi-home', to: '/dashboard', enabled: true },
+  { key: 'afe', label: 'AFE', icon: 'pi pi-clipboard', to: '/afe', enabled: true },
+  { key: 'cost-builder', label: 'Cost Builder', icon: 'pi pi-calculator', to: '/cost-builder', enabled: true },
   { key: 'master-data', label: 'Master Data', icon: 'pi pi-book', to: '/master-data/vendors', enabled: true },
   { key: 'cost-control', label: 'Cost Control', icon: 'pi pi-arrow-right-arrow-left', to: '/cost-control', enabled: true },
   { key: 'reports', label: 'Reports', icon: 'pi pi-chart-bar', to: '/reports', enabled: true },
   { key: 'assurance', label: 'Assurance', icon: 'pi pi-shield', to: '/assurance', enabled: true },
+  { key: 'administration', label: 'Administration', icon: 'pi pi-cog', to: '/administration/enterprise', enabled: true },
 ]
 
 /** Modules the user can actually open today. */
 export const enabledNavigation: AppNavigationItem[] = appNavigation.filter(item => item.enabled)
 
-/**
- * Landing route after sign-in. Kept on Master Data for continuity with the
- * established app flow and the full-stack regression suite.
- */
-export const defaultLandingRoute: string = '/master-data/vendors'
+const GROUPS: { key: string, label: string, keys: string[] }[] = [
+  { key: 'home', label: 'Home', keys: ['dashboard'] },
+  { key: 'planning', label: 'Planning', keys: ['afe', 'cost-builder'] },
+  { key: 'execution', label: 'Execution', keys: ['cost-control', 'reports', 'assurance'] },
+  { key: 'configuration', label: 'Configuration', keys: ['master-data', 'administration'] },
+]
 
+/** Sidebar model: the enabled modules arranged into labelled groups. */
+export const navigationGroups: AppNavigationGroup[] = GROUPS
+  .map(group => ({
+    key: group.key,
+    label: group.label,
+    items: group.keys
+      .map(key => enabledNavigation.find(item => item.key === key))
+      .filter((item): item is AppNavigationItem => Boolean(item)),
+  }))
+  .filter(group => group.items.length > 0)
+
+/** Landing route after sign-in: the dashboard is the app's overview. */
+export const defaultLandingRoute: string = '/dashboard'
