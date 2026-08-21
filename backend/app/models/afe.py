@@ -1,4 +1,4 @@
-"""Project, well, AFE, and AFE-line models."""
+"""Project, well, AFE, AFE section/phase breakdown, and AFE-line models."""
 
 from datetime import date, datetime
 from decimal import Decimal
@@ -70,12 +70,35 @@ class Well(TimestampMixin, AuditMixin, Base):
     afes: Mapped[list["Afe"]] = relationship(back_populates="well", lazy="selectin")
 
 
+class DrillingPhase(TimestampMixin, AuditMixin, Base):
+    """User-configurable drilling & completion operational phases."""
+
+    __tablename__ = "drilling_phases"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_drilling_phases_code"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    code: Mapped[str] = mapped_column(String(50), index=True)
+    name: Mapped[str] = mapped_column(String(100), index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sequence: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", index=True
+    )
+
+
 class Afe(TimestampMixin, AuditMixin, Base):
+    """Authorisation for Expenditure — financial and technical well backbone."""
+
     __tablename__ = "afes"
     __table_args__ = (
         UniqueConstraint("well_id", "code", "revision_number", name="uq_afes_well_code_revision"),
         CheckConstraint("status IN ('draft','submitted')", name="valid_status"),
         CheckConstraint("revision_number >= 1", name="positive_revision"),
+        CheckConstraint("budget_amount >= 0", name="non_negative_budget_amount"),
+        CheckConstraint("total_planned_days >= 0", name="non_negative_total_planned_days"),
+        CheckConstraint("total_planned_depth >= 0", name="non_negative_total_planned_depth"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -87,6 +110,21 @@ class Afe(TimestampMixin, AuditMixin, Base):
         String(30), default="draft", server_default="draft", index=True
     )
     revision_number: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    budget_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), default=Decimal("0"), server_default="0"
+    )
+    total_planned_days: Mapped[Decimal] = mapped_column(
+        Numeric(12, 4), default=Decimal("0"), server_default="0"
+    )
+    total_planned_depth: Mapped[Decimal] = mapped_column(
+        Numeric(14, 4), default=Decimal("0"), server_default="0"
+    )
+    depth_unit_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("units.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    reopen_remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reopened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reopened_by: Mapped[UUID | None] = mapped_column(nullable=True)
     supersedes_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("afes.id", ondelete="RESTRICT"), nullable=True, index=True
     )
@@ -96,13 +134,82 @@ class Afe(TimestampMixin, AuditMixin, Base):
     )
 
     well: Mapped[Well] = relationship(back_populates="afes", lazy="joined")
+    depth_unit: Mapped[Unit | None] = relationship(foreign_keys=[depth_unit_id], lazy="joined")
     supersedes: Mapped["Afe | None"] = relationship(remote_side="Afe.id", lazy="joined")
+    sections: Mapped[list["AfeSection"]] = relationship(
+        back_populates="afe",
+        cascade="all, delete-orphan",
+        order_by="AfeSection.sequence",
+        lazy="selectin",
+    )
     items: Mapped[list["AfeLine"]] = relationship(
         back_populates="afe",
         cascade="all, delete-orphan",
         order_by="AfeLine.line_number",
         lazy="selectin",
     )
+    audit_logs: Mapped[list["AfeAuditLog"]] = relationship(
+        back_populates="afe",
+        cascade="all, delete-orphan",
+        order_by="AfeAuditLog.created_at.desc()",
+        lazy="selectin",
+    )
+
+
+class AfeSection(TimestampMixin, AuditMixin, Base):
+    """Section, phase, planned days, and planned depth planning entries for an AFE."""
+
+    __tablename__ = "afe_sections"
+    __table_args__ = (
+        CheckConstraint("sequence >= 1", name="positive_afe_section_sequence"),
+        CheckConstraint("planned_days >= 0", name="non_negative_afe_section_days"),
+        CheckConstraint(
+            "planned_depth_from IS NULL OR planned_depth_to IS NULL OR planned_depth_to >= planned_depth_from",
+            name="valid_afe_section_depth_range",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    afe_id: Mapped[UUID] = mapped_column(ForeignKey("afes.id", ondelete="CASCADE"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    hole_section_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("hole_sections.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    phase: Mapped[str] = mapped_column(
+        String(100), default="Drilling", server_default="Drilling", index=True
+    )
+    planned_days: Mapped[Decimal] = mapped_column(
+        Numeric(12, 4), default=Decimal("0"), server_default="0"
+    )
+    planned_depth_from: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
+    planned_depth_to: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
+    depth_unit_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("units.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", index=True
+    )
+
+    afe: Mapped[Afe] = relationship(back_populates="sections")
+    hole_section: Mapped[HoleSection | None] = relationship(lazy="joined")
+    depth_unit: Mapped[Unit | None] = relationship(lazy="joined")
+
+
+class AfeAuditLog(TimestampMixin, Base):
+    """Audit log of changes and reopenings of an AFE."""
+
+    __tablename__ = "afe_audit_logs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    afe_id: Mapped[UUID] = mapped_column(ForeignKey("afes.id", ondelete="CASCADE"), index=True)
+    action: Mapped[str] = mapped_column(String(50), index=True)
+    previous_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    new_status: Mapped[str] = mapped_column(String(30), index=True)
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actor_id: Mapped[UUID | None] = mapped_column(nullable=True)
+
+    afe: Mapped[Afe] = relationship(back_populates="audit_logs")
 
 
 class AfeLine(TimestampMixin, AuditMixin, Base):

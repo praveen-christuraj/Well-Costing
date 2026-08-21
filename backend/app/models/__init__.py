@@ -1,6 +1,14 @@
 """SQLAlchemy model exports used by Alembic metadata discovery."""
 
-from app.models.afe import Afe, AfeLine, Project, Well
+from app.models.afe import (
+    Afe,
+    AfeAuditLog,
+    AfeLine,
+    AfeSection,
+    DrillingPhase,
+    Project,
+    Well,
+)
 from app.models.afe_snapshots import AfeSnapshot, AfeSnapshotAttempt, AfeSnapshotLine
 from app.models.calculations import EstimateCalculation
 from app.models.cost_control import (
@@ -9,6 +17,11 @@ from app.models.cost_control import (
     CostControlPostAttempt,
     CostControlStagedLine,
     CostTransaction,
+)
+from app.models.daily_cost import (
+    DailyCostConsumableLine,
+    DailyCostEntry,
+    DailyCostServiceLine,
 )
 from app.models.enterprise_config import (
     CostBreakdownNode,
@@ -66,7 +79,9 @@ from app.models.workflow import (
 
 __all__ = [
     "Afe",
+    "AfeAuditLog",
     "AfeLine",
+    "AfeSection",
     "AfeSnapshot",
     "AfeSnapshotAttempt",
     "AfeSnapshotLine",
@@ -83,6 +98,10 @@ __all__ = [
     "CostEstimate",
     "CostTransaction",
     "Currency",
+    "DailyCostConsumableLine",
+    "DailyCostEntry",
+    "DailyCostServiceLine",
+    "DrillingPhase",
     "EnterpriseHierarchyRule",
     "EnterpriseNode",
     "EnterpriseNodeType",

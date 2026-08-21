@@ -1,5 +1,5 @@
 import type { ApiClient } from '~/services/apiClient'
-import type { AfeLineRecord, AfeRecord, ProjectRecord, WellRecord } from '~/types/afe'
+import type { AfeLineRecord, AfeRecord, DrillingPhaseRecord, ProjectRecord, WellRecord } from '~/types/afe'
 import type { ImportCommitResult, ImportPreview } from '~/types/imports'
 import type { BulkValidationResult, PageResponse } from '~/types/masterData'
 
@@ -60,6 +60,26 @@ export class AfeApi {
 
   deleteAfe(id: string): Promise<undefined> {
     return this.api.delete(`/afes/${id}`)
+  }
+
+  reopen(id: string, remarks: string): Promise<AfeRecord> {
+    return this.api.post(`/afes/${id}/reopen`, { remarks })
+  }
+
+  listDrillingPhases(): Promise<DrillingPhaseRecord[]> {
+    return this.api.get('/drilling-phases')
+  }
+
+  createDrillingPhase(payload: Record<string, unknown>): Promise<DrillingPhaseRecord> {
+    return this.api.post('/drilling-phases', payload)
+  }
+
+  updateDrillingPhase(id: string, payload: Record<string, unknown>): Promise<DrillingPhaseRecord> {
+    return this.api.patch(`/drilling-phases/${id}`, payload)
+  }
+
+  deleteDrillingPhase(id: string): Promise<undefined> {
+    return this.api.delete(`/drilling-phases/${id}`)
   }
 
   validateLines(afeId: string, rows: Record<string, unknown>[]): Promise<BulkValidationResult> {

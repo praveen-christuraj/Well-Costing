@@ -1,16 +1,16 @@
 <script setup lang="ts">
 /**
- * AFE — authorisation for expenditure, organised as tabs under one page.
+ * AFE — Authorisation for Expenditure, organised as tabs under one page.
  *
- * Projects and wells are registered first, AFEs are raised against a well, and
- * every line of a chosen AFE is entered in the lines grid. There is no separate
- * "well requirement" step any more: the AFE lines tab is the requirement.
+ * AFE is the financial and technical backbone for costing.
+ * Projects and wells are registered first. On the AFEs tab, the user establishes
+ * the AFE header, budget amount, hole sections, phases, planned days, and depths.
  *
- * Each line records how it is charged. The rate basis pre-fills from the
- * catalogue item and can be changed for that line alone; a per-section line
- * needs a section from the hole-section configuration, and a chemical charged
- * on daily usage has its quantity computed from usage per day multiplied by
- * planned days, overridable only with a reason.
+ * Submitted AFEs can be reopened for revision with mandatory audit remarks,
+ * allowing edits scoped strictly to that well before resubmission.
+ *
+ * On the AFE Lines tab, items are planned against the configured sections and
+ * rate bases without duplicating section/day/depth inputs per line.
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
@@ -32,7 +32,17 @@ import Textarea from 'primevue/textarea'
 import PageHeader from '~/components/design-system/PageHeader.vue'
 import { defaultRateBasisFor, rateBasesFor } from '~/types/afe'
 import { parseTsv } from '~/utils/tsv'
-import type { AfeLineRecord, AfeRecord, EditableAfeLine, ProjectRecord, RateBasis, WellRecord } from '~/types/afe'
+import type {
+  AfeAuditLogRecord,
+  AfeLineRecord,
+  AfeRecord,
+  DrillingPhaseRecord,
+  EditableAfeLine,
+  EditableAfeSection,
+  ProjectRecord,
+  RateBasis,
+  WellRecord,
+} from '~/types/afe'
 import type { MasterDataRecord } from '~/types/masterData'
 
 definePageMeta({ middleware: 'auth' })
@@ -43,6 +53,7 @@ const master = useMasterData()
 const projects = ref<ProjectRecord[]>([])
 const wells = ref<WellRecord[]>([])
 const afes = ref<AfeRecord[]>([])
+const phases = ref<DrillingPhaseRecord[]>([])
 
 const catalogueItems = ref<MasterDataRecord[]>([])
 const costCodes = ref<MasterDataRecord[]>([])
@@ -63,6 +74,7 @@ const loading = ref(false)
 const loadingLines = ref(false)
 const saving = ref(false)
 const submitting = ref(false)
+const reopening = ref(false)
 const error = ref<string | null>(null)
 const success = ref<string | null>(null)
 
@@ -94,7 +106,6 @@ async function saveProject(): Promise<void> {
     return
   }
   finally { saving.value = false }
-  // Refreshed outside the saving flag so the other dialogs stay operable.
   await loadAll()
 }
 
@@ -190,14 +201,120 @@ async function deactivateWell(record: WellRecord): Promise<void> {
 
 /* ------------------------------------------------------- AFE ----------------- */
 const afeDialog = ref(false)
-const afeForm = ref({ id: undefined as string | undefined, well_id: '', code: '', title: '', description: '' })
+const afeForm = ref({
+  id: undefined as string | undefined,
+  well_id: '',
+  code: '',
+  title: '',
+  description: '',
+  budget_amount: 0 as number,
+  total_planned_days: 0 as number,
+  total_planned_depth: 0 as number,
+  depth_unit_id: '' as string,
+  sections: [] as EditableAfeSection[],
+})
+
+const reopenDialog = ref(false)
+const reopenTargetAfe = ref<AfeRecord | null>(null)
+const reopenRemarks = ref('')
+
+const auditHistoryDialog = ref(false)
+const auditHistoryList = ref<AfeAuditLogRecord[]>([])
+const auditTargetAfeTitle = ref('')
+
+const phasesDialog = ref(false)
+const newPhaseForm = ref({ code: '', name: '', description: '', sequence: 1 })
 
 function openAfeDialog(record?: AfeRecord): void {
   const defaultWellId = wellFilter.value ?? wellOptions.value[0]?.id ?? ''
-  afeForm.value = record
-    ? { id: record.id, well_id: record.well_id, code: record.code, title: record.title, description: record.description ?? '' }
-    : { id: undefined, well_id: defaultWellId, code: '', title: '', description: '' }
+  const defaultDepthUnitId = units.value.find(u => u.code === 'M' || u.code === 'FT')?.id ?? units.value[0]?.id ?? ''
+
+  if (record) {
+    afeForm.value = {
+      id: record.id,
+      well_id: record.well_id,
+      code: record.code,
+      title: record.title,
+      description: record.description ?? '',
+      budget_amount: Number(record.budget_amount) || 0,
+      total_planned_days: Number(record.total_planned_days) || 0,
+      total_planned_depth: Number(record.total_planned_depth) || 0,
+      depth_unit_id: record.depth_unit_id ?? defaultDepthUnitId,
+      sections: (record.sections || []).map((s, idx) => ({
+        id: s.id,
+        sequence: s.sequence || (idx + 1),
+        hole_section_id: s.hole_section_id ?? '',
+        phase: s.phase || 'Drilling',
+        planned_days: Number(s.planned_days) || 0,
+        planned_depth_from: s.planned_depth_from !== null && s.planned_depth_from !== undefined ? Number(s.planned_depth_from) : null,
+        planned_depth_to: s.planned_depth_to !== null && s.planned_depth_to !== undefined ? Number(s.planned_depth_to) : null,
+        depth_unit_id: s.depth_unit_id ?? defaultDepthUnitId,
+        notes: s.notes ?? '',
+        is_active: s.is_active,
+      })),
+    }
+  }
+  else {
+    afeForm.value = {
+      id: undefined,
+      well_id: defaultWellId,
+      code: '',
+      title: '',
+      description: '',
+      budget_amount: 0,
+      total_planned_days: 0,
+      total_planned_depth: 0,
+      depth_unit_id: defaultDepthUnitId,
+      sections: [
+        {
+          sequence: 1,
+          hole_section_id: holeSections.value[0]?.id ?? '',
+          phase: 'Drilling',
+          planned_days: 10,
+          planned_depth_from: 0,
+          planned_depth_to: 1000,
+          depth_unit_id: defaultDepthUnitId,
+          notes: '',
+          is_active: true,
+        },
+      ],
+    }
+    recalculateSectionTotals()
+  }
   afeDialog.value = true
+}
+
+function addSectionRow(): void {
+  const defaultDepthUnitId = afeForm.value.depth_unit_id || units.value[0]?.id || ''
+  const nextSeq = afeForm.value.sections.length + 1
+  const prevTo = afeForm.value.sections.length
+    ? afeForm.value.sections[afeForm.value.sections.length - 1].planned_depth_to
+    : 0
+  afeForm.value.sections.push({
+    sequence: nextSeq,
+    hole_section_id: holeSections.value[0]?.id ?? '',
+    phase: phases.value[0]?.name ?? 'Drilling',
+    planned_days: 5,
+    planned_depth_from: prevTo ?? 0,
+    planned_depth_to: prevTo ? Number(prevTo) + 500 : 500,
+    depth_unit_id: defaultDepthUnitId,
+    notes: '',
+    is_active: true,
+  })
+  recalculateSectionTotals()
+}
+
+function removeSectionRow(index: number): void {
+  afeForm.value.sections.splice(index, 1)
+  afeForm.value.sections.forEach((s, idx) => { s.sequence = idx + 1 })
+  recalculateSectionTotals()
+}
+
+function recalculateSectionTotals(): void {
+  const totalDays = afeForm.value.sections.reduce((sum, s) => sum + (Number(s.planned_days) || 0), 0)
+  const maxDepth = afeForm.value.sections.reduce((max, s) => Math.max(max, Number(s.planned_depth_to) || 0), 0)
+  afeForm.value.total_planned_days = totalDays
+  afeForm.value.total_planned_depth = maxDepth
 }
 
 async function saveAfe(): Promise<void> {
@@ -205,10 +322,32 @@ async function saveAfe(): Promise<void> {
   error.value = null
   let createdId: string | null = null
   try {
-    const payload = { well_id: afeForm.value.well_id, code: afeForm.value.code, title: afeForm.value.title, description: afeForm.value.description || null }
+    recalculateSectionTotals()
+    const payload = {
+      well_id: afeForm.value.well_id,
+      code: afeForm.value.code,
+      title: afeForm.value.title,
+      description: afeForm.value.description || null,
+      budget_amount: afeForm.value.budget_amount || 0,
+      total_planned_days: afeForm.value.total_planned_days || 0,
+      total_planned_depth: afeForm.value.total_planned_depth || 0,
+      depth_unit_id: afeForm.value.depth_unit_id || null,
+      sections: afeForm.value.sections.map((s, idx) => ({
+        sequence: idx + 1,
+        hole_section_id: s.hole_section_id || null,
+        phase: s.phase,
+        planned_days: Number(s.planned_days) || 0,
+        planned_depth_from: s.planned_depth_from !== null ? Number(s.planned_depth_from) : null,
+        planned_depth_to: s.planned_depth_to !== null ? Number(s.planned_depth_to) : null,
+        depth_unit_id: s.depth_unit_id || afeForm.value.depth_unit_id || null,
+        notes: s.notes || null,
+        is_active: true,
+      })),
+    }
     if (afeForm.value.id) await api.updateAfe(afeForm.value.id, payload)
     else createdId = (await api.createAfe(payload)).id
     afeDialog.value = false
+    success.value = afeForm.value.id ? 'AFE and well section planning updated.' : 'AFE created successfully.'
   }
   catch (caught: unknown) {
     error.value = caught instanceof Error ? caught.message : 'The AFE could not be saved.'
@@ -217,6 +356,37 @@ async function saveAfe(): Promise<void> {
   finally { saving.value = false }
   await loadAll()
   if (createdId) await openAfe(createdId)
+}
+
+function promptReopen(afe: AfeRecord): void {
+  reopenTargetAfe.value = afe
+  reopenRemarks.value = ''
+  reopenDialog.value = true
+}
+
+async function confirmReopen(): Promise<void> {
+  if (!reopenTargetAfe.value || !reopenRemarks.value.trim()) return
+  reopening.value = true
+  error.value = null
+  try {
+    const updated = await api.reopen(reopenTargetAfe.value.id, reopenRemarks.value.trim())
+    reopenDialog.value = false
+    success.value = `AFE ${updated.code} has been reopened for editing. You can now modify sections and lines.`
+    await loadAll()
+    if (selectedAfeId.value === updated.id) {
+      await loadLines()
+    }
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'Could not reopen AFE.'
+  }
+  finally { reopening.value = false }
+}
+
+function showAuditHistory(afe: AfeRecord): void {
+  auditTargetAfeTitle.value = `${afe.code} — ${afe.title}`
+  auditHistoryList.value = afe.audit_logs || []
+  auditHistoryDialog.value = true
 }
 
 async function deactivateAfe(record: AfeRecord): Promise<void> {
@@ -234,6 +404,25 @@ async function deactivateAfe(record: AfeRecord): Promise<void> {
   await loadAll()
 }
 
+/* ------------------------------------------------- Drilling Phases ----------- */
+async function createCustomPhase(): Promise<void> {
+  if (!newPhaseForm.value.code.trim() || !newPhaseForm.value.name.trim()) return
+  try {
+    await api.createDrillingPhase({
+      code: newPhaseForm.value.code.trim().toUpperCase(),
+      name: newPhaseForm.value.name.trim(),
+      description: newPhaseForm.value.description.trim() || null,
+      sequence: Number(newPhaseForm.value.sequence) || (phases.value.length + 1),
+    })
+    phases.value = await api.listDrillingPhases()
+    newPhaseForm.value = { code: '', name: '', description: '', sequence: phases.value.length + 1 }
+    success.value = 'Drilling phase added.'
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'Could not save phase.'
+  }
+}
+
 /* ------------------------------------------------- AFE lines ----------------- */
 const pasteVisible = ref(false)
 const pasteText = ref('')
@@ -244,14 +433,12 @@ const pasteColumns = [
   { field: 'quantity' },
   { field: 'unit_code' },
   { field: 'hole_section_code' },
-  { field: 'planned_duration_days' },
 ]
 
 function catalogueItemFor(line: EditableAfeLine): MasterDataRecord | undefined {
   return catalogueItems.value.find(record => record.id === line.catalog_item_id)
 }
 
-/** Bases offered for the line's catalogue item; falls back to the full list. */
 function basisOptionsFor(line: EditableAfeLine): { label: string, value: RateBasis }[] {
   return rateBasesFor(catalogueItemFor(line)?.item_type)
 }
@@ -264,29 +451,40 @@ function needsSection(line: EditableAfeLine): boolean {
   return line.rate_basis === 'per_section'
 }
 
-/** Usage per day times planned days — the figure the app proposes. */
+/** Planned days from the AFE section associated with the line, or total planned days of the AFE. */
+function getPlannedDaysForLine(line: EditableAfeLine): number {
+  if (selectedAfe.value && selectedAfe.value.sections?.length) {
+    if (line.hole_section_id) {
+      const match = selectedAfe.value.sections.find(s => s.hole_section_id === line.hole_section_id && s.is_active)
+      if (match) return Number(match.planned_days) || 0
+    }
+    return Number(selectedAfe.value.total_planned_days) || 1
+  }
+  return Number(selectedAfe.value?.total_planned_days) || 1
+}
+
+/** Usage per day times section planned days. */
 function computedQuantityFor(line: EditableAfeLine): number | null {
   if (!isConsumptionLine(line)) return null
   const perDay = Number(line.daily_consumption)
-  const days = Number(line.planned_duration_days)
-  if (!line.daily_consumption || !line.planned_duration_days || Number.isNaN(perDay) || Number.isNaN(days)) return null
+  const days = getPlannedDaysForLine(line)
+  if (!line.daily_consumption || Number.isNaN(perDay) || Number.isNaN(days)) return null
   return perDay * days
 }
 
 function isOverridden(line: EditableAfeLine): boolean {
-  const computed = computedQuantityFor(line)
-  return computed !== null && line.quantity !== '' && Number(line.quantity) !== computed
+  const computedVal = computedQuantityFor(line)
+  return computedVal !== null && line.quantity !== '' && Number(line.quantity) !== computedVal
 }
 
-/** Keep a computed line's quantity in step with its usage and planned days. */
 function syncComputedQuantity(line: EditableAfeLine): void {
-  const computed = computedQuantityFor(line)
-  if (computed === null) {
+  const computedVal = computedQuantityFor(line)
+  if (computedVal === null) {
     line.computed_quantity = ''
     return
   }
-  line.computed_quantity = String(computed)
-  if (!line.quantity_override_reason.trim()) line.quantity = String(computed)
+  line.computed_quantity = String(computedVal)
+  if (!line.quantity_override_reason.trim()) line.quantity = String(computedVal)
 }
 
 function onItemChange(line: EditableAfeLine): void {
@@ -314,7 +512,6 @@ function onConsumptionChange(line: EditableAfeLine): void {
   markDirty(line)
 }
 
-/** Empty inputs become null so the API's optional fields stay valid. */
 function nullableValue(value: unknown): unknown {
   return (value === '' || value === null || value === undefined) ? null : value
 }
@@ -330,7 +527,7 @@ function toPayload(line: EditableAfeLine) {
     rate_basis: line.rate_basis,
     daily_consumption: nullableValue(line.daily_consumption),
     quantity_override_reason: nullableValue(line.quantity_override_reason.trim()),
-    planned_duration_days: nullableValue(line.planned_duration_days),
+    planned_duration_days: nullableValue(line.planned_duration_days || getPlannedDaysForLine(line)),
     planned_depth_from: nullableValue(line.planned_depth_from),
     planned_depth_to: nullableValue(line.planned_depth_to),
     depth_unit_id: nullableValue(line.depth_unit_id),
@@ -405,7 +602,6 @@ function removeLine(line: EditableAfeLine): void {
     })
 }
 
-/** Rows pasted from Excel: item code, type, cost code, qty, unit, section, days. */
 function applyPaste(): void {
   error.value = null
   const parsed = parseTsv(pasteText.value, pasteColumns)
@@ -437,7 +633,6 @@ function applyPaste(): void {
       quantity: values.quantity || '0',
       unit_id: unit.id,
       hole_section_id: section?.id ?? '',
-      planned_duration_days: values.planned_duration_days ?? '',
     }
     line.rate_basis = defaultRateBasisFor(item.item_type, item.rate_basis ?? null)
     syncComputedQuantity(line)
@@ -455,8 +650,8 @@ function missingRequired(line: EditableAfeLine): string[] {
   if (!line.cost_code_id) missing.push('Cost code')
   if (!line.unit_id) missing.push('Unit')
   if (needsSection(line) && !line.hole_section_id) missing.push('Section (charged per section)')
-  if (isConsumptionLine(line) && (!line.daily_consumption || !line.planned_duration_days)) {
-    missing.push('Usage per day and planned days (charged on daily usage)')
+  if (isConsumptionLine(line) && !line.daily_consumption) {
+    missing.push('Usage per day (charged on daily usage)')
   }
   if (isOverridden(line) && !line.quantity_override_reason.trim()) {
     missing.push('Override reason (quantity differs from the computed total)')
@@ -506,7 +701,7 @@ async function submitAfe(): Promise<void> {
   try {
     selectedAfe.value = await api.submit(selectedAfeId.value)
     lines.value = selectedAfe.value.items.map(toEditable)
-    success.value = 'AFE submitted. Open the Cost Builder to generate the cost build from it.'
+    success.value = 'AFE submitted successfully. It feeds the Cost Builder and Daily Cost comparisons.'
     await loadAfes()
   }
   catch (caught: unknown) {
@@ -536,6 +731,7 @@ const filteredAfes = computed(() => afes.value.filter(afe =>
 const activeProjectOptions = computed(() => projects.value.filter(project => project.is_active))
 const wellOptions = computed(() => filteredWells.value.filter(well => well.is_active))
 const wellName = (id: string): string => wells.value.find(well => well.id === id)?.code ?? '—'
+const unitCode = (id?: string | null): string => units.value.find(u => u.id === id)?.code ?? '—'
 
 const WELL_STATUSES = [
   { label: 'Planning', value: 'planning' },
@@ -579,10 +775,11 @@ async function loadAll(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    const [projectPage, wellPage, afePage, catalogue, codePage, unitPage, sectionPage] = await Promise.all([
+    const [projectPage, wellPage, afePage, phaseList, catalogue, codePage, unitPage, sectionPage] = await Promise.all([
       api.listProjects(),
       api.listWells(),
       api.listAfes(),
+      api.listDrillingPhases(),
       Promise.all([
         master.list('services'),
         master.list('tangibles'),
@@ -598,6 +795,7 @@ async function loadAll(): Promise<void> {
     projects.value = projectPage.items
     wells.value = wellPage.items
     afes.value = afePage.items
+    phases.value = phaseList
     catalogueItems.value = catalogue.flatMap(page => page.items)
     costCodes.value = codePage.items
     units.value = unitPage.items
@@ -617,10 +815,11 @@ onMounted(() => void loadAll())
 <template>
   <div class="library-page">
     <PageHeader
-      title="AFE"
-      description="Register projects and wells, raise an AFE against a well, then build it line by line. Each line records how it is charged — daily, per section, per service, fixed, per unit, or on daily usage for chemicals — and submitted AFEs feed the Cost Builder."
+      title="AFE & Well Scope"
+      description="Register projects and wells, configure AFE budgets, hole sections, phases, planned days and depths on the AFEs tab. Build detailed scope lines on the AFE Lines tab. Submitted AFEs can be reopened with audited remarks for well-scoped revisions."
     >
       <template #actions>
+        <Button label="Configure Phases" icon="pi pi-sliders-h" outlined @click="phasesDialog = true" />
         <Button label="New AFE" icon="pi pi-plus" @click="openAfeDialog()" />
       </template>
     </PageHeader>
@@ -710,7 +909,7 @@ onMounted(() => void loadAll())
           <section class="afe-section bulk-grid-panel">
             <div class="grid-toolbar">
               <div>
-                <strong>AFEs</strong><small class="toolbar-note">Every AFE raised against a well. Submitted AFEs become cost builds.</small>
+                <strong>AFEs & Well Configuration</strong><small class="toolbar-note">AFE budget, section planning, days, and depths. Reopen submitted AFEs with remarks to revise.</small>
                 <Select v-model="wellFilter" :options="wellOptions" option-label="code" option-value="id" placeholder="All wells" show-clear filter style="width: 170px; margin-left: 1rem" />
                 <Select v-model="statusFilter" :options="[{ label: 'Draft', value: 'draft' }, { label: 'Submitted', value: 'submitted' }]" option-label="label" option-value="value" placeholder="All statuses" show-clear style="width: 160px; margin-left: 0.5rem" />
               </div>
@@ -719,10 +918,25 @@ onMounted(() => void loadAll())
               </div>
             </div>
             <DataTable :value="filteredAfes" :loading="loading" data-key="id" striped-rows show-gridlines size="small" :rows="10" paginator class="afe-table">
-              <Column field="code" header="Code" sortable />
+              <Column field="code" header="AFE Code" sortable />
               <Column field="title" header="Title" sortable />
               <Column header="Well">
                 <template #body="{ data }">{{ wellName(data.well_id) }}</template>
+              </Column>
+              <Column header="Budget Amount">
+                <template #body="{ data }">
+                  <strong>{{ Number(data.budget_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) }}</strong>
+                </template>
+              </Column>
+              <Column header="Planned Days">
+                <template #body="{ data }">
+                  {{ Number(data.total_planned_days || 0).toFixed(1) }} days
+                </template>
+              </Column>
+              <Column header="Planned Depth">
+                <template #body="{ data }">
+                  {{ Number(data.total_planned_depth || 0).toFixed(0) }} {{ data.depth_unit_code || unitCode(data.depth_unit_id) }}
+                </template>
               </Column>
               <Column field="item_count" header="Lines">
                 <template #body="{ data }">{{ data.item_count }}</template>
@@ -732,14 +946,16 @@ onMounted(() => void loadAll())
                   <Tag :value="data.status" :severity="data.status === 'submitted' ? 'success' : 'warn'" />
                 </template>
               </Column>
-              <Column header="Actions" :style="{ width: '220px' }">
+              <Column header="Actions" :style="{ width: '280px' }">
                 <template #body="{ data }">
-                  <Button icon="pi pi-folder-open" size="small" text severity="secondary" aria-label="Open AFE lines" @click="openAfe(data.id)" />
-                  <Button icon="pi pi-pencil" size="small" text severity="secondary" aria-label="Edit AFE" :disabled="data.status === 'submitted'" @click="openAfeDialog(data)" />
-                  <Button icon="pi pi-ban" size="small" text severity="danger" aria-label="Delete AFE" :disabled="data.status === 'submitted'" @click="deactivateAfe(data)" />
+                  <Button icon="pi pi-folder-open" size="small" text severity="secondary" aria-label="Open AFE lines" title="Open AFE lines" @click="openAfe(data.id)" />
+                  <Button v-if="data.status === 'draft'" icon="pi pi-pencil" size="small" text severity="secondary" aria-label="Edit AFE" title="Edit AFE Header & Sections" @click="openAfeDialog(data)" />
+                  <Button v-if="data.status === 'submitted'" icon="pi pi-lock-open" size="small" text severity="warn" aria-label="Reopen AFE" title="Reopen AFE for Revision" @click="promptReopen(data)" />
+                  <Button icon="pi pi-history" size="small" text severity="info" aria-label="Audit History" title="View Audit Trail" @click="showAuditHistory(data)" />
+                  <Button v-if="data.status === 'draft'" icon="pi pi-ban" size="small" text severity="danger" aria-label="Delete AFE" title="Delete Draft AFE" @click="deactivateAfe(data)" />
                 </template>
               </Column>
-              <template #empty>No AFEs yet — create one for a well, then enter its lines on the AFE Lines tab.</template>
+              <template #empty>No AFEs yet — create one for a well, enter its section planning, then add its lines.</template>
             </DataTable>
           </section>
         </TabPanel>
@@ -767,6 +983,7 @@ onMounted(() => void loadAll())
                   </template>
                 </Select>
                 <Tag v-if="selectedAfe" :value="selectedAfe.status" :severity="selectedAfe.status === 'submitted' ? 'success' : 'warn'" />
+                <Button v-if="selectedAfe && !isDraft" label="Reopen AFE" icon="pi pi-lock-open" size="small" severity="warn" outlined @click="promptReopen(selectedAfe)" />
               </div>
               <div class="grid-toolbar__actions">
                 <Button label="Add row" icon="pi pi-plus" :disabled="!isDraft" @click="addLine" />
@@ -774,13 +991,21 @@ onMounted(() => void loadAll())
                 <Button label="Template" icon="pi pi-file-excel" text :disabled="!isDraft" @click="download('template')" />
                 <Button label="Export" icon="pi pi-download" text :disabled="!selectedAfeId" @click="download('export')" />
                 <Button :label="pendingCount ? `Save ${pendingCount}` : 'Save'" icon="pi pi-save" :disabled="!isDraft || !pendingCount" :loading="saving" @click="saveLines" />
-                <Button label="Submit" icon="pi pi-send" severity="secondary" :disabled="!isDraft || !lines.length" :loading="submitting" @click="submitAfe" />
+                <Button :label="selectedAfe?.reopened_at ? 'Resubmit' : 'Submit'" icon="pi pi-send" severity="secondary" :disabled="!isDraft || !lines.length" :loading="submitting" @click="submitAfe" />
               </div>
             </div>
 
             <Message v-if="selectedAfe && !isDraft" severity="info" :closable="false">
-              This AFE is submitted and read-only. Further changes must be raised on a new revision.
+              This AFE is submitted. Click <strong>"Reopen AFE"</strong> above to enter remarks, edit scope lines, adjust rates, and resubmit. Changes apply to this well only.
             </Message>
+
+            <div v-if="selectedAfe" class="afe-summary-banner">
+              <span><strong>Well:</strong> {{ wellName(selectedAfe.well_id) }}</span>
+              <span><strong>Budget:</strong> ${{ Number(selectedAfe.budget_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) }}</span>
+              <span><strong>Planned Days:</strong> {{ Number(selectedAfe.total_planned_days || 0).toFixed(1) }} days</span>
+              <span><strong>Planned TD:</strong> {{ Number(selectedAfe.total_planned_depth || 0).toFixed(0) }} {{ selectedAfe.depth_unit_code || 'M' }}</span>
+              <span v-if="selectedAfe.sections?.length"><strong>Sections:</strong> {{ selectedAfe.sections.map(s => s.hole_section_code || s.phase).join(' → ') }}</span>
+            </div>
 
             <DataTable
               :value="lines"
@@ -794,7 +1019,7 @@ onMounted(() => void loadAll())
               class="afe-lines"
             >
               <Column field="line_number" header="#" :style="{ width: '60px' }" />
-              <Column header="Item" :style="{ minWidth: '230px' }">
+              <Column header="Item" :style="{ minWidth: '240px' }">
                 <template #body="{ data }">
                   <Select
                     v-model="data.catalog_item_id"
@@ -867,16 +1092,11 @@ onMounted(() => void loadAll())
                   <span v-else class="afe-na">—</span>
                 </template>
               </Column>
-              <Column header="Planned days" :style="{ width: '120px' }">
-                <template #body="{ data }">
-                  <InputNumber v-model="data.planned_duration_days" :min="0" :max-fraction-digits="4" fluid :disabled="!isDraft" @input="onConsumptionChange(data)" />
-                </template>
-              </Column>
-              <Column header="Qty" :style="{ width: '135px' }">
+              <Column header="Qty" :style="{ width: '140px' }">
                 <template #body="{ data }">
                   <InputNumber v-model="data.quantity" :min="0" :max-fraction-digits="4" fluid :disabled="!isDraft" @input="markDirty(data)" />
                   <small v-if="isOverridden(data)" class="afe-hint afe-hint--warn">Overrides {{ computedQuantityFor(data) }}</small>
-                  <small v-else-if="isConsumptionLine(data) && computedQuantityFor(data) !== null" class="afe-hint">Computed</small>
+                  <small v-else-if="isConsumptionLine(data) && computedQuantityFor(data) !== null" class="afe-hint">Computed ({{ getPlannedDaysForLine(data) }}d)</small>
                 </template>
               </Column>
               <Column header="Override reason" :style="{ minWidth: '170px' }">
@@ -887,7 +1107,7 @@ onMounted(() => void loadAll())
                     fluid
                     :disabled="!isDraft"
                     :invalid="isOverridden(data) && !data.quantity_override_reason.trim()"
-                    placeholder="Why the total differs"
+                    placeholder="Why total differs"
                     @input="markDirty(data)"
                   />
                   <span v-else class="afe-na">—</span>
@@ -898,24 +1118,9 @@ onMounted(() => void loadAll())
                   <Select v-model="data.unit_id" :options="units" option-label="code" option-value="id" filter show-clear fluid :disabled="!isDraft" @change="markDirty(data)" />
                 </template>
               </Column>
-              <Column header="Depth from" :style="{ width: '110px' }">
+              <Column header="Notes" :style="{ minWidth: '160px' }">
                 <template #body="{ data }">
-                  <InputNumber v-model="data.planned_depth_from" :min="0" :max-fraction-digits="4" fluid :disabled="!isDraft" @input="markDirty(data)" />
-                </template>
-              </Column>
-              <Column header="Depth to" :style="{ width: '110px' }">
-                <template #body="{ data }">
-                  <InputNumber v-model="data.planned_depth_to" :min="0" :max-fraction-digits="4" fluid :disabled="!isDraft" @input="markDirty(data)" />
-                </template>
-              </Column>
-              <Column header="Depth unit" :style="{ width: '115px' }">
-                <template #body="{ data }">
-                  <Select v-model="data.depth_unit_id" :options="units" option-label="code" option-value="id" filter show-clear fluid :disabled="!isDraft" @change="markDirty(data)" />
-                </template>
-              </Column>
-              <Column header="Notes" :style="{ minWidth: '150px' }">
-                <template #body="{ data }">
-                  <InputText v-model="data.notes" fluid :disabled="!isDraft" @input="markDirty(data)" />
+                  <InputText v-model="data.notes" fluid :disabled="!isDraft" placeholder="Line notes" @input="markDirty(data)" />
                 </template>
               </Column>
               <Column header="" :style="{ width: '60px' }">
@@ -947,7 +1152,7 @@ onMounted(() => void loadAll())
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" text @click="projectDialog = false" />
-        <Button label="Create project" icon="pi pi-check" :loading="saving" :disabled="!projectForm.code.trim() || !projectForm.name.trim()" @click="saveProject" />
+        <Button label="Save project" icon="pi pi-check" :loading="saving" :disabled="!projectForm.code.trim() || !projectForm.name.trim()" @click="saveProject" />
       </template>
     </Dialog>
 
@@ -967,21 +1172,193 @@ onMounted(() => void loadAll())
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" text @click="wellDialog = false" />
-        <Button label="Create well" icon="pi pi-check" :loading="saving" :disabled="!wellForm.project_id || !wellForm.code.trim() || !wellForm.name.trim()" @click="saveWell" />
+        <Button label="Save well" icon="pi pi-check" :loading="saving" :disabled="!wellForm.project_id || !wellForm.code.trim() || !wellForm.name.trim()" @click="saveWell" />
       </template>
     </Dialog>
 
-    <!-- AFE dialog -->
-    <Dialog v-model:visible="afeDialog" modal :header="afeForm.id ? 'Edit AFE' : 'New AFE'" :style="{ width: '500px' }">
+    <!-- AFE Dialog with Section & Phase Breakdown -->
+    <Dialog v-model:visible="afeDialog" modal :header="afeForm.id ? 'Edit AFE & Well Sections' : 'New AFE & Well Plan'" :style="{ width: '880px' }">
       <div class="form-stack">
-        <label>Well<Select v-model="afeForm.well_id" :options="wellOptions" option-label="code" option-value="id" placeholder="Select well" filter fluid /></label>
-        <label>AFE code<InputText v-model="afeForm.code" fluid placeholder="e.g. AFE-W101-01" /></label>
+        <div class="form-row">
+          <label>Well<Select v-model="afeForm.well_id" :options="wellOptions" option-label="code" option-value="id" placeholder="Select well" filter fluid /></label>
+          <label>AFE Code<InputText v-model="afeForm.code" fluid placeholder="e.g. AFE-W101-01" /></label>
+        </div>
         <label>Title<InputText v-model="afeForm.title" fluid placeholder="e.g. W101 Drilling & Completion Scope" /></label>
-        <label>Description<Textarea v-model="afeForm.description" rows="3" fluid /></label>
+        <div class="form-row">
+          <label>Budget Amount ($)<InputNumber v-model="afeForm.budget_amount" :min="0" :max-fraction-digits="2" fluid placeholder="Total authorised budget" /></label>
+          <label>Depth Unit<Select v-model="afeForm.depth_unit_id" :options="units" option-label="code" option-value="id" placeholder="Select unit" fluid /></label>
+        </div>
+        <label>Description<Textarea v-model="afeForm.description" rows="2" fluid placeholder="AFE scope description and technical summary" /></label>
+
+        <!-- Section & Phase breakdown table -->
+        <div class="afe-section-planner">
+          <div class="section-planner-header">
+            <div>
+              <strong>Well Section & Phase Breakdown</strong>
+              <small class="planner-subtitle">Define hole sections, operational phases, planned days, and depths before adding line items.</small>
+            </div>
+            <Button label="Add Section" icon="pi pi-plus" size="small" outlined @click="addSectionRow" />
+          </div>
+
+          <table class="section-planning-table">
+            <thead>
+              <tr>
+                <th style="width: 40px">#</th>
+                <th style="min-width: 150px">Hole Section</th>
+                <th style="min-width: 160px">Phase</th>
+                <th style="width: 120px">Planned Days</th>
+                <th style="width: 110px">Depth From</th>
+                <th style="width: 110px">Depth To</th>
+                <th style="width: 50px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(sec, idx) in afeForm.sections" :key="idx">
+                <td>{{ idx + 1 }}</td>
+                <td>
+                  <Select
+                    v-model="sec.hole_section_id"
+                    :options="holeSections"
+                    option-label="code"
+                    option-value="id"
+                    placeholder="Section size"
+                    fluid
+                    size="small"
+                  >
+                    <template #option="{ option }">{{ option.code }} ({{ option.name }})</template>
+                  </Select>
+                </td>
+                <td>
+                  <Select
+                    v-model="sec.phase"
+                    :options="phases"
+                    option-label="name"
+                    option-value="name"
+                    placeholder="Select phase"
+                    fluid
+                    size="small"
+                  />
+                </td>
+                <td>
+                  <InputNumber
+                    v-model="sec.planned_days"
+                    :min="0"
+                    :max-fraction-digits="2"
+                    fluid
+                    size="small"
+                    @input="recalculateSectionTotals"
+                  />
+                </td>
+                <td>
+                  <InputNumber
+                    v-model="sec.planned_depth_from"
+                    :min="0"
+                    :max-fraction-digits="1"
+                    fluid
+                    size="small"
+                    @input="recalculateSectionTotals"
+                  />
+                </td>
+                <td>
+                  <InputNumber
+                    v-model="sec.planned_depth_to"
+                    :min="0"
+                    :max-fraction-digits="1"
+                    fluid
+                    size="small"
+                    @input="recalculateSectionTotals"
+                  />
+                </td>
+                <td>
+                  <Button icon="pi pi-trash" size="small" text severity="danger" @click="removeSectionRow(idx)" />
+                </td>
+              </tr>
+              <tr v-if="!afeForm.sections.length">
+                <td colspan="7" class="text-center text-muted" style="padding: 12px">No sections configured. Click "Add Section" to establish the well profile.</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="3" style="text-align: right; font-weight: bold">Totals:</td>
+                <td style="font-weight: bold">{{ Number(afeForm.total_planned_days).toFixed(1) }} days</td>
+                <td></td>
+                <td style="font-weight: bold">{{ Number(afeForm.total_planned_depth).toFixed(0) }}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" text @click="afeDialog = false" />
-        <Button label="Create and open" icon="pi pi-check" :loading="saving" :disabled="!afeForm.well_id || !afeForm.code.trim() || !afeForm.title.trim()" @click="saveAfe" />
+        <Button label="Save AFE & Sections" icon="pi pi-check" :loading="saving" :disabled="!afeForm.well_id || !afeForm.code.trim() || !afeForm.title.trim()" @click="saveAfe" />
+      </template>
+    </Dialog>
+
+    <!-- Reopen AFE Dialog -->
+    <Dialog v-model:visible="reopenDialog" modal header="Reopen Submitted AFE" :style="{ width: '540px' }">
+      <div class="form-stack">
+        <Message severity="warn" :closable="false">
+          Reopening <strong>{{ reopenTargetAfe?.code }}</strong> will unlock the AFE and allow editing of its section breakdown, items, and well-scoped rates.
+        </Message>
+        <label>
+          <strong>Reason / Remarks for Reopening (Mandatory)</strong>
+          <Textarea v-model="reopenRemarks" rows="4" fluid placeholder="e.g. Scope change for 12-1/4 section duration and Mud Chemical rate revision." />
+        </label>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" text @click="reopenDialog = false" />
+        <Button label="Confirm Reopen" icon="pi pi-lock-open" severity="warn" :loading="reopening" :disabled="!reopenRemarks.trim()" @click="confirmReopen" />
+      </template>
+    </Dialog>
+
+    <!-- Audit History Dialog -->
+    <Dialog v-model:visible="auditHistoryDialog" modal :header="`AFE Audit History: ${auditTargetAfeTitle}`" :style="{ width: '680px' }">
+      <DataTable :value="auditHistoryList" data-key="id" striped-rows show-gridlines size="small">
+        <Column field="action" header="Action">
+          <template #body="{ data }">
+            <Tag :value="data.action" :severity="data.action === 'reopened' ? 'warn' : (data.action === 'submitted' || data.action === 'resubmitted' ? 'success' : 'info')" />
+          </template>
+        </Column>
+        <Column header="Status Transition">
+          <template #body="{ data }">
+            {{ data.previous_status || 'initial' }} → <strong>{{ data.new_status }}</strong>
+          </template>
+        </Column>
+        <Column field="remarks" header="Remarks / Reason" />
+        <Column header="Date & Time">
+          <template #body="{ data }">
+            {{ new Date(data.created_at).toLocaleString() }}
+          </template>
+        </Column>
+        <template #empty>No audit trail records recorded yet.</template>
+      </DataTable>
+      <template #footer>
+        <Button label="Close" severity="secondary" text @click="auditHistoryDialog = false" />
+      </template>
+    </Dialog>
+
+    <!-- Configurable Phases Dialog -->
+    <Dialog v-model:visible="phasesDialog" modal header="Configurable Drilling & Completion Phases" :style="{ width: '640px' }">
+      <div class="form-stack">
+        <p class="phase-dialog-desc">Phases classify operational stages (e.g. Drilling, Logging, Casing & Cementing) used across AFE section planning and Daily Cost tracking.</p>
+
+        <div class="add-phase-bar">
+          <InputText v-model="newPhaseForm.code" placeholder="Code (e.g. STIM)" style="width: 110px" />
+          <InputText v-model="newPhaseForm.name" placeholder="Phase Name (e.g. Stimulation)" style="flex: 1" />
+          <InputNumber v-model="newPhaseForm.sequence" :min="1" placeholder="Seq" style="width: 70px" />
+          <Button label="Add Phase" icon="pi pi-plus" size="small" :disabled="!newPhaseForm.code.trim() || !newPhaseForm.name.trim()" @click="createCustomPhase" />
+        </div>
+
+        <DataTable :value="phases" data-key="id" striped-rows show-gridlines size="small" scrollable scroll-height="260px">
+          <Column field="sequence" header="Seq" style="width: 60px" />
+          <Column field="code" header="Code" style="width: 110px" />
+          <Column field="name" header="Name" />
+          <Column field="description" header="Description" />
+        </DataTable>
+      </div>
+      <template #footer>
+        <Button label="Done" icon="pi pi-check" @click="phasesDialog = false" />
       </template>
     </Dialog>
 
@@ -989,8 +1366,7 @@ onMounted(() => void loadAll())
     <Dialog v-model:visible="pasteVisible" modal header="Paste AFE lines" :style="{ width: '720px' }">
       <p class="afe-paste-hint">
         Copy cells from your workbook in this column order: item code, item type,
-        cost code, quantity, unit code, section code, planned days. The section
-        must already exist under Master Data › Hole Sections.
+        cost code, quantity, unit code, section code. The section must already exist under Master Data › Hole Sections.
       </p>
       <Textarea v-model="pasteText" rows="10" fluid autofocus placeholder="Paste tab-separated rows here" />
       <template #footer>
@@ -1022,6 +1398,75 @@ onMounted(() => void loadAll())
   gap: 0.75rem;
 }
 
+.afe-summary-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface-card, #f8fafc);
+  border: 1px solid var(--surface-border, #e2e8f0);
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.afe-section-planner {
+  border: 1px solid var(--surface-border, #e2e8f0);
+  border-radius: 8px;
+  padding: 0.85rem;
+  background: #fdfdfd;
+  margin-top: 0.5rem;
+}
+
+.section-planner-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.65rem;
+}
+
+.planner-subtitle {
+  display: block;
+  color: var(--text-color-secondary, #64748b);
+  font-size: 0.75rem;
+}
+
+.section-planning-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.section-planning-table th,
+.section-planning-table td {
+  padding: 6px 8px;
+  border: 1px solid var(--surface-border, #e2e8f0);
+}
+
+.section-planning-table thead th {
+  background: #f1f5f9;
+  font-weight: 600;
+  text-align: left;
+}
+
+.section-planning-table tfoot td {
+  background: #f8fafc;
+  padding: 8px;
+}
+
+.add-phase-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.phase-dialog-desc {
+  font-size: 0.85rem;
+  color: var(--text-color-secondary, #64748b);
+  margin-bottom: 0.5rem;
+}
+
 .afe-hint {
   display: block;
   margin-top: 2px;
@@ -1045,5 +1490,13 @@ onMounted(() => void loadAll())
 
 .form-row label {
   flex: 1;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.text-muted {
+  color: #64748b;
 }
 </style>
