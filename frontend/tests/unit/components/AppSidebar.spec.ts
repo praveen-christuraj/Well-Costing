@@ -19,27 +19,29 @@ describe('AppSidebar', () => {
     const wrapper = mountNav()
 
     const links = wrapper.findAll('a')
-    expect(links).toHaveLength(8)
+    expect(links).toHaveLength(9)
     expect(links.map(link => link.attributes('href'))).toEqual([
       '/dashboard',
+      '/master-data/vendors',
       '/afe',
       '/cost-builder',
       '/cost-control',
       '/reports',
       '/assurance',
-      '/master-data/vendors',
       '/administration/enterprise',
+      '/help',
     ])
     expect(wrapper.text()).toContain('Dashboard')
     expect(wrapper.text()).toContain('AFE')
     expect(wrapper.text()).toContain('Master Data')
+    expect(wrapper.text()).toContain('Help')
   })
 
   it('groups the modules under section headings', () => {
     const wrapper = mountNav()
 
     const headings = wrapper.findAll('.layout-menuitem-root-text').map(node => node.text())
-    expect(headings).toEqual(['Home', 'Planning', 'Execution', 'Configuration'])
+    expect(headings).toEqual(['Home', 'Master Data', 'Planning', 'Execution', 'Configuration', 'Support'])
   })
 
   it('renders no placeholder or hidden links', () => {

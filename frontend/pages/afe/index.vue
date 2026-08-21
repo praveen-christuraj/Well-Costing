@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * AFE — one page for the whole authorisation for expenditure.
+ * AFE — authorisation for expenditure, organised as tabs under one page.
  *
- * Projects and wells are registered at the top, an AFE is picked (or created)
- * for a well, and every line of that AFE is entered in the grid below. There is
- * no separate "well requirement" step any more: this page is the requirement.
+ * Projects and wells are registered first, AFEs are raised against a well, and
+ * every line of a chosen AFE is entered in the lines grid. There is no separate
+ * "well requirement" step any more: the AFE lines tab is the requirement.
  *
  * Each line records how it is charged. The rate basis pre-fills from the
  * catalogue item and can be changed for that line alone; a per-section line
@@ -22,6 +22,11 @@ import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Select from 'primevue/select'
+import Tab from 'primevue/tab'
+import TabList from 'primevue/tablist'
+import TabPanel from 'primevue/tabpanel'
+import TabPanels from 'primevue/tabpanels'
+import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
 import PageHeader from '~/components/design-system/PageHeader.vue'
@@ -47,6 +52,8 @@ const holeSections = ref<MasterDataRecord[]>([])
 const projectFilter = ref<string | null>(null)
 const wellFilter = ref<string | null>(null)
 const statusFilter = ref<string | null>(null)
+
+const activeTab = ref<string>('projects')
 
 const selectedAfeId = ref<string>('')
 const selectedAfe = ref<AfeRecord | null>(null)
@@ -299,9 +306,6 @@ function onBasisChange(line: EditableAfeLine): void {
   else {
     syncComputedQuantity(line)
   }
-  if (!needsSection(line) && line.rate_basis !== 'daily') {
-    // A section stays useful as context on any line, so it is kept as entered.
-  }
   markDirty(line)
 }
 
@@ -543,6 +547,7 @@ const WELL_STATUSES = [
 
 async function openAfe(id: string): Promise<void> {
   selectedAfeId.value = id
+  activeTab.value = 'lines'
   await loadLines()
 }
 
@@ -613,7 +618,7 @@ onMounted(() => void loadAll())
   <div class="library-page">
     <PageHeader
       title="AFE"
-      description="Register the project and well, then build the AFE line by line. Each line records how it is charged — daily, per section, per service, fixed, per unit, or on daily usage for chemicals — and submitted AFEs feed the Cost Builder."
+      description="Register projects and wells, raise an AFE against a well, then build it line by line. Each line records how it is charged — daily, per section, per service, fixed, per unit, or on daily usage for chemicals — and submitted AFEs feed the Cost Builder."
     >
       <template #actions>
         <Button label="New AFE" icon="pi pi-plus" @click="openAfeDialog()" />
@@ -623,296 +628,315 @@ onMounted(() => void loadAll())
     <Message v-if="success" severity="success" :closable="true" @close="success = null">{{ success }}</Message>
     <Message v-if="error" severity="error" :closable="true" @close="error = null">{{ error }}</Message>
 
-    <!-- AFE lines: the heart of the page -->
-    <section class="afe-section bulk-grid-panel">
-      <div class="grid-toolbar">
-        <div class="afe-picker">
-          <strong>AFE lines</strong>
-          <Select
-            v-model="selectedAfeId"
-            :options="filteredAfes"
-            option-value="id"
-            placeholder="Select an AFE to enter its lines"
-            filter
-            show-clear
-            style="width: 320px"
-            data-testid="afe-picker"
-          >
-            <template #option="{ option }">{{ option.code }} — {{ option.title }} ({{ wellName(option.well_id) }})</template>
-            <template #value="{ value }">
-              <span v-if="value">{{ afes.find(afe => afe.id === value)?.code }} — {{ afes.find(afe => afe.id === value)?.title }}</span>
-              <span v-else>Select an AFE to enter its lines</span>
-            </template>
-          </Select>
-          <Tag v-if="selectedAfe" :value="selectedAfe.status" :severity="selectedAfe.status === 'submitted' ? 'success' : 'warn'" />
-        </div>
-        <div class="grid-toolbar__actions">
-          <Button label="Add row" icon="pi pi-plus" :disabled="!isDraft" @click="addLine" />
-          <Button label="Paste" icon="pi pi-clipboard" text :disabled="!isDraft" @click="pasteVisible = true" />
-          <Button label="Template" icon="pi pi-file-excel" text :disabled="!isDraft" @click="download('template')" />
-          <Button label="Export" icon="pi pi-download" text :disabled="!selectedAfeId" @click="download('export')" />
-          <Button :label="pendingCount ? `Save ${pendingCount}` : 'Save'" icon="pi pi-save" :disabled="!isDraft || !pendingCount" :loading="saving" @click="saveLines" />
-          <Button label="Submit" icon="pi pi-send" severity="secondary" :disabled="!isDraft || !lines.length" :loading="submitting" @click="submitAfe" />
-        </div>
-      </div>
+    <Tabs v-model:value="activeTab" class="afe-tabs">
+      <TabList>
+        <Tab value="projects">Projects</Tab>
+        <Tab value="wells">Wells</Tab>
+        <Tab value="afes">AFEs</Tab>
+        <Tab value="lines">AFE Lines</Tab>
+      </TabList>
+      <TabPanels>
+        <!-- Projects -->
+        <TabPanel value="projects">
+          <section class="afe-section bulk-grid-panel">
+            <div class="grid-toolbar">
+              <div><strong>Projects</strong><small class="toolbar-note">The top-level grouping every well belongs to. Register projects before wells.</small></div>
+              <div class="grid-toolbar__actions">
+                <Button label="Add project" icon="pi pi-plus" @click="openProjectDialog()" />
+              </div>
+            </div>
+            <DataTable :value="projects" data-key="id" striped-rows show-gridlines size="small" :rows="10" paginator class="afe-table">
+              <Column field="code" header="Code" sortable />
+              <Column field="name" header="Name" sortable />
+              <Column field="description" header="Description" />
+              <Column header="Status">
+                <template #body="{ data }">
+                  <Tag :value="data.is_active ? 'Active' : 'Inactive'" :severity="data.is_active ? 'success' : 'secondary'" />
+                </template>
+              </Column>
+              <Column header="Actions" :style="{ width: '160px' }">
+                <template #body="{ data }">
+                  <Button icon="pi pi-pencil" size="small" text severity="secondary" aria-label="Edit project" @click="openProjectDialog(data)" />
+                  <Button icon="pi pi-ban" size="small" text severity="danger" aria-label="Deactivate project" @click="deactivateProject(data)" />
+                </template>
+              </Column>
+              <template #empty>No projects yet — create the first one to start entering well data.</template>
+            </DataTable>
+          </section>
+        </TabPanel>
 
-      <Message v-if="selectedAfe && !isDraft" severity="info" :closable="false">
-        This AFE is submitted and read-only. Further changes must be raised on a new revision.
-      </Message>
+        <!-- Wells -->
+        <TabPanel value="wells">
+          <section class="afe-section bulk-grid-panel">
+            <div class="grid-toolbar">
+              <div>
+                <strong>Wells</strong><small class="toolbar-note">The well itself: rig, status, and planned dates. Wells belong to a project.</small>
+                <Select v-model="projectFilter" :options="projects" option-label="code" option-value="id" placeholder="All projects" show-clear filter style="width: 180px; margin-left: 1rem" />
+              </div>
+              <div class="grid-toolbar__actions">
+                <Button label="Add well" icon="pi pi-plus" @click="openWellDialog()" />
+              </div>
+            </div>
+            <DataTable :value="filteredWells" data-key="id" striped-rows show-gridlines size="small" :rows="10" paginator class="afe-table">
+              <Column field="code" header="Code" sortable />
+              <Column field="name" header="Name" sortable />
+              <Column header="Project">
+                <template #body="{ data }">{{ data.project_code }}</template>
+              </Column>
+              <Column field="rig_name" header="Rig">
+                <template #body="{ data }">{{ data.rig_name ?? '—' }}</template>
+              </Column>
+              <Column field="status" header="Status" sortable>
+                <template #body="{ data }">
+                  <Tag :value="data.status.replace('_', ' ')" :severity="data.status === 'active' ? 'success' : 'info'" />
+                </template>
+              </Column>
+              <Column field="spud_date" header="Spud date">
+                <template #body="{ data }">{{ data.spud_date ?? '—' }}</template>
+              </Column>
+              <Column header="Actions" :style="{ width: '160px' }">
+                <template #body="{ data }">
+                  <Button icon="pi pi-pencil" size="small" text severity="secondary" aria-label="Edit well" @click="openWellDialog(data)" />
+                  <Button icon="pi pi-ban" size="small" text severity="danger" aria-label="Deactivate well" @click="deactivateWell(data)" />
+                </template>
+              </Column>
+              <template #empty>No wells found for the current filters.</template>
+            </DataTable>
+          </section>
+        </TabPanel>
 
-      <DataTable
-        :value="lines"
-        :loading="loadingLines"
-        data-key="id"
-        striped-rows
-        show-gridlines
-        size="small"
-        scrollable
-        scroll-height="520px"
-        class="afe-lines"
-      >
-        <Column field="line_number" header="#" :style="{ width: '60px' }" />
-        <Column header="Item" :style="{ minWidth: '230px' }">
-          <template #body="{ data }">
-            <Select
-              v-model="data.catalog_item_id"
-              :options="catalogueItems"
-              option-label="name"
-              option-value="id"
-              filter
-              show-clear
-              fluid
-              :disabled="!isDraft"
-              @change="onItemChange(data)"
+        <!-- AFEs -->
+        <TabPanel value="afes">
+          <section class="afe-section bulk-grid-panel">
+            <div class="grid-toolbar">
+              <div>
+                <strong>AFEs</strong><small class="toolbar-note">Every AFE raised against a well. Submitted AFEs become cost builds.</small>
+                <Select v-model="wellFilter" :options="wellOptions" option-label="code" option-value="id" placeholder="All wells" show-clear filter style="width: 170px; margin-left: 1rem" />
+                <Select v-model="statusFilter" :options="[{ label: 'Draft', value: 'draft' }, { label: 'Submitted', value: 'submitted' }]" option-label="label" option-value="value" placeholder="All statuses" show-clear style="width: 160px; margin-left: 0.5rem" />
+              </div>
+              <div class="grid-toolbar__actions">
+                <Button label="New AFE" icon="pi pi-plus" @click="openAfeDialog()" />
+              </div>
+            </div>
+            <DataTable :value="filteredAfes" :loading="loading" data-key="id" striped-rows show-gridlines size="small" :rows="10" paginator class="afe-table">
+              <Column field="code" header="Code" sortable />
+              <Column field="title" header="Title" sortable />
+              <Column header="Well">
+                <template #body="{ data }">{{ wellName(data.well_id) }}</template>
+              </Column>
+              <Column field="item_count" header="Lines">
+                <template #body="{ data }">{{ data.item_count }}</template>
+              </Column>
+              <Column header="Status">
+                <template #body="{ data }">
+                  <Tag :value="data.status" :severity="data.status === 'submitted' ? 'success' : 'warn'" />
+                </template>
+              </Column>
+              <Column header="Actions" :style="{ width: '220px' }">
+                <template #body="{ data }">
+                  <Button icon="pi pi-folder-open" size="small" text severity="secondary" aria-label="Open AFE lines" @click="openAfe(data.id)" />
+                  <Button icon="pi pi-pencil" size="small" text severity="secondary" aria-label="Edit AFE" :disabled="data.status === 'submitted'" @click="openAfeDialog(data)" />
+                  <Button icon="pi pi-ban" size="small" text severity="danger" aria-label="Delete AFE" :disabled="data.status === 'submitted'" @click="deactivateAfe(data)" />
+                </template>
+              </Column>
+              <template #empty>No AFEs yet — create one for a well, then enter its lines on the AFE Lines tab.</template>
+            </DataTable>
+          </section>
+        </TabPanel>
+
+        <!-- AFE Lines -->
+        <TabPanel value="lines">
+          <section class="afe-section bulk-grid-panel">
+            <div class="grid-toolbar">
+              <div class="afe-picker">
+                <strong>AFE lines</strong>
+                <Select
+                  v-model="selectedAfeId"
+                  :options="filteredAfes"
+                  option-value="id"
+                  placeholder="Select an AFE to enter its lines"
+                  filter
+                  show-clear
+                  style="width: 320px"
+                  data-testid="afe-picker"
+                >
+                  <template #option="{ option }">{{ option.code }} — {{ option.title }} ({{ wellName(option.well_id) }})</template>
+                  <template #value="{ value }">
+                    <span v-if="value">{{ afes.find(afe => afe.id === value)?.code }} — {{ afes.find(afe => afe.id === value)?.title }}</span>
+                    <span v-else>Select an AFE to enter its lines</span>
+                  </template>
+                </Select>
+                <Tag v-if="selectedAfe" :value="selectedAfe.status" :severity="selectedAfe.status === 'submitted' ? 'success' : 'warn'" />
+              </div>
+              <div class="grid-toolbar__actions">
+                <Button label="Add row" icon="pi pi-plus" :disabled="!isDraft" @click="addLine" />
+                <Button label="Paste" icon="pi pi-clipboard" text :disabled="!isDraft" @click="pasteVisible = true" />
+                <Button label="Template" icon="pi pi-file-excel" text :disabled="!isDraft" @click="download('template')" />
+                <Button label="Export" icon="pi pi-download" text :disabled="!selectedAfeId" @click="download('export')" />
+                <Button :label="pendingCount ? `Save ${pendingCount}` : 'Save'" icon="pi pi-save" :disabled="!isDraft || !pendingCount" :loading="saving" @click="saveLines" />
+                <Button label="Submit" icon="pi pi-send" severity="secondary" :disabled="!isDraft || !lines.length" :loading="submitting" @click="submitAfe" />
+              </div>
+            </div>
+
+            <Message v-if="selectedAfe && !isDraft" severity="info" :closable="false">
+              This AFE is submitted and read-only. Further changes must be raised on a new revision.
+            </Message>
+
+            <DataTable
+              :value="lines"
+              :loading="loadingLines"
+              data-key="id"
+              striped-rows
+              show-gridlines
+              size="small"
+              scrollable
+              scroll-height="520px"
+              class="afe-lines"
             >
-              <template #option="{ option }">{{ option.item_type }} · {{ option.code }} — {{ option.name }}</template>
-            </Select>
-          </template>
-        </Column>
-        <Column header="Cost code" :style="{ width: '150px' }">
-          <template #body="{ data }">
-            <Select v-model="data.cost_code_id" :options="costCodes" option-label="code" option-value="id" filter show-clear fluid :disabled="!isDraft" @change="markDirty(data)" />
-          </template>
-        </Column>
-        <Column header="Rate basis" :style="{ width: '160px' }">
-          <template #body="{ data }">
-            <Select
-              v-model="data.rate_basis"
-              :options="basisOptionsFor(data)"
-              option-label="label"
-              option-value="value"
-              fluid
-              :disabled="!isDraft"
-              data-testid="rate-basis"
-              @change="onBasisChange(data)"
-            />
-          </template>
-        </Column>
-        <Column header="Section" :style="{ width: '170px' }">
-          <template #body="{ data }">
-            <Select
-              v-model="data.hole_section_id"
-              :options="holeSections"
-              option-value="id"
-              filter
-              show-clear
-              fluid
-              :disabled="!isDraft"
-              :invalid="needsSection(data) && !data.hole_section_id"
-              :placeholder="needsSection(data) ? 'Required' : 'Section'"
-              data-testid="hole-section"
-              @change="markDirty(data)"
-            >
-              <template #option="{ option }">{{ option.code }} — {{ option.name }}</template>
-              <template #value="{ value }">
-                <span v-if="value">{{ holeSections.find(section => section.id === value)?.code }}</span>
-                <span v-else class="afe-placeholder">{{ needsSection(data) ? 'Required' : 'Section' }}</span>
+              <Column field="line_number" header="#" :style="{ width: '60px' }" />
+              <Column header="Item" :style="{ minWidth: '230px' }">
+                <template #body="{ data }">
+                  <Select
+                    v-model="data.catalog_item_id"
+                    :options="catalogueItems"
+                    option-label="name"
+                    option-value="id"
+                    filter
+                    show-clear
+                    fluid
+                    :disabled="!isDraft"
+                    @change="onItemChange(data)"
+                  >
+                    <template #option="{ option }">{{ option.item_type }} · {{ option.code }} — {{ option.name }}</template>
+                  </Select>
+                </template>
+              </Column>
+              <Column header="Cost code" :style="{ width: '150px' }">
+                <template #body="{ data }">
+                  <Select v-model="data.cost_code_id" :options="costCodes" option-label="code" option-value="id" filter show-clear fluid :disabled="!isDraft" @change="markDirty(data)" />
+                </template>
+              </Column>
+              <Column header="Rate basis" :style="{ width: '160px' }">
+                <template #body="{ data }">
+                  <Select
+                    v-model="data.rate_basis"
+                    :options="basisOptionsFor(data)"
+                    option-label="label"
+                    option-value="value"
+                    fluid
+                    :disabled="!isDraft"
+                    data-testid="rate-basis"
+                    @change="onBasisChange(data)"
+                  />
+                </template>
+              </Column>
+              <Column header="Section" :style="{ width: '170px' }">
+                <template #body="{ data }">
+                  <Select
+                    v-model="data.hole_section_id"
+                    :options="holeSections"
+                    option-value="id"
+                    filter
+                    show-clear
+                    fluid
+                    :disabled="!isDraft"
+                    :invalid="needsSection(data) && !data.hole_section_id"
+                    :placeholder="needsSection(data) ? 'Required' : 'Section'"
+                    data-testid="hole-section"
+                    @change="markDirty(data)"
+                  >
+                    <template #option="{ option }">{{ option.code }} — {{ option.name }}</template>
+                    <template #value="{ value }">
+                      <span v-if="value">{{ holeSections.find(section => section.id === value)?.code }}</span>
+                      <span v-else class="afe-placeholder">{{ needsSection(data) ? 'Required' : 'Section' }}</span>
+                    </template>
+                  </Select>
+                </template>
+              </Column>
+              <Column header="Usage / day" :style="{ width: '120px' }">
+                <template #body="{ data }">
+                  <InputNumber
+                    v-if="isConsumptionLine(data)"
+                    v-model="data.daily_consumption"
+                    :min="0"
+                    :max-fraction-digits="4"
+                    fluid
+                    :disabled="!isDraft"
+                    @input="onConsumptionChange(data)"
+                  />
+                  <span v-else class="afe-na">—</span>
+                </template>
+              </Column>
+              <Column header="Planned days" :style="{ width: '120px' }">
+                <template #body="{ data }">
+                  <InputNumber v-model="data.planned_duration_days" :min="0" :max-fraction-digits="4" fluid :disabled="!isDraft" @input="onConsumptionChange(data)" />
+                </template>
+              </Column>
+              <Column header="Qty" :style="{ width: '135px' }">
+                <template #body="{ data }">
+                  <InputNumber v-model="data.quantity" :min="0" :max-fraction-digits="4" fluid :disabled="!isDraft" @input="markDirty(data)" />
+                  <small v-if="isOverridden(data)" class="afe-hint afe-hint--warn">Overrides {{ computedQuantityFor(data) }}</small>
+                  <small v-else-if="isConsumptionLine(data) && computedQuantityFor(data) !== null" class="afe-hint">Computed</small>
+                </template>
+              </Column>
+              <Column header="Override reason" :style="{ minWidth: '170px' }">
+                <template #body="{ data }">
+                  <InputText
+                    v-if="isConsumptionLine(data)"
+                    v-model="data.quantity_override_reason"
+                    fluid
+                    :disabled="!isDraft"
+                    :invalid="isOverridden(data) && !data.quantity_override_reason.trim()"
+                    placeholder="Why the total differs"
+                    @input="markDirty(data)"
+                  />
+                  <span v-else class="afe-na">—</span>
+                </template>
+              </Column>
+              <Column header="Unit" :style="{ width: '120px' }">
+                <template #body="{ data }">
+                  <Select v-model="data.unit_id" :options="units" option-label="code" option-value="id" filter show-clear fluid :disabled="!isDraft" @change="markDirty(data)" />
+                </template>
+              </Column>
+              <Column header="Depth from" :style="{ width: '110px' }">
+                <template #body="{ data }">
+                  <InputNumber v-model="data.planned_depth_from" :min="0" :max-fraction-digits="4" fluid :disabled="!isDraft" @input="markDirty(data)" />
+                </template>
+              </Column>
+              <Column header="Depth to" :style="{ width: '110px' }">
+                <template #body="{ data }">
+                  <InputNumber v-model="data.planned_depth_to" :min="0" :max-fraction-digits="4" fluid :disabled="!isDraft" @input="markDirty(data)" />
+                </template>
+              </Column>
+              <Column header="Depth unit" :style="{ width: '115px' }">
+                <template #body="{ data }">
+                  <Select v-model="data.depth_unit_id" :options="units" option-label="code" option-value="id" filter show-clear fluid :disabled="!isDraft" @change="markDirty(data)" />
+                </template>
+              </Column>
+              <Column header="Notes" :style="{ minWidth: '150px' }">
+                <template #body="{ data }">
+                  <InputText v-model="data.notes" fluid :disabled="!isDraft" @input="markDirty(data)" />
+                </template>
+              </Column>
+              <Column header="" :style="{ width: '60px' }">
+                <template #body="{ data }">
+                  <Button icon="pi pi-trash" size="small" text severity="danger" aria-label="Remove line" :disabled="!isDraft" @click="removeLine(data)" />
+                </template>
+              </Column>
+              <template #empty>
+                <div class="eg__empty">
+                  <i class="pi pi-inbox" aria-hidden="true" />
+                  <p v-if="!selectedAfeId"><strong>Pick an AFE above</strong></p>
+                  <p v-else><strong>No lines yet.</strong></p>
+                  <p v-if="!selectedAfeId">Choose an AFE from the AFEs tab, or create one with “New AFE”.</p>
+                  <p v-else>Add a row to start building the well's scope.</p>
+                </div>
               </template>
-            </Select>
-          </template>
-        </Column>
-        <Column header="Usage / day" :style="{ width: '120px' }">
-          <template #body="{ data }">
-            <InputNumber
-              v-if="isConsumptionLine(data)"
-              v-model="data.daily_consumption"
-              :min="0"
-              :max-fraction-digits="4"
-              fluid
-              :disabled="!isDraft"
-              @input="onConsumptionChange(data)"
-            />
-            <span v-else class="afe-na">—</span>
-          </template>
-        </Column>
-        <Column header="Planned days" :style="{ width: '120px' }">
-          <template #body="{ data }">
-            <InputNumber v-model="data.planned_duration_days" :min="0" :max-fraction-digits="4" fluid :disabled="!isDraft" @input="onConsumptionChange(data)" />
-          </template>
-        </Column>
-        <Column header="Qty" :style="{ width: '135px' }">
-          <template #body="{ data }">
-            <InputNumber v-model="data.quantity" :min="0" :max-fraction-digits="4" fluid :disabled="!isDraft" @input="markDirty(data)" />
-            <small v-if="isOverridden(data)" class="afe-hint afe-hint--warn">Overrides {{ computedQuantityFor(data) }}</small>
-            <small v-else-if="isConsumptionLine(data) && computedQuantityFor(data) !== null" class="afe-hint">Computed</small>
-          </template>
-        </Column>
-        <Column header="Override reason" :style="{ minWidth: '170px' }">
-          <template #body="{ data }">
-            <InputText
-              v-if="isConsumptionLine(data)"
-              v-model="data.quantity_override_reason"
-              fluid
-              :disabled="!isDraft"
-              :invalid="isOverridden(data) && !data.quantity_override_reason.trim()"
-              placeholder="Why the total differs"
-              @input="markDirty(data)"
-            />
-            <span v-else class="afe-na">—</span>
-          </template>
-        </Column>
-        <Column header="Unit" :style="{ width: '120px' }">
-          <template #body="{ data }">
-            <Select v-model="data.unit_id" :options="units" option-label="code" option-value="id" filter show-clear fluid :disabled="!isDraft" @change="markDirty(data)" />
-          </template>
-        </Column>
-        <Column header="Depth from" :style="{ width: '110px' }">
-          <template #body="{ data }">
-            <InputNumber v-model="data.planned_depth_from" :min="0" :max-fraction-digits="4" fluid :disabled="!isDraft" @input="markDirty(data)" />
-          </template>
-        </Column>
-        <Column header="Depth to" :style="{ width: '110px' }">
-          <template #body="{ data }">
-            <InputNumber v-model="data.planned_depth_to" :min="0" :max-fraction-digits="4" fluid :disabled="!isDraft" @input="markDirty(data)" />
-          </template>
-        </Column>
-        <Column header="Depth unit" :style="{ width: '115px' }">
-          <template #body="{ data }">
-            <Select v-model="data.depth_unit_id" :options="units" option-label="code" option-value="id" filter show-clear fluid :disabled="!isDraft" @change="markDirty(data)" />
-          </template>
-        </Column>
-        <Column header="Notes" :style="{ minWidth: '150px' }">
-          <template #body="{ data }">
-            <InputText v-model="data.notes" fluid :disabled="!isDraft" @input="markDirty(data)" />
-          </template>
-        </Column>
-        <Column header="" :style="{ width: '60px' }">
-          <template #body="{ data }">
-            <Button icon="pi pi-trash" size="small" text severity="danger" aria-label="Remove line" :disabled="!isDraft" @click="removeLine(data)" />
-          </template>
-        </Column>
-        <template #empty>
-          <div class="eg__empty">
-            <i class="pi pi-inbox" aria-hidden="true" />
-            <p v-if="!selectedAfeId"><strong>Pick an AFE above</strong></p>
-            <p v-else><strong>No lines yet.</strong></p>
-            <p v-if="!selectedAfeId">Or create one with “New AFE” to start entering lines.</p>
-            <p v-else>Add a row to start building the well's scope.</p>
-          </div>
-        </template>
-      </DataTable>
-    </section>
-
-    <!-- AFEs -->
-    <section class="afe-section bulk-grid-panel">
-      <div class="grid-toolbar">
-        <div>
-          <strong>AFEs</strong><small class="toolbar-note">Every AFE raised against a well. Submitted AFEs become cost builds.</small>
-          <Select v-model="wellFilter" :options="wellOptions" option-label="code" option-value="id" placeholder="All wells" show-clear filter style="width: 170px; margin-left: 1rem" />
-          <Select v-model="statusFilter" :options="[{ label: 'Draft', value: 'draft' }, { label: 'Submitted', value: 'submitted' }]" option-label="label" option-value="value" placeholder="All statuses" show-clear style="width: 160px; margin-left: 0.5rem" />
-        </div>
-        <div class="grid-toolbar__actions">
-          <Button label="New AFE" icon="pi pi-plus" @click="openAfeDialog()" />
-        </div>
-      </div>
-      <DataTable :value="filteredAfes" :loading="loading" data-key="id" striped-rows show-gridlines size="small" :rows="10" paginator class="afe-table">
-        <Column field="code" header="Code" sortable />
-        <Column field="title" header="Title" sortable />
-        <Column header="Well">
-          <template #body="{ data }">{{ wellName(data.well_id) }}</template>
-        </Column>
-        <Column field="item_count" header="Lines">
-          <template #body="{ data }">{{ data.item_count }}</template>
-        </Column>
-        <Column header="Status">
-          <template #body="{ data }">
-            <Tag :value="data.status" :severity="data.status === 'submitted' ? 'success' : 'warn'" />
-          </template>
-        </Column>
-        <Column header="Actions" :style="{ width: '200px' }">
-          <template #body="{ data }">
-            <Button icon="pi pi-folder-open" size="small" text severity="secondary" aria-label="Open AFE" @click="openAfe(data.id)" />
-            <Button icon="pi pi-pencil" size="small" text severity="secondary" aria-label="Edit AFE" :disabled="data.status === 'submitted'" @click="openAfeDialog(data)" />
-            <Button icon="pi pi-ban" size="small" text severity="danger" aria-label="Delete AFE" :disabled="data.status === 'submitted'" @click="deactivateAfe(data)" />
-          </template>
-        </Column>
-        <template #empty>No AFEs yet — create one for a well, then enter its lines above.</template>
-      </DataTable>
-    </section>
-
-    <!-- Projects and wells -->
-    <section class="afe-section bulk-grid-panel">
-      <div class="grid-toolbar">
-        <div><strong>Projects</strong><small class="toolbar-note">The top-level grouping every well belongs to.</small></div>
-        <div class="grid-toolbar__actions">
-          <Button label="Add project" icon="pi pi-plus" @click="openProjectDialog()" />
-        </div>
-      </div>
-      <DataTable :value="projects" data-key="id" striped-rows show-gridlines size="small" :rows="5" paginator class="afe-table">
-        <Column field="code" header="Code" sortable />
-        <Column field="name" header="Name" sortable />
-        <Column field="description" header="Description" />
-        <Column header="Status">
-          <template #body="{ data }">
-            <Tag :value="data.is_active ? 'Active' : 'Inactive'" :severity="data.is_active ? 'success' : 'secondary'" />
-          </template>
-        </Column>
-        <Column header="Actions" :style="{ width: '160px' }">
-          <template #body="{ data }">
-            <Button icon="pi pi-pencil" size="small" text severity="secondary" aria-label="Edit project" @click="openProjectDialog(data)" />
-            <Button icon="pi pi-ban" size="small" text severity="danger" aria-label="Deactivate project" @click="deactivateProject(data)" />
-          </template>
-        </Column>
-        <template #empty>No projects yet — create the first one to start entering well data.</template>
-      </DataTable>
-    </section>
-
-    <section class="afe-section bulk-grid-panel">
-      <div class="grid-toolbar">
-        <div>
-          <strong>Wells</strong><small class="toolbar-note">The well itself: rig, status, and planned dates.</small>
-          <Select v-model="projectFilter" :options="projects" option-label="code" option-value="id" placeholder="All projects" show-clear filter style="width: 180px; margin-left: 1rem" />
-        </div>
-        <div class="grid-toolbar__actions">
-          <Button label="Add well" icon="pi pi-plus" @click="openWellDialog()" />
-        </div>
-      </div>
-      <DataTable :value="filteredWells" data-key="id" striped-rows show-gridlines size="small" :rows="5" paginator class="afe-table">
-        <Column field="code" header="Code" sortable />
-        <Column field="name" header="Name" sortable />
-        <Column header="Project">
-          <template #body="{ data }">{{ data.project_code }}</template>
-        </Column>
-        <Column field="rig_name" header="Rig">
-          <template #body="{ data }">{{ data.rig_name ?? '—' }}</template>
-        </Column>
-        <Column field="status" header="Status" sortable>
-          <template #body="{ data }">
-            <Tag :value="data.status.replace('_', ' ')" :severity="data.status === 'active' ? 'success' : 'info'" />
-          </template>
-        </Column>
-        <Column field="spud_date" header="Spud date">
-          <template #body="{ data }">{{ data.spud_date ?? '—' }}</template>
-        </Column>
-        <Column header="Actions" :style="{ width: '160px' }">
-          <template #body="{ data }">
-            <Button icon="pi pi-pencil" size="small" text severity="secondary" aria-label="Edit well" @click="openWellDialog(data)" />
-            <Button icon="pi pi-ban" size="small" text severity="danger" aria-label="Deactivate well" @click="deactivateWell(data)" />
-          </template>
-        </Column>
-        <template #empty>No wells found for the current filters.</template>
-      </DataTable>
-    </section>
+            </DataTable>
+          </section>
+        </TabPanel>
+      </TabPanels>
+    </Tabs>
 
     <!-- Project dialog -->
     <Dialog v-model:visible="projectDialog" modal :header="projectForm.id ? 'Edit project' : 'Add project'" :style="{ width: '480px' }">
@@ -978,6 +1002,10 @@ onMounted(() => void loadAll())
 </template>
 
 <style scoped>
+.afe-tabs {
+  margin-top: -8px;
+}
+
 .afe-section {
   margin-bottom: 1.25rem;
   padding: 1rem;

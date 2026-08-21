@@ -373,8 +373,15 @@ class AfeService:
         return self._read(afe, include_items=True)
 
     def deactivate(self, afe_id: UUID) -> None:
+        """Delete a draft AFE outright, including its lines.
+
+        Only draft AFEs may be removed (``_draft`` enforces this), so there is
+        no cost build or snapshot to preserve. The ``items`` relationship
+        cascades, so deleting the AFE removes its lines too.
+        """
+
         afe = self._draft(afe_id)
-        afe.is_active, afe.updated_by = False, self.actor_id
+        self.session.delete(afe)
         self.session.commit()
 
     def bulk_create(self, rows: list[AfeCreate]) -> list[AfeRead]:

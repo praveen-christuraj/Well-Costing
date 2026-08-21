@@ -35,6 +35,7 @@ test('creates an AFE and bulk-pastes a validated line', async ({ page, request }
   await page.goto('/afe')
   await page.waitForLoadState('networkidle')
 
+  // The Projects tab is the default.
   await page.getByRole('button', { name: 'Add project' }).click()
   const projectDialog = page.getByRole('dialog', { name: 'Add project' })
   await projectDialog.getByLabel('Code').fill(`PRJ-${suffix}`)
@@ -44,6 +45,7 @@ test('creates an AFE and bulk-pastes a validated line', async ({ page, request }
   // The well dialog defaults its project from the reloaded list, so wait for it.
   await expect(page.getByRole('cell', { name: `PRJ-${suffix}`, exact: true })).toBeVisible()
 
+  await page.getByRole('tab', { name: 'Wells' }).click()
   await page.getByRole('button', { name: 'Add well' }).click()
   const wellDialog = page.getByRole('dialog', { name: 'Add well' })
   await wellDialog.getByLabel('Code').fill(`WELL-${suffix}`)

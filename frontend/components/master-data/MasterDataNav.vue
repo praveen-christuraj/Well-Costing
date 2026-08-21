@@ -25,6 +25,13 @@ const groups: NavGroup[] = [
     ],
   },
   {
+    label: 'Costing',
+    items: [
+      { key: 'cost-categories', label: 'Cost Categories', to: '/master-data/cost-categories' },
+      { key: 'cost-codes', label: 'Cost Codes', to: '/master-data/cost-codes' },
+    ],
+  },
+  {
     label: 'Partners',
     items: [
       { key: 'vendors', label: 'Vendors', to: '/master-data/vendors' },

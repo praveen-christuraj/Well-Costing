@@ -20,13 +20,14 @@ export interface AppNavigationGroup {
 
 export const appNavigation: AppNavigationItem[] = [
   { key: 'dashboard', label: 'Dashboard', icon: 'pi pi-home', to: '/dashboard', enabled: true },
+  { key: 'master-data', label: 'Master Data', icon: 'pi pi-book', to: '/master-data/vendors', enabled: true },
   { key: 'afe', label: 'AFE', icon: 'pi pi-clipboard', to: '/afe', enabled: true },
   { key: 'cost-builder', label: 'Cost Builder', icon: 'pi pi-calculator', to: '/cost-builder', enabled: true },
-  { key: 'master-data', label: 'Master Data', icon: 'pi pi-book', to: '/master-data/vendors', enabled: true },
   { key: 'cost-control', label: 'Cost Control', icon: 'pi pi-arrow-right-arrow-left', to: '/cost-control', enabled: true },
   { key: 'reports', label: 'Reports', icon: 'pi pi-chart-bar', to: '/reports', enabled: true },
   { key: 'assurance', label: 'Assurance', icon: 'pi pi-shield', to: '/assurance', enabled: true },
   { key: 'administration', label: 'Administration', icon: 'pi pi-cog', to: '/administration/enterprise', enabled: true },
+  { key: 'help', label: 'Help', icon: 'pi pi-question-circle', to: '/help', enabled: true },
 ]
 
 /** Modules the user can actually open today. */
@@ -34,9 +35,11 @@ export const enabledNavigation: AppNavigationItem[] = appNavigation.filter(item 
 
 const GROUPS: { key: string, label: string, keys: string[] }[] = [
   { key: 'home', label: 'Home', keys: ['dashboard'] },
+  { key: 'foundation', label: 'Master Data', keys: ['master-data'] },
   { key: 'planning', label: 'Planning', keys: ['afe', 'cost-builder'] },
   { key: 'execution', label: 'Execution', keys: ['cost-control', 'reports', 'assurance'] },
-  { key: 'configuration', label: 'Configuration', keys: ['master-data', 'administration'] },
+  { key: 'configuration', label: 'Configuration', keys: ['administration'] },
+  { key: 'support', label: 'Support', keys: ['help'] },
 ]
 
 /** Sidebar model: the enabled modules arranged into labelled groups. */

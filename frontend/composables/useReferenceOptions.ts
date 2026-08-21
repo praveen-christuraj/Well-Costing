@@ -16,6 +16,8 @@ export function useReferenceOptions() {
   const services = ref<GridSelectOption[]>([])
   const holeSections = ref<GridSelectOption[]>([])
   const itemCategories = ref<GridSelectOption[]>([])
+  const costCategories = ref<GridSelectOption[]>([])
+  const costCodes = ref<GridSelectOption[]>([])
   const serviceOrders = ref<GridSelectOption[]>([])
   const purchaseOrders = ref<GridSelectOption[]>([])
   const catalogueItems = ref<GridSelectOption[]>([])
@@ -57,6 +59,12 @@ export function useReferenceOptions() {
     }
     if (kinds.includes('item-categories')) {
       jobs.push(loadMaster('item-categories').then((options) => { itemCategories.value = options }))
+    }
+    if (kinds.includes('cost-categories')) {
+      jobs.push(loadMaster('cost-categories').then((options) => { costCategories.value = options }))
+    }
+    if (kinds.includes('cost-codes')) {
+      jobs.push(loadMaster('cost-codes').then((options) => { costCodes.value = options }))
     }
     if (kinds.includes('service-orders')) {
       jobs.push(
@@ -107,6 +115,8 @@ export function useReferenceOptions() {
     services,
     holeSections,
     itemCategories,
+    costCategories,
+    costCodes,
     serviceOrders,
     purchaseOrders,
     catalogueItems,
