@@ -213,17 +213,7 @@ def upgrade() -> None:
     # multiple entries per well per date (one per sub-activity).
     # Note: SQLite does not support DROP CONSTRAINT, so we handle this
     # conditionally.
-    dialect = op.get_bind().dialect.name
-    if dialect != "sqlite":
-        op.drop_constraint(
-            "uq_daily_cost_entries_well_date", "daily_cost_entries", type_="unique"
-        )
-        op.create_unique_constraint(
-            "uq_daily_cost_entries_well_date_activity",
-            "daily_cost_entries",
-            ["well_id", "entry_date", "sub_activity_id"],
-        )
-
+    # NOTE: column must be added BEFORE creating a constraint that references it.
     op.add_column(
         "daily_cost_entries",
         sa.Column("sub_activity_id", sa.Uuid(), nullable=True),
@@ -241,6 +231,17 @@ def upgrade() -> None:
         "daily_cost_entries",
         ["sub_activity_id"],
     )
+
+    dialect = op.get_bind().dialect.name
+    if dialect != "sqlite":
+        op.drop_constraint(
+            "uq_daily_cost_entries_well_date", "daily_cost_entries", type_="unique"
+        )
+        op.create_unique_constraint(
+            "uq_daily_cost_entries_well_date_activity",
+            "daily_cost_entries",
+            ["well_id", "entry_date", "sub_activity_id"],
+        )
 
     # --- daily_cost_service_lines: add sub_activity_id, override_rate --------
     op.add_column(
@@ -308,6 +309,7 @@ def downgrade() -> None:
     op.drop_constraint(
         "fk_daily_cost_consumable_lines_sub_activity_id_well_activities",
         "daily_cost_consumable_lines",
+        type_="foreignkey",
     )
     op.drop_column("daily_cost_consumable_lines", "sub_activity_id")
 
@@ -317,12 +319,29 @@ def downgrade() -> None:
     op.drop_constraint(
         "fk_daily_cost_service_lines_sub_activity_id_well_activities",
         "daily_cost_service_lines",
+        type_="foreignkey",
     )
     op.drop_column("daily_cost_service_lines", "sub_activity_id")
 
+    # Reverse the unique-constraint swap before dropping the column it depends on.
+    dialect = op.get_bind().dialect.name
+    if dialect != "sqlite":
+        op.drop_constraint(
+            "uq_daily_cost_entries_well_date_activity",
+            "daily_cost_entries",
+            type_="unique",
+        )
+        op.create_unique_constraint(
+            "uq_daily_cost_entries_well_date",
+            "daily_cost_entries",
+            ["well_id", "entry_date"],
+        )
+
     op.drop_index("ix_daily_cost_entries_sub_activity_id", "daily_cost_entries")
     op.drop_constraint(
-        "fk_daily_cost_entries_sub_activity_id_well_activities", "daily_cost_entries"
+        "fk_daily_cost_entries_sub_activity_id_well_activities",
+        "daily_cost_entries",
+        type_="foreignkey",
     )
     op.drop_column("daily_cost_entries", "sub_activity_id")
 

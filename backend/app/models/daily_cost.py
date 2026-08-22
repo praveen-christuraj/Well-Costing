@@ -38,6 +38,12 @@ class DailyCostEntry(TimestampMixin, AuditMixin, Base):
         CheckConstraint("total_consumables_cost >= 0", name="non_negative_total_consumables_cost"),
         CheckConstraint("total_daily_cost >= 0", name="non_negative_total_daily_cost"),
         Index("ix_daily_cost_entries_well_date", "well_id", "entry_date"),
+        UniqueConstraint(
+            "well_id",
+            "entry_date",
+            "sub_activity_id",
+            name="uq_daily_cost_entries_well_date_activity",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
