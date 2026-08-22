@@ -132,9 +132,9 @@ class EstimateCalculationService:
     def _input(estimate: CostEstimate, version: EstimateVersion) -> EstimateInput:
         lines: list[EstimateLineInput] = []
         for item in version.items:
-            catalog_item = item.catalog_item
-            cost_code = item.cost_code
-            unit = item.unit
+            catalog_item = getattr(item, "catalog_item", None)
+            cost_code = getattr(item, "cost_code", None)
+            unit = getattr(item, "unit", None)
             if catalog_item is None or cost_code is None or unit is None:
                 # A referenced catalogue item/cost code/unit is missing (e.g. it was
                 # hard-deleted); it cannot be priced, so skip it rather than crash.
@@ -143,8 +143,10 @@ class EstimateCalculationService:
             if item.rate is not None:
                 rate = RateInput(
                     amount=item.rate.amount,
-                    currency_code=item.rate.currency.code if item.rate.currency else None,
-                    unit_code=item.rate.unit.code if item.rate.unit else None,
+                    currency_code=item.rate.currency.code if item.rate.currency else "USD",
+                    unit_code=item.rate.unit.code
+                    if item.rate.unit
+                    else (unit.code if unit else "EA"),
                     effective_from=item.rate.effective_from,
                     effective_to=item.rate.effective_to,
                 )

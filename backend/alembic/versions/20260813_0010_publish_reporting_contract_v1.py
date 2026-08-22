@@ -37,6 +37,7 @@ def downgrade() -> None:
 
 # ── PostgreSQL (production) ───────────────────────────────────────────────────
 
+
 def _upgrade_postgres() -> None:
     op.execute("CREATE SCHEMA reporting")
     op.execute(
@@ -186,9 +187,11 @@ def _downgrade_postgres() -> None:
 # SQLite has no schemas and no :: cast syntax. Views are created in the default
 # namespace with the same column names so application queries still work.
 
+
 def _upgrade_sqlite() -> None:
-    op.execute(text(
-        """
+    op.execute(
+        text(
+            """
         CREATE VIEW IF NOT EXISTS rpt_v1_cost_transaction_fact AS
         SELECT
             txn.id AS transaction_id,
@@ -233,17 +236,21 @@ def _upgrade_sqlite() -> None:
         LEFT JOIN cost_codes AS cost_code ON cost_code.code = txn.cost_code
         LEFT JOIN cost_categories AS category ON category.id = cost_code.cost_category_id
         """
-    ))
-    op.execute(text(
-        """
+        )
+    )
+    op.execute(
+        text(
+            """
         CREATE VIEW IF NOT EXISTS rpt_v1_dim_project AS
         SELECT id AS project_id, code AS project_code, name AS project_name,
                description, is_active, created_at, updated_at
         FROM projects
         """
-    ))
-    op.execute(text(
-        """
+        )
+    )
+    op.execute(
+        text(
+            """
         CREATE VIEW IF NOT EXISTS rpt_v1_dim_well AS
         SELECT well.id AS well_id, well.code AS well_code, well.name AS well_name,
                well.project_id, project.code AS project_code, well.is_active,
@@ -251,9 +258,11 @@ def _upgrade_sqlite() -> None:
         FROM wells AS well
         JOIN projects AS project ON project.id = well.project_id
         """
-    ))
-    op.execute(text(
-        """
+        )
+    )
+    op.execute(
+        text(
+            """
         CREATE VIEW IF NOT EXISTS rpt_v1_dim_cost_code AS
         SELECT cost_code.id AS cost_code_id, cost_code.code AS cost_code,
                cost_code.name AS cost_code_name, category.id AS cost_category_id,
@@ -262,25 +271,31 @@ def _upgrade_sqlite() -> None:
         FROM cost_codes AS cost_code
         JOIN cost_categories AS category ON category.id = cost_code.cost_category_id
         """
-    ))
-    op.execute(text(
-        """
+        )
+    )
+    op.execute(
+        text(
+            """
         CREATE VIEW IF NOT EXISTS rpt_v1_dim_vendor AS
         SELECT id AS vendor_id, code AS vendor_code, name AS vendor_name,
                description, is_active, created_at, updated_at
         FROM vendors
         """
-    ))
-    op.execute(text(
-        """
+        )
+    )
+    op.execute(
+        text(
+            """
         CREATE VIEW IF NOT EXISTS rpt_v1_dim_currency AS
         SELECT id AS currency_id, code AS currency_code, name AS currency_name,
                symbol, is_active, created_at, updated_at
         FROM currencies
         """
-    ))
-    op.execute(text(
-        """
+        )
+    )
+    op.execute(
+        text(
+            """
         CREATE VIEW IF NOT EXISTS rpt_v1_dim_afe AS
         SELECT afe.id AS afe_snapshot_id, afe.afe_number, afe.issue_date,
                afe.currency_code, afe.estimate_version_id, version.version_number,
@@ -291,9 +306,11 @@ def _upgrade_sqlite() -> None:
         JOIN estimate_versions AS version ON version.id = afe.estimate_version_id
         JOIN cost_estimates AS estimate ON estimate.id = version.estimate_id
         """
-    ))
-    op.execute(text(
-        """
+        )
+    )
+    op.execute(
+        text(
+            """
         CREATE VIEW IF NOT EXISTS rpt_v1_reporting_policy AS
         SELECT 'reporting_currency' AS metric_key, 'policy_pending' AS status, 'Reporting currency and FX basis' AS description UNION ALL
         SELECT 'afe_family', 'policy_pending', 'AFE baseline/revision/supplement inclusion' UNION ALL
@@ -302,9 +319,11 @@ def _upgrade_sqlite() -> None:
         SELECT 'forecast_at_completion', 'policy_pending', 'Forecast and EAC methodology' UNION ALL
         SELECT 'rounding_cutoff', 'policy_pending', 'Rounding, cut-off, reversals, and zero budgets'
         """
-    ))
-    op.execute(text(
-        """
+        )
+    )
+    op.execute(
+        text(
+            """
         CREATE VIEW IF NOT EXISTS rpt_v1_contract_metadata AS
         SELECT '1.0' AS contract_version,
                'framework' AS contract_status,
@@ -312,7 +331,8 @@ def _upgrade_sqlite() -> None:
                'policy_pending' AS financial_metrics_status,
                'not_applied' AS direct_grants_status
         """
-    ))
+        )
+    )
 
 
 def _downgrade_sqlite() -> None:

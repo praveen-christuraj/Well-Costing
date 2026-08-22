@@ -17,7 +17,10 @@ Revision ID: 20260822_0022
 Revises: 20260822_0021
 Create Date: 2026-08-22 15:00:00.000000
 """
+
 from collections.abc import Sequence
+from datetime import UTC, datetime
+from uuid import uuid4
 
 import sqlalchemy as sa
 from alembic import op
@@ -26,6 +29,10 @@ revision: str = "20260822_0022"
 down_revision: str | None = "20260822_0021"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
+
+def _is_sqlite() -> bool:
+    return op.get_bind().dialect.name == "sqlite"
 
 
 def _ts_cols() -> list[sa.Column]:
@@ -90,9 +97,7 @@ def upgrade() -> None:
         "secondary_categories",
         ["primary_category_id"],
     )
-    op.create_index(
-        "ix_secondary_categories_is_active", "secondary_categories", ["is_active"]
-    )
+    op.create_index("ix_secondary_categories_is_active", "secondary_categories", ["is_active"])
 
     # --- tertiary_categories --------------------------------------------------
     op.create_table(
@@ -125,18 +130,21 @@ def upgrade() -> None:
     op.create_index("ix_tertiary_categories_is_active", "tertiary_categories", ["is_active"])
 
     # --- cost_categories: add secondary_category_id ---------------------------
-    op.add_column(
-        "cost_categories",
-        sa.Column("secondary_category_id", sa.Uuid(), nullable=True),
-    )
-    op.create_foreign_key(
-        "fk_cost_categories_secondary_category_id_secondary_categories",
-        "cost_categories",
-        "secondary_categories",
-        ["secondary_category_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
+    if _is_sqlite():
+        op.add_column(
+            "cost_categories",
+            sa.Column("secondary_category_id", sa.Uuid(), nullable=True),
+        )
+    else:
+        op.add_column(
+            "cost_categories",
+            sa.Column(
+                "secondary_category_id",
+                sa.Uuid(),
+                sa.ForeignKey("secondary_categories.id", ondelete="RESTRICT"),
+                nullable=True,
+            ),
+        )
     op.create_index(
         "ix_cost_categories_secondary_category_id",
         "cost_categories",
@@ -144,18 +152,21 @@ def upgrade() -> None:
     )
 
     # --- catalog_items: add tertiary_category_id ------------------------------
-    op.add_column(
-        "catalog_items",
-        sa.Column("tertiary_category_id", sa.Uuid(), nullable=True),
-    )
-    op.create_foreign_key(
-        "fk_catalog_items_tertiary_category_id_tertiary_categories",
-        "catalog_items",
-        "tertiary_categories",
-        ["tertiary_category_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
+    if _is_sqlite():
+        op.add_column(
+            "catalog_items",
+            sa.Column("tertiary_category_id", sa.Uuid(), nullable=True),
+        )
+    else:
+        op.add_column(
+            "catalog_items",
+            sa.Column(
+                "tertiary_category_id",
+                sa.Uuid(),
+                sa.ForeignKey("tertiary_categories.id", ondelete="RESTRICT"),
+                nullable=True,
+            ),
+        )
     op.create_index(
         "ix_catalog_items_tertiary_category_id",
         "catalog_items",
@@ -200,9 +211,7 @@ def upgrade() -> None:
             ondelete="RESTRICT",
             name="fk_well_activities_activity_id_activities",
         ),
-        sa.UniqueConstraint(
-            "well_id", "name", name="uq_well_activities_well_name"
-        ),
+        sa.UniqueConstraint("well_id", "name", name="uq_well_activities_well_name"),
     )
     op.create_index("ix_well_activities_well_id", "well_activities", ["well_id"])
     op.create_index("ix_well_activities_activity_id", "well_activities", ["activity_id"])
@@ -214,29 +223,29 @@ def upgrade() -> None:
     # Note: SQLite does not support DROP CONSTRAINT, so we handle this
     # conditionally.
     # NOTE: column must be added BEFORE creating a constraint that references it.
-    op.add_column(
-        "daily_cost_entries",
-        sa.Column("sub_activity_id", sa.Uuid(), nullable=True),
-    )
-    op.create_foreign_key(
-        "fk_daily_cost_entries_sub_activity_id_well_activities",
-        "daily_cost_entries",
-        "well_activities",
-        ["sub_activity_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
+    if _is_sqlite():
+        op.add_column(
+            "daily_cost_entries",
+            sa.Column("sub_activity_id", sa.Uuid(), nullable=True),
+        )
+    else:
+        op.add_column(
+            "daily_cost_entries",
+            sa.Column(
+                "sub_activity_id",
+                sa.Uuid(),
+                sa.ForeignKey("well_activities.id", ondelete="RESTRICT"),
+                nullable=True,
+            ),
+        )
     op.create_index(
         "ix_daily_cost_entries_sub_activity_id",
         "daily_cost_entries",
         ["sub_activity_id"],
     )
 
-    dialect = op.get_bind().dialect.name
-    if dialect != "sqlite":
-        op.drop_constraint(
-            "uq_daily_cost_entries_well_date", "daily_cost_entries", type_="unique"
-        )
+    if not _is_sqlite():
+        op.drop_constraint("uq_daily_cost_entries_well_date", "daily_cost_entries", type_="unique")
         op.create_unique_constraint(
             "uq_daily_cost_entries_well_date_activity",
             "daily_cost_entries",
@@ -244,18 +253,21 @@ def upgrade() -> None:
         )
 
     # --- daily_cost_service_lines: add sub_activity_id, override_rate --------
-    op.add_column(
-        "daily_cost_service_lines",
-        sa.Column("sub_activity_id", sa.Uuid(), nullable=True),
-    )
-    op.create_foreign_key(
-        "fk_daily_cost_service_lines_sub_activity_id_well_activities",
-        "daily_cost_service_lines",
-        "well_activities",
-        ["sub_activity_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
+    if _is_sqlite():
+        op.add_column(
+            "daily_cost_service_lines",
+            sa.Column("sub_activity_id", sa.Uuid(), nullable=True),
+        )
+    else:
+        op.add_column(
+            "daily_cost_service_lines",
+            sa.Column(
+                "sub_activity_id",
+                sa.Uuid(),
+                sa.ForeignKey("well_activities.id", ondelete="RESTRICT"),
+                nullable=True,
+            ),
+        )
     op.create_index(
         "ix_daily_cost_service_lines_sub_activity_id",
         "daily_cost_service_lines",
@@ -271,18 +283,21 @@ def upgrade() -> None:
     )
 
     # --- daily_cost_consumable_lines: add sub_activity_id, override_rate -----
-    op.add_column(
-        "daily_cost_consumable_lines",
-        sa.Column("sub_activity_id", sa.Uuid(), nullable=True),
-    )
-    op.create_foreign_key(
-        "fk_daily_cost_consumable_lines_sub_activity_id_well_activities",
-        "daily_cost_consumable_lines",
-        "well_activities",
-        ["sub_activity_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
+    if _is_sqlite():
+        op.add_column(
+            "daily_cost_consumable_lines",
+            sa.Column("sub_activity_id", sa.Uuid(), nullable=True),
+        )
+    else:
+        op.add_column(
+            "daily_cost_consumable_lines",
+            sa.Column(
+                "sub_activity_id",
+                sa.Uuid(),
+                sa.ForeignKey("well_activities.id", ondelete="RESTRICT"),
+                nullable=True,
+            ),
+        )
     op.create_index(
         "ix_daily_cost_consumable_lines_sub_activity_id",
         "daily_cost_consumable_lines",
@@ -294,38 +309,78 @@ def upgrade() -> None:
     )
 
     # --- Seed default activities -----------------------------------------------
-    op.execute(
-        "INSERT INTO activities (id, code, name, description, sequence, is_active, created_at, updated_at) "
-        "VALUES "
-        "(gen_random_uuid(), 'PLANNED', 'Planned', 'Planned operational activities', 1, true, now(), now()), "
-        "(gen_random_uuid(), 'NPT', 'NPT', 'Non Productive Time', 2, true, now(), now()), "
-        "(gen_random_uuid(), 'UPA', 'UPA', 'Unplanned Activity', 3, true, now(), now())"
+    activities_table = sa.table(
+        "activities",
+        sa.column("id", sa.Uuid),
+        sa.column("code", sa.String),
+        sa.column("name", sa.String),
+        sa.column("description", sa.Text),
+        sa.column("sequence", sa.Integer),
+        sa.column("is_active", sa.Boolean),
+        sa.column("created_at", sa.DateTime(timezone=True)),
+        sa.column("updated_at", sa.DateTime(timezone=True)),
     )
+    now = datetime.now(UTC)
+    default_activities = [
+        {
+            "id": uuid4(),
+            "code": "PLANNED",
+            "name": "Planned",
+            "description": "Planned operational activities",
+            "sequence": 1,
+            "is_active": True,
+            "created_at": now,
+            "updated_at": now,
+        },
+        {
+            "id": uuid4(),
+            "code": "NPT",
+            "name": "NPT",
+            "description": "Non Productive Time",
+            "sequence": 2,
+            "is_active": True,
+            "created_at": now,
+            "updated_at": now,
+        },
+        {
+            "id": uuid4(),
+            "code": "UPA",
+            "name": "UPA",
+            "description": "Unplanned Activity",
+            "sequence": 3,
+            "is_active": True,
+            "created_at": now,
+            "updated_at": now,
+        },
+    ]
+    op.bulk_insert(activities_table, default_activities)
 
 
 def downgrade() -> None:
+    is_sqlite = _is_sqlite()
     op.drop_column("daily_cost_consumable_lines", "override_rate")
     op.drop_index("ix_daily_cost_consumable_lines_sub_activity_id", "daily_cost_consumable_lines")
-    op.drop_constraint(
-        "fk_daily_cost_consumable_lines_sub_activity_id_well_activities",
-        "daily_cost_consumable_lines",
-        type_="foreignkey",
-    )
+    if not is_sqlite:
+        op.drop_constraint(
+            "fk_daily_cost_consumable_lines_sub_activity_id_well_activities",
+            "daily_cost_consumable_lines",
+            type_="foreignkey",
+        )
     op.drop_column("daily_cost_consumable_lines", "sub_activity_id")
 
     op.drop_column("daily_cost_service_lines", "service_type")
     op.drop_column("daily_cost_service_lines", "override_rate")
     op.drop_index("ix_daily_cost_service_lines_sub_activity_id", "daily_cost_service_lines")
-    op.drop_constraint(
-        "fk_daily_cost_service_lines_sub_activity_id_well_activities",
-        "daily_cost_service_lines",
-        type_="foreignkey",
-    )
+    if not is_sqlite:
+        op.drop_constraint(
+            "fk_daily_cost_service_lines_sub_activity_id_well_activities",
+            "daily_cost_service_lines",
+            type_="foreignkey",
+        )
     op.drop_column("daily_cost_service_lines", "sub_activity_id")
 
     # Reverse the unique-constraint swap before dropping the column it depends on.
-    dialect = op.get_bind().dialect.name
-    if dialect != "sqlite":
+    if not is_sqlite:
         op.drop_constraint(
             "uq_daily_cost_entries_well_date_activity",
             "daily_cost_entries",
@@ -338,26 +393,29 @@ def downgrade() -> None:
         )
 
     op.drop_index("ix_daily_cost_entries_sub_activity_id", "daily_cost_entries")
-    op.drop_constraint(
-        "fk_daily_cost_entries_sub_activity_id_well_activities",
-        "daily_cost_entries",
-        type_="foreignkey",
-    )
+    if not is_sqlite:
+        op.drop_constraint(
+            "fk_daily_cost_entries_sub_activity_id_well_activities",
+            "daily_cost_entries",
+            type_="foreignkey",
+        )
     op.drop_column("daily_cost_entries", "sub_activity_id")
 
     op.drop_table("well_activities")
     op.drop_table("activities")
 
     op.drop_index("ix_catalog_items_tertiary_category_id", "catalog_items")
-    op.drop_constraint(
-        "fk_catalog_items_tertiary_category_id_tertiary_categories", "catalog_items"
-    )
+    if not is_sqlite:
+        op.drop_constraint(
+            "fk_catalog_items_tertiary_category_id_tertiary_categories", "catalog_items"
+        )
     op.drop_column("catalog_items", "tertiary_category_id")
 
     op.drop_index("ix_cost_categories_secondary_category_id", "cost_categories")
-    op.drop_constraint(
-        "fk_cost_categories_secondary_category_id_secondary_categories", "cost_categories"
-    )
+    if not is_sqlite:
+        op.drop_constraint(
+            "fk_cost_categories_secondary_category_id_secondary_categories", "cost_categories"
+        )
     op.drop_column("cost_categories", "secondary_category_id")
 
     op.drop_table("tertiary_categories")

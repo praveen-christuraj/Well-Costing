@@ -19,16 +19,18 @@ describe('AppSidebar', () => {
     const wrapper = mountNav()
 
     const links = wrapper.findAll('a')
-    expect(links).toHaveLength(10)
+    expect(links).toHaveLength(12)
     expect(links.map(link => link.attributes('href'))).toEqual([
       '/dashboard',
-      '/master-data/vendors',
+      '/master-data/primary-categories',
       '/afe',
       '/cost-builder',
       '/daily-cost',
+      '/daily-cost/well-activities',
       '/cost-control',
       '/reports',
       '/assurance',
+      '/audit',
       '/administration/enterprise',
       '/help',
     ])

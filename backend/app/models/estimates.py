@@ -26,9 +26,7 @@ class CostEstimate(TimestampMixin, AuditMixin, Base):
     __tablename__ = "cost_estimates"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    afe_id: Mapped[UUID] = mapped_column(
-        ForeignKey("afes.id", ondelete="RESTRICT"), index=True
-    )
+    afe_id: Mapped[UUID] = mapped_column(ForeignKey("afes.id", ondelete="RESTRICT"), index=True)
     code: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     title: Mapped[str] = mapped_column(String(255), index=True)
     currency_id: Mapped[UUID] = mapped_column(

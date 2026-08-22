@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BusinessValidationError, ConflictError, NotFoundError
@@ -15,7 +15,7 @@ from app.models.daily_cost import (
     DailyCostEntry,
     DailyCostServiceLine,
 )
-from app.models.master_data import CatalogItem, CostCode, HoleSection, Unit, Vendor
+from app.models.master_data import CatalogItem
 from app.models.well_costing import WellServiceRate, WellTangibleRate
 from app.schemas.daily_cost import (
     ConsumableBreakdownItem,
@@ -23,7 +23,6 @@ from app.schemas.daily_cost import (
     DailyCostConsumableLineRead,
     DailyCostEntryCreate,
     DailyCostEntryRead,
-    DailyCostEntryUpdate,
     DailyCostServiceLineRead,
     DailyTrendPoint,
     ReferenceConsumableRate,
@@ -111,10 +110,14 @@ class DailyCostService:
 
             # Clear existing lines for this entry
             self.session.execute(
-                delete(DailyCostServiceLine).where(DailyCostServiceLine.daily_cost_entry_id == entry.id)
+                delete(DailyCostServiceLine).where(
+                    DailyCostServiceLine.daily_cost_entry_id == entry.id
+                )
             )
             self.session.execute(
-                delete(DailyCostConsumableLine).where(DailyCostConsumableLine.daily_cost_entry_id == entry.id)
+                delete(DailyCostConsumableLine).where(
+                    DailyCostConsumableLine.daily_cost_entry_id == entry.id
+                )
             )
             self.session.flush()
 
@@ -272,8 +275,9 @@ class DailyCostService:
 
         # 1. Services with well rates or catalog items
         well_service_rates = self.session.scalars(
-            select(WellServiceRate)
-            .where(WellServiceRate.well_id == well_id, WellServiceRate.is_active.is_(True))
+            select(WellServiceRate).where(
+                WellServiceRate.well_id == well_id, WellServiceRate.is_active.is_(True)
+            )
         ).all()
         well_rate_by_svc = {r.service_id: r for r in well_service_rates}
 
@@ -290,7 +294,11 @@ class DailyCostService:
             rate_basis = wr.rate_basis if wr else (getattr(s, "rate_basis", None) or "daily")
             cost_code_id = s.cost_code_id
             cost_code = s.cost_code.code if s.cost_code else "UNKNOWN"
-            unit_code = wr.unit.code if wr and wr.unit else (s.default_unit.code if s.default_unit else "DAY")
+            unit_code = (
+                wr.unit.code
+                if wr and wr.unit
+                else (s.default_unit.code if s.default_unit else "DAY")
+            )
             ref_services.append(
                 ReferenceServiceRate(
                     service_id=s.id,
@@ -315,8 +323,9 @@ class DailyCostService:
         ).all()
 
         well_tangibles = self.session.scalars(
-            select(WellTangibleRate)
-            .where(WellTangibleRate.well_id == well_id, WellTangibleRate.is_active.is_(True))
+            select(WellTangibleRate).where(
+                WellTangibleRate.well_id == well_id, WellTangibleRate.is_active.is_(True)
+            )
         ).all()
         well_tangible_map = {t.tangible_id: t for t in well_tangibles}
 
@@ -362,7 +371,9 @@ class DailyCostService:
         total_planned_days = Decimal("0")
         if afe:
             afe_budget = afe.budget_amount if afe.budget_amount > 0 else Decimal("0")
-            total_planned_days = afe.total_planned_days if afe.total_planned_days > 0 else Decimal("0")
+            total_planned_days = (
+                afe.total_planned_days if afe.total_planned_days > 0 else Decimal("0")
+            )
 
         entries = self.session.scalars(
             select(DailyCostEntry)
@@ -416,7 +427,9 @@ class DailyCostService:
                 consumables_dict[c.consumable_id]["total_cost"] += c.amount
 
         days_elapsed = len(entries)
-        burn_rate = (cumulative_cost / Decimal(str(days_elapsed))) if days_elapsed > 0 else Decimal("0")
+        burn_rate = (
+            (cumulative_cost / Decimal(str(days_elapsed))) if days_elapsed > 0 else Decimal("0")
+        )
         remaining_days = max(Decimal("0"), total_planned_days - Decimal(str(days_elapsed)))
         forecast_cost = cumulative_cost + (remaining_days * burn_rate)
         balance = afe_budget - cumulative_cost

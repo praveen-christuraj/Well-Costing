@@ -24,9 +24,7 @@ def upgrade() -> None:
     op.add_column("cost_estimates", sa.Column("deleted_by", sa.Uuid(), nullable=True))
     op.add_column(
         "cost_estimates",
-        sa.Column(
-            "is_active", sa.Boolean(), server_default="true", nullable=False
-        ),
+        sa.Column("is_active", sa.Boolean(), server_default="true", nullable=False),
     )
     op.create_index("ix_cost_estimates_is_active", "cost_estimates", ["is_active"])
 

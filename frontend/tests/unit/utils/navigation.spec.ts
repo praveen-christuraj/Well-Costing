@@ -9,9 +9,11 @@ describe('application navigation', () => {
       'afe',
       'cost-builder',
       'daily-cost',
+      'well-activities',
       'cost-control',
       'reports',
       'assurance',
+      'audit',
       'administration',
       'help',
     ])

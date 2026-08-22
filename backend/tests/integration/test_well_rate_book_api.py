@@ -67,9 +67,7 @@ def setup(client: TestClient) -> dict[str, Any]:
         },
         headers,
     )
-    project = post(
-        client, "/api/v1/projects", {"code": "FIELD-A", "name": "Field A"}, headers
-    )
+    project = post(client, "/api/v1/projects", {"code": "FIELD-A", "name": "Field A"}, headers)
     well_one = post(
         client,
         "/api/v1/wells",
@@ -581,9 +579,7 @@ def test_rate_book_is_scoped_to_its_own_well(client: TestClient, setup: dict[str
     assert other["total"] == 0
 
 
-def test_unknown_well_is_reported_as_not_found(
-    client: TestClient, setup: dict[str, Any]
-) -> None:
+def test_unknown_well_is_reported_as_not_found(client: TestClient, setup: dict[str, Any]) -> None:
     response = client.get(
         "/api/v1/wells/00000000-0000-4000-8000-000000000000/rate-book/services",
         headers=setup["headers"],

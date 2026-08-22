@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.expression import ColumnElement
 
 from app.models.audit import AuditLog
 
@@ -53,7 +54,7 @@ class AuditRepository:
     ) -> tuple[Sequence[AuditLog], int]:
         statement = select(AuditLog)
         count = select(func.count()).select_from(AuditLog)
-        clauses = []
+        clauses: list[ColumnElement[bool]] = []
         if search:
             pattern = f"%{search}%"
             clauses.append(
@@ -74,7 +75,11 @@ class AuditRepository:
         if clauses:
             statement = statement.where(*clauses)
             count = count.where(*clauses)
-        statement = statement.order_by(AuditLog.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+        statement = (
+            statement.order_by(AuditLog.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
         return self.session.scalars(statement).all(), int(self.session.scalar(count) or 0)
 
     def get(self, log_id: UUID) -> AuditLog | None:

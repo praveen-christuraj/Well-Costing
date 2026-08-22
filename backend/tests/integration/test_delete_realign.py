@@ -34,9 +34,7 @@ def setup_project_well_afe(
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Project -> well -> AFE -> one line, referenced and ready."""
 
-    project = post(
-        client, "/api/v1/projects", {"code": "PRJ-DEL", "name": "Delete campaign"}, auth
-    )
+    project = post(client, "/api/v1/projects", {"code": "PRJ-DEL", "name": "Delete campaign"}, auth)
     well = post(
         client,
         "/api/v1/wells",
@@ -89,9 +87,7 @@ def setup_project_well_afe(
 def audit_actions(client: TestClient, auth: dict[str, str]) -> dict[str, list[str]]:
     """entity_type -> actions recorded in the global audit log."""
 
-    page = client.get(
-        "/api/v1/audit-logs?page=1&page_size=500", headers=auth
-    ).json()
+    page = client.get("/api/v1/audit-logs?page=1&page_size=500", headers=auth).json()
     recorded: dict[str, list[str]] = {}
     for entry in page["items"]:
         recorded.setdefault(entry["entity_type"], []).append(entry["action"])
@@ -105,17 +101,13 @@ def test_wells_can_be_deleted_recovered_and_permanently_deleted(
     _project, well, afe, _ = setup_project_well_afe(client, auth)
 
     # Soft delete the AFE first so the well has no *active* AFE left.
-    assert (
-        client.delete(f"/api/v1/afes/{afe['id']}", headers=auth).status_code == 204
-    )
+    assert client.delete(f"/api/v1/afes/{afe['id']}", headers=auth).status_code == 204
 
     # Deleting the well is visible: it flags inactive and leaves the active list.
     assert client.delete(f"/api/v1/wells/{well['id']}", headers=auth).status_code == 204
     check = client.get(f"/api/v1/wells/{well['id']}", headers=auth).json()
     assert check["is_active"] is False
-    active = client.get(
-        "/api/v1/wells?page=1&page_size=500&is_active=true", headers=auth
-    ).json()
+    active = client.get("/api/v1/wells?page=1&page_size=500&is_active=true", headers=auth).json()
     assert all(row["id"] != well["id"] for row in active["items"])
 
     # Recover works again.
@@ -151,9 +143,7 @@ def test_projects_can_be_deleted_recovered_and_permanently_deleted(
     auth = headers(client)
     project, well, afe, _ = setup_project_well_afe(client, auth)
 
-    assert (
-        client.delete(f"/api/v1/projects/{project['id']}", headers=auth).status_code == 204
-    )
+    assert client.delete(f"/api/v1/projects/{project['id']}", headers=auth).status_code == 204
     recovered = client.post(f"/api/v1/projects/{project['id']}/recover", headers=auth)
     assert recovered.status_code == 200
     assert recovered.json()["is_active"] is True
@@ -169,12 +159,8 @@ def test_projects_can_be_deleted_recovered_and_permanently_deleted(
     assert client.delete(f"/api/v1/afes/{afe['id']}/hard", headers=auth).status_code == 204
     assert client.delete(f"/api/v1/wells/{well['id']}", headers=auth).status_code == 204
     assert client.delete(f"/api/v1/wells/{well['id']}/hard", headers=auth).status_code == 204
-    assert (
-        client.delete(f"/api/v1/projects/{project['id']}/hard", headers=auth).status_code == 204
-    )
-    assert (
-        client.get(f"/api/v1/projects/{project['id']}", headers=auth).status_code == 404
-    )
+    assert client.delete(f"/api/v1/projects/{project['id']}/hard", headers=auth).status_code == 204
+    assert client.get(f"/api/v1/projects/{project['id']}", headers=auth).status_code == 404
 
     recorded = audit_actions(client, auth)
     assert "soft_delete" in recorded["project"]
@@ -223,9 +209,7 @@ def test_estimates_follow_the_same_delete_procedure(client: TestClient) -> None:
     auth = headers(client)
     _project, _well, afe, _ = setup_project_well_afe(client, auth)
     assert client.post(f"/api/v1/afes/{afe['id']}/submit", headers=auth).status_code == 200
-    currency = post(
-        client, "/api/v1/master-data/currencies", {"code": "EUR", "name": "Euro"}, auth
-    )
+    currency = post(client, "/api/v1/master-data/currencies", {"code": "EUR", "name": "Euro"}, auth)
     estimate = post(
         client,
         "/api/v1/estimates/from-afe",
@@ -280,9 +264,7 @@ def test_removed_afe_line_disappears_and_can_be_recovered(client: TestClient) ->
     auth = headers(client)
     _, _, afe, line = setup_project_well_afe(client, auth)
 
-    assert (
-        client.delete(f"/api/v1/afe-lines/{line['id']}", headers=auth).status_code == 204
-    )
+    assert client.delete(f"/api/v1/afe-lines/{line['id']}", headers=auth).status_code == 204
 
     # The removed line no longer clutters the lines workspace…
     lines = client.get(f"/api/v1/afes/{afe['id']}/lines", headers=auth).json()
@@ -315,9 +297,7 @@ def test_drilling_phase_delete_and_recover(client: TestClient) -> None:
         auth,
     )
     assert client.delete(f"/api/v1/drilling-phases/{phase['id']}", headers=auth).status_code == 204
-    recovered = client.post(
-        f"/api/v1/drilling-phases/{phase['id']}/recover", headers=auth
-    )
+    recovered = client.post(f"/api/v1/drilling-phases/{phase['id']}/recover", headers=auth)
     assert recovered.status_code == 200
     assert recovered.json()["is_active"] is True
 
@@ -341,9 +321,7 @@ def test_daily_cost_entry_delete_is_soft_and_recoverable(client: TestClient) -> 
     )
 
     assert (
-        client.delete(
-            f"/api/v1/wells/{well_id}/daily-cost/{entry['id']}", headers=auth
-        ).status_code
+        client.delete(f"/api/v1/wells/{well_id}/daily-cost/{entry['id']}", headers=auth).status_code
         == 204
     )
     entries = client.get(f"/api/v1/wells/{well_id}/daily-cost", headers=auth).json()

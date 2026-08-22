@@ -150,8 +150,7 @@ class _WellScopedService:
             raise BusinessValidationError(f"{field} does not reference an existing record")
         if item.item_type != item_type:
             raise BusinessValidationError(
-                f"{field} must reference a {item_type} from master data, not a "
-                f"{item.item_type}"
+                f"{field} must reference a {item_type} from master data, not a {item.item_type}"
             )
         return item
 
@@ -232,11 +231,15 @@ class WellRateBookService(_WellScopedService):
             item_column=WellServiceRate.service_id,
         )
         total = self._count(statement)
-        rows = self.session.scalars(
-            statement.order_by(WellServiceRate.created_at.asc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        ).unique().all()
+        rows = (
+            self.session.scalars(
+                statement.order_by(WellServiceRate.created_at.asc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+            .unique()
+            .all()
+        )
         return _page([self.serialize_service(row) for row in rows], page, page_size, total)
 
     def list_tangibles(
@@ -262,11 +265,15 @@ class WellRateBookService(_WellScopedService):
             item_column=WellTangibleRate.tangible_id,
         )
         total = self._count(statement)
-        rows = self.session.scalars(
-            statement.order_by(WellTangibleRate.created_at.asc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        ).unique().all()
+        rows = (
+            self.session.scalars(
+                statement.order_by(WellTangibleRate.created_at.asc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+            .unique()
+            .all()
+        )
         return _page([self.serialize_tangible(row) for row in rows], page, page_size, total)
 
     def _filter_rates(
@@ -295,9 +302,7 @@ class WellRateBookService(_WellScopedService):
         return statement
 
     def _count(self, statement: Select[Any]) -> int:
-        return int(
-            self.session.scalar(select(func.count()).select_from(statement.subquery())) or 0
-        )
+        return int(self.session.scalar(select(func.count()).select_from(statement.subquery())) or 0)
 
     def available_services(
         self, well_id: UUID, *, search: str | None = None, limit: int = 500
@@ -389,13 +394,17 @@ class WellRateBookService(_WellScopedService):
         if scope:
             statement = statement.where(WellRateRevision.scope == scope)
         total = self._count(statement)
-        rows = self.session.scalars(
-            statement.order_by(
-                WellRateRevision.created_at.desc(), WellRateRevision.revision_number.desc()
+        rows = (
+            self.session.scalars(
+                statement.order_by(
+                    WellRateRevision.created_at.desc(), WellRateRevision.revision_number.desc()
+                )
+                .offset((page - 1) * page_size)
+                .limit(page_size)
             )
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        ).unique().all()
+            .unique()
+            .all()
+        )
         return _page(
             [WellRateRevisionRead.model_validate(row) for row in rows], page, page_size, total
         )
@@ -828,11 +837,15 @@ class WellUnplannedItemService(_WellScopedService):
         total = int(
             self.session.scalar(select(func.count()).select_from(statement.subquery())) or 0
         )
-        rows = self.session.scalars(
-            statement.order_by(WellUnplannedItem.created_at.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        ).unique().all()
+        rows = (
+            self.session.scalars(
+                statement.order_by(WellUnplannedItem.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+            .unique()
+            .all()
+        )
         return _page([self.serialize(row) for row in rows], page, page_size, total)
 
     def get(self, well_id: UUID, item_id: UUID) -> WellUnplannedItemRead:
@@ -1154,9 +1167,7 @@ class WellCostExposureService(_WellScopedService):
             self.session.scalar(
                 select(func.count())
                 .select_from(WellServiceRate)
-                .where(
-                    WellServiceRate.well_id == well_id, WellServiceRate.is_active.is_(True)
-                )
+                .where(WellServiceRate.well_id == well_id, WellServiceRate.is_active.is_(True))
             )
             or 0
         )
@@ -1164,9 +1175,7 @@ class WellCostExposureService(_WellScopedService):
             self.session.scalar(
                 select(func.count())
                 .select_from(WellTangibleRate)
-                .where(
-                    WellTangibleRate.well_id == well_id, WellTangibleRate.is_active.is_(True)
-                )
+                .where(WellTangibleRate.well_id == well_id, WellTangibleRate.is_active.is_(True))
             )
             or 0
         )

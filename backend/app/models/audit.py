@@ -1,6 +1,5 @@
 """Global audit log for all user actions."""
 
-from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import String, Text

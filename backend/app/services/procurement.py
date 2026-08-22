@@ -87,18 +87,14 @@ class _BaseService(Generic[ModelT, ReadT]):  # noqa: UP046
         search = filters.get("search")
         if search:
             pattern = f"%{str(search).strip()}%"
-            clauses = [
-                getattr(self.model, column).ilike(pattern) for column in self.search_columns
-            ]
+            clauses = [getattr(self.model, column).ilike(pattern) for column in self.search_columns]
             if clauses:
                 statement = statement.where(or_(*clauses))
         if filters.get("is_active") is not None:
             statement = statement.where(self.model.is_active == filters["is_active"])  # type: ignore[attr-defined]
         return self._apply_entity_filters(statement, filters)
 
-    def _apply_entity_filters(
-        self, statement: Select[Any], filters: dict[str, Any]
-    ) -> Select[Any]:
+    def _apply_entity_filters(self, statement: Select[Any], filters: dict[str, Any]) -> Select[Any]:
         return statement
 
     def list_page(
@@ -314,9 +310,7 @@ class ServiceOrderService(_BaseService[ServiceOrder, ServiceOrderRead]):
     )
     default_sort = "order_number"
 
-    def _apply_entity_filters(
-        self, statement: Select[Any], filters: dict[str, Any]
-    ) -> Select[Any]:
+    def _apply_entity_filters(self, statement: Select[Any], filters: dict[str, Any]) -> Select[Any]:
         if filters.get("vendor_id"):
             statement = statement.where(ServiceOrder.vendor_id == filters["vendor_id"])
         if filters.get("status"):
@@ -368,9 +362,7 @@ class PurchaseOrderService(_BaseService[PurchaseOrder, PurchaseOrderRead]):
     )
     default_sort = "order_number"
 
-    def _apply_entity_filters(
-        self, statement: Select[Any], filters: dict[str, Any]
-    ) -> Select[Any]:
+    def _apply_entity_filters(self, statement: Select[Any], filters: dict[str, Any]) -> Select[Any]:
         if filters.get("vendor_id"):
             statement = statement.where(PurchaseOrder.vendor_id == filters["vendor_id"])
         if filters.get("status"):
@@ -434,17 +426,13 @@ class ItemPriceService(_BaseService[ItemPrice, ItemPriceRead]):
             statement = statement.where(ItemPrice.is_active == filters["is_active"])
         return self._apply_entity_filters(statement, filters)
 
-    def _apply_entity_filters(
-        self, statement: Select[Any], filters: dict[str, Any]
-    ) -> Select[Any]:
+    def _apply_entity_filters(self, statement: Select[Any], filters: dict[str, Any]) -> Select[Any]:
         if filters.get("item_id"):
             statement = statement.where(ItemPrice.item_id == filters["item_id"])
         if filters.get("vendor_id"):
             statement = statement.where(ItemPrice.vendor_id == filters["vendor_id"])
         if filters.get("purchase_order_id"):
-            statement = statement.where(
-                ItemPrice.purchase_order_id == filters["purchase_order_id"]
-            )
+            statement = statement.where(ItemPrice.purchase_order_id == filters["purchase_order_id"])
         if filters.get("effective_on"):
             on = filters["effective_on"]
             statement = statement.where(

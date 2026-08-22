@@ -34,8 +34,12 @@ def upgrade() -> None:
         sa.Column("details", sa.Text(), nullable=True),
         sa.Column("ip_address", sa.String(length=45), nullable=True),
         sa.Column("user_agent", sa.String(length=500), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
     )
     op.create_index("ix_audit_logs_actor_id", "audit_logs", ["actor_id"])
     op.create_index("ix_audit_logs_actor_email", "audit_logs", ["actor_email"])

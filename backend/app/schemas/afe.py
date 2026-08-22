@@ -196,7 +196,9 @@ class AfeAuditLogRead(BaseModel):
 
 
 class AfeReopenRequest(BaseModel):
-    remarks: str = Field(min_length=1, max_length=2000, description="Mandatory remarks for reopening submitted AFE")
+    remarks: str = Field(
+        min_length=1, max_length=2000, description="Mandatory remarks for reopening submitted AFE"
+    )
 
 
 class AfeCreate(BaseModel):
@@ -206,9 +208,11 @@ class AfeCreate(BaseModel):
     description: str | None = None
     budget_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
     total_planned_days: Decimal = Field(default=Decimal("0"), ge=0, max_digits=12, decimal_places=4)
-    total_planned_depth: Decimal = Field(default=Decimal("0"), ge=0, max_digits=14, decimal_places=4)
+    total_planned_depth: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=14, decimal_places=4
+    )
     depth_unit_id: UUID | None = None
-    sections: list[AfeSectionCreate] = Field(default_factory=list)
+    sections: list[AfeSectionCreate] = Field(default_factory=lambda: [])
 
 
 class AfeUpdate(BaseModel):

@@ -67,7 +67,15 @@ def _page(items: list[Any], page: int, page_size: int, total: int) -> PageRespon
     )
 
 
-def _audit(session: Session, actor_id: UUID, action: str, entity_type: str, entity_id: UUID | None, entity_code: str | None = None, details: Any | None = None) -> None:
+def _audit(
+    session: Session,
+    actor_id: UUID,
+    action: str,
+    entity_type: str,
+    entity_id: UUID | None,
+    entity_code: str | None = None,
+    details: Any | None = None,
+) -> None:
     """Single audited-procedure hook shared by every entity action below."""
 
     log_entity_action(
@@ -83,12 +91,42 @@ def _audit(session: Session, actor_id: UUID, action: str, entity_type: str, enti
 
 DEFAULT_DRILLING_PHASES = [
     {"code": "DRILL", "name": "Drilling", "description": "Hole drilling operations", "sequence": 1},
-    {"code": "LOG", "name": "Logging", "description": "Wireline and formation evaluation logging", "sequence": 2},
-    {"code": "CAS_CEM", "name": "Casing & Cementing", "description": "Running casing and primary cementing", "sequence": 3},
-    {"code": "COMP", "name": "Completion", "description": "Lower and upper completion operations", "sequence": 4},
-    {"code": "TEST", "name": "Well Testing", "description": "Flow testing and well cleanup", "sequence": 5},
-    {"code": "MOB", "name": "Mobilisation & Rig Move", "description": "Rig move, positioning, and rig up", "sequence": 6},
-    {"code": "ABAN", "name": "Plug & Abandonment", "description": "Well plugging and decommissioning", "sequence": 7},
+    {
+        "code": "LOG",
+        "name": "Logging",
+        "description": "Wireline and formation evaluation logging",
+        "sequence": 2,
+    },
+    {
+        "code": "CAS_CEM",
+        "name": "Casing & Cementing",
+        "description": "Running casing and primary cementing",
+        "sequence": 3,
+    },
+    {
+        "code": "COMP",
+        "name": "Completion",
+        "description": "Lower and upper completion operations",
+        "sequence": 4,
+    },
+    {
+        "code": "TEST",
+        "name": "Well Testing",
+        "description": "Flow testing and well cleanup",
+        "sequence": 5,
+    },
+    {
+        "code": "MOB",
+        "name": "Mobilisation & Rig Move",
+        "description": "Rig move, positioning, and rig up",
+        "sequence": 6,
+    },
+    {
+        "code": "ABAN",
+        "name": "Plug & Abandonment",
+        "description": "Well plugging and decommissioning",
+        "sequence": 7,
+    },
 ]
 
 
@@ -133,7 +171,15 @@ class DrillingPhaseService:
                 existing.sequence = payload.sequence
                 existing.updated_by = self.actor_id
                 self.session.commit()
-                _audit(self.session, self.actor_id, "update", "drilling_phase", existing.id, existing.code, {"action": "reactivated"})
+                _audit(
+                    self.session,
+                    self.actor_id,
+                    "update",
+                    "drilling_phase",
+                    existing.id,
+                    existing.code,
+                    {"action": "reactivated"},
+                )
                 self.session.commit()
                 return DrillingPhaseRead.model_validate(existing)
             raise ConflictError(f"Drilling phase '{code}' already exists")
@@ -149,7 +195,15 @@ class DrillingPhaseService:
         self.session.add(phase)
         self.session.commit()
         self.session.refresh(phase)
-        _audit(self.session, self.actor_id, "create", "drilling_phase", phase.id, phase.code, payload.model_dump())
+        _audit(
+            self.session,
+            self.actor_id,
+            "create",
+            "drilling_phase",
+            phase.id,
+            phase.code,
+            payload.model_dump(),
+        )
         self.session.commit()
         return DrillingPhaseRead.model_validate(phase)
 
@@ -167,7 +221,9 @@ class DrillingPhaseService:
         phase.updated_by = self.actor_id
         self.session.commit()
         self.session.refresh(phase)
-        _audit(self.session, self.actor_id, "update", "drilling_phase", phase.id, phase.code, values)
+        _audit(
+            self.session, self.actor_id, "update", "drilling_phase", phase.id, phase.code, values
+        )
         self.session.commit()
         return DrillingPhaseRead.model_validate(phase)
 
@@ -178,7 +234,9 @@ class DrillingPhaseService:
         phase.is_active = False
         phase.updated_by = self.actor_id
         self.session.flush()
-        _audit(self.session, self.actor_id, "soft_delete", "drilling_phase", phase.id, phase.code, None)
+        _audit(
+            self.session, self.actor_id, "soft_delete", "drilling_phase", phase.id, phase.code, None
+        )
         self.session.commit()
 
     def recover(self, phase_id: UUID) -> DrillingPhaseRead:
@@ -237,7 +295,9 @@ class ProjectService:
         self.session.add(project)
         try:
             self.session.flush()
-            _audit(self.session, self.actor_id, "create", "project", project.id, project.code, values)
+            _audit(
+                self.session, self.actor_id, "create", "project", project.id, project.code, values
+            )
             if commit:
                 self.session.commit()
                 self.session.refresh(project)
@@ -280,7 +340,9 @@ class ProjectService:
             raise NotFoundError("Project not found")
         project.is_active, project.updated_by = False, self.actor_id
         self.session.flush()
-        _audit(self.session, self.actor_id, "soft_delete", "project", project.id, project.code, None)
+        _audit(
+            self.session, self.actor_id, "soft_delete", "project", project.id, project.code, None
+        )
         self.session.commit()
 
     def recover(self, project_id: UUID) -> ProjectRead:
@@ -511,9 +573,7 @@ class WellService:
                 "Well must be deleted (deactivated) before permanent deletion"
             )
         afe_count = int(
-            self.session.scalar(
-                select(func.count()).select_from(Afe).where(Afe.well_id == well.id)
-            )
+            self.session.scalar(select(func.count()).select_from(Afe).where(Afe.well_id == well.id))
             or 0
         )
         if afe_count:
@@ -611,8 +671,12 @@ class AfeService:
         sections_input = payload.sections
         if sections_input:
             if not values.get("total_planned_days") or values["total_planned_days"] == Decimal("0"):
-                values["total_planned_days"] = sum((s.planned_days for s in sections_input), Decimal("0"))
-            if not values.get("total_planned_depth") or values["total_planned_depth"] == Decimal("0"):
+                values["total_planned_days"] = sum(
+                    (s.planned_days for s in sections_input), Decimal("0")
+                )
+            if not values.get("total_planned_depth") or values["total_planned_depth"] == Decimal(
+                "0"
+            ):
                 values["total_planned_depth"] = max(
                     (s.planned_depth_to for s in sections_input if s.planned_depth_to is not None),
                     default=Decimal("0"),
@@ -657,7 +721,15 @@ class AfeService:
             )
             self.session.add(audit_entry)
             self.session.flush()
-            _audit(self.session, self.actor_id, "create", "afe", afe.id, afe.code, {"well_id": str(afe.well_id), "title": afe.title})
+            _audit(
+                self.session,
+                self.actor_id,
+                "create",
+                "afe",
+                afe.id,
+                afe.code,
+                {"well_id": str(afe.well_id), "title": afe.title},
+            )
 
             if commit:
                 self.session.commit()
@@ -694,7 +766,8 @@ class AfeService:
                     planned_days=sec_input.planned_days,
                     planned_depth_from=sec_input.planned_depth_from,
                     planned_depth_to=sec_input.planned_depth_to,
-                    depth_unit_id=sec_input.depth_unit_id or values.get("depth_unit_id", afe.depth_unit_id),
+                    depth_unit_id=sec_input.depth_unit_id
+                    or values.get("depth_unit_id", afe.depth_unit_id),
                     notes=sec_input.notes,
                     is_active=sec_input.is_active,
                     created_by=self.actor_id,
@@ -702,7 +775,9 @@ class AfeService:
                 )
                 self.session.add(sec)
             if "total_planned_days" not in values or values["total_planned_days"] is None:
-                values["total_planned_days"] = sum((s.planned_days for s in sections_input), Decimal("0"))
+                values["total_planned_days"] = sum(
+                    (s.planned_days for s in sections_input), Decimal("0")
+                )
             if "total_planned_depth" not in values or values["total_planned_depth"] is None:
                 values["total_planned_depth"] = max(
                     (s.planned_depth_to for s in sections_input if s.planned_depth_to is not None),
@@ -746,7 +821,15 @@ class AfeService:
         )
         self.session.add(audit_entry)
         self.session.flush()
-        _audit(self.session, self.actor_id, "reopen", "afe", afe.id, afe.code, {"remarks": remarks.strip()})
+        _audit(
+            self.session,
+            self.actor_id,
+            "reopen",
+            "afe",
+            afe.id,
+            afe.code,
+            {"remarks": remarks.strip()},
+        )
         self.session.commit()
         self.session.refresh(afe)
         self.session.expire(afe, ["items", "sections", "audit_logs"])
@@ -788,7 +871,9 @@ class AfeService:
             action=action_name,
             previous_status=previous_status,
             new_status="submitted",
-            remarks=remarks.strip() if remarks else ("Resubmitted after edits" if afe.reopened_at else "Initial submission"),
+            remarks=remarks.strip()
+            if remarks
+            else ("Resubmitted after edits" if afe.reopened_at else "Initial submission"),
             actor_id=self.actor_id,
         )
         self.session.add(audit_entry)
@@ -823,7 +908,15 @@ class AfeService:
         )
         self.session.add(audit_entry)
         self.session.flush()
-        _audit(self.session, self.actor_id, "soft_delete", "afe", afe.id, afe.code, {"previous_status": afe.status})
+        _audit(
+            self.session,
+            self.actor_id,
+            "soft_delete",
+            "afe",
+            afe.id,
+            afe.code,
+            {"previous_status": afe.status},
+        )
         self.session.commit()
 
     def recover(self, afe_id: UUID) -> AfeRead:
@@ -835,9 +928,17 @@ class AfeService:
             raise BusinessValidationError("AFE is not deleted and cannot be recovered")
 
         # Business rule: if any active AFE exists, recover should not work
-        active_count = self.session.scalar(select(func.count()).select_from(Afe).where(Afe.is_active.is_(True))) or 0
+        active_count = (
+            self.session.scalar(
+                select(func.count()).select_from(Afe).where(Afe.is_active.is_(True))
+            )
+            or 0
+        )
         if active_count > 0:
-            raise BusinessValidationError("Cannot recover: another active AFE already exists at the AFE page. Delete the existing AFE before recovery.")
+            raise BusinessValidationError(
+                "Cannot recover: another active AFE already exists at the AFE page. "
+                "Delete the existing AFE before recovery."
+            )
 
         # Also check duplicate code/well/revision conflict
         conflict = self.session.scalar(
@@ -850,7 +951,9 @@ class AfeService:
             )
         )
         if conflict:
-            raise ConflictError(f"Cannot recover: an active AFE with code '{afe.code}' already exists for this well")
+            raise ConflictError(
+                f"Cannot recover: an active AFE with code '{afe.code}' already exists for this well"
+            )
 
         afe.is_active = True
         afe.deleted_at = None
@@ -886,7 +989,9 @@ class AfeService:
         if afe is None:
             raise NotFoundError("AFE not found")
         if afe.is_active:
-            raise BusinessValidationError("AFE must be soft-deleted before permanent deletion. Soft-delete it first.")
+            raise BusinessValidationError(
+                "AFE must be soft-deleted before permanent deletion. Soft-delete it first."
+            )
         from app.models.estimates import CostEstimate
 
         estimate_count = int(
@@ -1003,9 +1108,7 @@ class AfeService:
                 },
                 "well_code": afe.well.code if afe.well else None,
                 "project_id": afe.well.project_id if afe.well else None,
-                "project_code": (
-                    afe.well.project.code if afe.well and afe.well.project else None
-                ),
+                "project_code": (afe.well.project.code if afe.well and afe.well.project else None),
                 "depth_unit_code": afe.depth_unit.code if afe.depth_unit else None,
                 "item_count": len(active_items),
                 "sections": sections,
@@ -1028,9 +1131,7 @@ class AfeLineService:
         """Soft-deleted lines of an AFE, for recovery in the lines workspace."""
         self._afe(afe_id)
         return [
-            self.read(item)
-            for item in self.repository.list_for_afe(afe_id)
-            if not item.is_active
+            self.read(item) for item in self.repository.list_for_afe(afe_id) if not item.is_active
         ]
 
     def create(self, afe_id: UUID, payload: AfeLineCreate, commit: bool = True) -> AfeLineRead:
@@ -1047,7 +1148,15 @@ class AfeLineService:
         self.session.add(item)
         try:
             self.session.flush()
-            _audit(self.session, self.actor_id, "create", "afe_line", item.id, f"{afe.code}:{values.get('line_number')}", values)
+            _audit(
+                self.session,
+                self.actor_id,
+                "create",
+                "afe_line",
+                item.id,
+                f"{afe.code}:{values.get('line_number')}",
+                values,
+            )
             if commit:
                 self.session.commit()
                 self.session.refresh(item)
@@ -1098,7 +1207,15 @@ class AfeLineService:
             raise BusinessValidationError("A depth unit is required when planned depth is supplied")
         item.updated_by = self.actor_id
         self.session.flush()
-        _audit(self.session, self.actor_id, "update", "afe_line", item.id, str(item.line_number), values)
+        _audit(
+            self.session,
+            self.actor_id,
+            "update",
+            "afe_line",
+            item.id,
+            str(item.line_number),
+            values,
+        )
         if commit:
             self.session.commit()
             self.session.refresh(item)
@@ -1111,7 +1228,15 @@ class AfeLineService:
         self._afe(item.afe_id, must_be_draft=True)
         item.is_active, item.updated_by = False, self.actor_id
         self.session.flush()
-        _audit(self.session, self.actor_id, "soft_delete", "afe_line", item.id, str(item.line_number), None)
+        _audit(
+            self.session,
+            self.actor_id,
+            "soft_delete",
+            "afe_line",
+            item.id,
+            str(item.line_number),
+            None,
+        )
         self.session.commit()
 
     def recover(self, item_id: UUID) -> AfeLineRead:
@@ -1218,7 +1343,9 @@ class AfeLineService:
         if afe is None or not afe.is_active:
             raise NotFoundError("AFE not found")
         if must_be_draft and afe.status != "draft":
-            raise BusinessValidationError("Submitted AFE items are read-only. Reopen the AFE to edit.")
+            raise BusinessValidationError(
+                "Submitted AFE items are read-only. Reopen the AFE to edit."
+            )
         return afe
 
     def _validate_references(self, values: dict[str, Any]) -> None:
@@ -1252,7 +1379,9 @@ class AfeLineService:
                     planned_duration = sec.planned_days
                     break
         if planned_duration is None or planned_duration == 0:
-            planned_duration = afe.total_planned_days if afe.total_planned_days > 0 else Decimal("1")
+            planned_duration = (
+                afe.total_planned_days if afe.total_planned_days > 0 else Decimal("1")
+            )
 
         try:
             basis = (

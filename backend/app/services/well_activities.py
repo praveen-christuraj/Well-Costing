@@ -59,9 +59,7 @@ class WellActivityService:
 
     def list_for_well(self, well_id: UUID) -> list[WellActivityRead]:
         stmt = (
-            select(WellActivity)
-            .where(WellActivity.well_id == well_id)
-            .order_by(WellActivity.name)
+            select(WellActivity).where(WellActivity.well_id == well_id).order_by(WellActivity.name)
         )
         rows = self.session.execute(stmt).scalars().all()
         return [self._serialize(r) for r in rows]
@@ -101,11 +99,12 @@ class WellActivityService:
         if record is None:
             raise NotFoundError("Well activity not found")
         values = payload.model_dump(exclude_unset=True)
-        if "activity_id" in values and values["activity_id"] is not None:
-            if self.session.get(Activity, values["activity_id"]) is None:
-                raise BusinessValidationError(
-                    "activity_id does not reference an existing activity"
-                )
+        if (
+            "activity_id" in values
+            and values["activity_id"] is not None
+            and self.session.get(Activity, values["activity_id"]) is None
+        ):
+            raise BusinessValidationError("activity_id does not reference an existing activity")
         for field, value in values.items():
             if field == "name" and value is not None:
                 value = value.strip()

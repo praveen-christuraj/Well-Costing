@@ -11,6 +11,7 @@ Revision ID: 20260820_0016
 Revises: 20260820_0015
 Create Date: 2026-08-20 16:00:00.000000
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -32,9 +33,7 @@ def upgrade() -> None:
         sa.Column("rate_basis", sa.String(20), server_default="daily", nullable=False),
     )
     if op.get_bind().dialect.name != "sqlite":  # SQLite cannot ALTER constraints
-        op.create_check_constraint(
-            "valid_service_rate_basis", "services", RATE_BASIS_CHECK
-        )
+        op.create_check_constraint("valid_service_rate_basis", "services", RATE_BASIS_CHECK)
     op.create_index(op.f("ix_services_rate_basis"), "services", ["rate_basis"])
 
     # --- configurable item sub categories -------------------------------------
@@ -45,9 +44,7 @@ def upgrade() -> None:
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("is_active", sa.Boolean(), server_default="true", nullable=False),
-        sa.Column(
-            "applies_to", sa.String(30), server_default="tangible", nullable=False
-        ),
+        sa.Column("applies_to", sa.String(30), server_default="tangible", nullable=False),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -68,16 +65,10 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_item_subcategories")),
         sa.UniqueConstraint("code", name=op.f("uq_item_subcategories_code")),
     )
-    op.create_index(
-        op.f("ix_item_subcategories_code"), "item_subcategories", ["code"], unique=True
-    )
+    op.create_index(op.f("ix_item_subcategories_code"), "item_subcategories", ["code"], unique=True)
     op.create_index(op.f("ix_item_subcategories_name"), "item_subcategories", ["name"])
-    op.create_index(
-        op.f("ix_item_subcategories_is_active"), "item_subcategories", ["is_active"]
-    )
-    op.create_index(
-        op.f("ix_item_subcategories_applies_to"), "item_subcategories", ["applies_to"]
-    )
+    op.create_index(op.f("ix_item_subcategories_is_active"), "item_subcategories", ["is_active"])
+    op.create_index(op.f("ix_item_subcategories_applies_to"), "item_subcategories", ["applies_to"])
 
     # --- catalogue items link to a sub category --------------------------------
     with op.batch_alter_table("catalog_items") as batch:
@@ -89,9 +80,7 @@ def upgrade() -> None:
             ["id"],
             ondelete="RESTRICT",
         )
-    op.create_index(
-        op.f("ix_catalog_items_sub_category_id"), "catalog_items", ["sub_category_id"]
-    )
+    op.create_index(op.f("ix_catalog_items_sub_category_id"), "catalog_items", ["sub_category_id"])
 
 
 def downgrade() -> None:

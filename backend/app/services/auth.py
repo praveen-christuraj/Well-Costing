@@ -52,10 +52,7 @@ class AuthService:
     def _local_credentials_match(user: User, password: str) -> bool:
         """Whether a locally-hashed password verifies, with a generic false elsewhere."""
 
-        return (
-            user.hashed_password is not None
-            and verify_password(password, user.hashed_password)
-        )
+        return user.hashed_password is not None and verify_password(password, user.hashed_password)
 
     def _issue_token(self, user: User) -> TokenResponse:
         token = create_access_token(str(user.id))
@@ -63,7 +60,9 @@ class AuthService:
         try:
             from app.services.audit import AuditService
 
-            session = getattr(self._users, "_session", None) or getattr(self._users, "session", None)
+            session = getattr(self._users, "_session", None) or getattr(
+                self._users, "session", None
+            )
             if session is not None:
                 AuditService(session, user.id, user.email).log(
                     action="login",

@@ -324,7 +324,7 @@ def test_submitted_afe_cannot_be_deleted(client: TestClient) -> None:
     assert recovered.status_code == 200
 
     # Create another active AFE, soft-delete first again, then recovery should be blocked
-    afe2 = post(
+    post(
         client,
         "/api/v1/afes",
         {"well_id": afe["well_id"], "code": "REQ-002", "title": "Second AFE"},

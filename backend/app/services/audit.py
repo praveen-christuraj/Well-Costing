@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.models.audit import AuditLog
 from app.repositories.audit import AuditRepository
-from app.schemas.master_data import PageResponse
 from app.schemas.audit import AuditLogRead
+from app.schemas.master_data import PageResponse
 
 logger = logging.getLogger("app.audit")
 
@@ -58,7 +58,9 @@ def log_entity_action(
 
 
 class AuditService:
-    def __init__(self, session: Session, actor_id: UUID | None = None, actor_email: str | None = None) -> None:
+    def __init__(
+        self, session: Session, actor_id: UUID | None = None, actor_email: str | None = None
+    ) -> None:
         self.session = session
         self.actor_id = actor_id
         self.actor_email = actor_email

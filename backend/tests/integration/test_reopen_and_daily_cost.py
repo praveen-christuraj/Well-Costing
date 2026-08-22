@@ -1,4 +1,4 @@
-"""Tests for AFE reopening with remarks, AFE section breakdown, configurable phases, and Daily Cost."""
+"""Tests for AFE reopening with remarks, AFE section breakdown, phases, and Daily Cost."""
 
 from decimal import Decimal
 from typing import Any
@@ -250,7 +250,8 @@ def test_daily_cost_entry_and_analytics(client: TestClient) -> None:
     assert "services" in ref_data
     assert "consumables" in ref_data
 
-    # 3. Post Day 1 cost: Service for 12 hours (12/24 = 0.5 days @ 2400/day = 1200) + Chemical (10 bbl @ 50/bbl = 500)
+    # 3. Post Day 1 cost: Service for 12 hours (12/24 = 0.5 days @ 2400/day = 1200)
+    #    + Chemical (10 bbl @ 50/bbl = 500)
     day1_payload = {
         "well_id": well_id,
         "afe_id": afe_id,
@@ -288,7 +289,8 @@ def test_daily_cost_entry_and_analytics(client: TestClient) -> None:
     assert Decimal(str(d1["total_daily_cost"])) == Decimal("1700.00")
     assert Decimal(str(d1["cumulative_cost"])) == Decimal("1700.00")
 
-    # 4. Post Day 2 cost: Service for 24 hours (24/24 = 1.0 day @ 2400 = 2400) + Chemical (20 bbl @ 50 = 1000) => 3400
+    # 4. Post Day 2 cost: Service for 24 hours (24/24 = 1.0 day @ 2400 = 2400)
+    #    + Chemical (20 bbl @ 50 = 1000) => 3400
     day2_payload = {
         "well_id": well_id,
         "afe_id": afe_id,

@@ -20,8 +20,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 VALID_ITEM_TYPES = (
-    "item_type IN ('service','tangible','material','equipment',"
-    "'mud_chemical','cement_additive')"
+    "item_type IN ('service','tangible','material','equipment','mud_chemical','cement_additive')"
 )
 OLD_ITEM_TYPES = "item_type IN ('service','tangible','material','equipment')"
 
@@ -231,16 +230,12 @@ def upgrade() -> None:
     op.add_column(
         "catalog_items", sa.Column("material_number", sa.String(length=100), nullable=True)
     )
-    op.add_column(
-        "catalog_items", sa.Column("specification", sa.String(length=255), nullable=True)
-    )
+    op.add_column("catalog_items", sa.Column("specification", sa.String(length=255), nullable=True))
     op.add_column("catalog_items", sa.Column("manufacturer", sa.String(length=150), nullable=True))
     op.create_index(
         op.f("ix_catalog_items_item_category_id"), "catalog_items", ["item_category_id"]
     )
-    op.create_index(
-        op.f("ix_catalog_items_material_number"), "catalog_items", ["material_number"]
-    )
+    op.create_index(op.f("ix_catalog_items_material_number"), "catalog_items", ["material_number"])
     if _is_sqlite():
         # SQLite cannot ALTER constraints, so the old item-type CHECK (which
         # would reject mud_chemical/cement_additive rows) is swapped out by
@@ -255,9 +250,7 @@ def upgrade() -> None:
             ["id"],
             ondelete="RESTRICT",
         )
-        op.drop_constraint(
-            op.f("ck_catalog_items_valid_item_type"), "catalog_items", type_="check"
-        )
+        op.drop_constraint(op.f("ck_catalog_items_valid_item_type"), "catalog_items", type_="check")
         op.create_check_constraint("valid_item_type", "catalog_items", VALID_ITEM_TYPES)
 
     # --- consumable subtype tables --------------------------------------------
@@ -450,9 +443,7 @@ def upgrade() -> None:
         "effective_to",
         "is_active",
     ):
-        op.create_index(
-            op.f(f"ix_service_rate_cards_{column}"), "service_rate_cards", [column]
-        )
+        op.create_index(op.f(f"ix_service_rate_cards_{column}"), "service_rate_cards", [column])
 
     # --- item prices -----------------------------------------------------------
     op.create_table(
@@ -469,9 +460,7 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("is_active", sa.Boolean(), server_default="true", nullable=False),
         *_audit_columns(),
-        sa.CheckConstraint(
-            "unit_price >= 0", name=op.f("ck_item_prices_non_negative_unit_price")
-        ),
+        sa.CheckConstraint("unit_price >= 0", name=op.f("ck_item_prices_non_negative_unit_price")),
         sa.CheckConstraint(
             "effective_to IS NULL OR effective_to >= effective_from",
             name=op.f("ck_item_prices_valid_item_price_range"),

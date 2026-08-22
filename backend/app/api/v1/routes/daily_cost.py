@@ -1,7 +1,7 @@
 """Daily cost operational routes: services hours, chemical usage, and AFE analytics."""
 
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -85,5 +85,5 @@ def get_daily_cost_reference_rates(
     well_id: UUID,
     current_user: CurrentUser,
     session: DbSession,
-) -> dict:
+) -> dict[str, Any]:
     return DailyCostService(session, current_user.id).get_reference_rates(well_id)
