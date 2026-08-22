@@ -147,7 +147,7 @@ class _BaseService(Generic[ModelT, ReadT]):  # noqa: UP046
         self.session.add(record)
         try:
             self.session.flush()
-            self._audit("create", record.id, self._record_code(record), values)
+            self._audit("create", record.id, self._record_code(record), values)  # type: ignore[attr-defined]
             if commit:
                 self.session.commit()
                 self.session.refresh(record)
@@ -167,7 +167,7 @@ class _BaseService(Generic[ModelT, ReadT]):  # noqa: UP046
         record.updated_by = self.actor_id  # type: ignore[attr-defined]
         try:
             self.session.flush()
-            self._audit("update", record.id, self._record_code(record), values)
+            self._audit("update", record.id, self._record_code(record), values)  # type: ignore[attr-defined]
             if commit:
                 self.session.commit()
                 self.session.refresh(record)
@@ -183,7 +183,7 @@ class _BaseService(Generic[ModelT, ReadT]):  # noqa: UP046
         record.is_active = False  # type: ignore[attr-defined]
         record.updated_by = self.actor_id  # type: ignore[attr-defined]
         self.session.flush()
-        self._audit("soft_delete", record.id, self._record_code(record), None)
+        self._audit("soft_delete", record.id, self._record_code(record), None)  # type: ignore[attr-defined]
         self.session.commit()
 
     def delete(self, record_id: UUID) -> None:

@@ -1122,20 +1122,19 @@ class AfeLineService:
         afe = self._afe(item.afe_id, must_be_draft=True)
         if item.is_active:
             raise BusinessValidationError("AFE line is not deleted and cannot be recovered")
-        if item.line_number is not None:
-            clash = self.session.scalar(
-                select(AfeLine).where(
-                    AfeLine.afe_id == afe.id,
-                    AfeLine.line_number == item.line_number,
-                    AfeLine.is_active.is_(True),
-                    AfeLine.id != item.id,
-                )
+        clash = self.session.scalar(
+            select(AfeLine).where(
+                AfeLine.afe_id == afe.id,
+                AfeLine.line_number == item.line_number,
+                AfeLine.is_active.is_(True),
+                AfeLine.id != item.id,
             )
-            if clash:
-                raise ConflictError(
-                    f"Line number {item.line_number} is already in use on this AFE. "
-                    "Edit the line numbers first, then recover the removed line."
-                )
+        )
+        if clash:
+            raise ConflictError(
+                f"Line number {item.line_number} is already in use on this AFE. "
+                "Edit the line numbers first, then recover the removed line."
+            )
         item.is_active, item.updated_by = True, self.actor_id
         self.session.flush()
         _audit(
