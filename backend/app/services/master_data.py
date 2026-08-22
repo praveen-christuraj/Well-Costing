@@ -16,6 +16,13 @@ from app.domain.afe.rate_basis import (
     normalize_rate_basis,
     validate_rate_basis,
 )
+from app.models.afe import DrillingPhase
+from app.models.categories import (
+    Activity,
+    PrimaryCategory,
+    SecondaryCategory,
+    TertiaryCategory,
+)
 from app.models.master_data import (
     CatalogItem,
     CementAdditive,
@@ -78,7 +85,18 @@ ENTITY_CONFIGS: dict[str, EntityConfig] = {
     "units": EntityConfig(Unit, COMMON_FIELDS | {"symbol"}),
     "currencies": EntityConfig(Currency, COMMON_FIELDS | {"symbol"}),
     "hole-sections": EntityConfig(HoleSection, COMMON_FIELDS),
-    "cost-categories": EntityConfig(CostCategory, COMMON_FIELDS | {"parent_id"}),
+    "phases": EntityConfig(DrillingPhase, COMMON_FIELDS | {"sequence"}),
+    "primary-categories": EntityConfig(PrimaryCategory, COMMON_FIELDS),
+    "secondary-categories": EntityConfig(
+        SecondaryCategory, COMMON_FIELDS | {"primary_category_id"}
+    ),
+    "tertiary-categories": EntityConfig(
+        TertiaryCategory, COMMON_FIELDS | {"secondary_category_id"}
+    ),
+    "activities": EntityConfig(Activity, COMMON_FIELDS | {"sequence"}),
+    "cost-categories": EntityConfig(
+        CostCategory, COMMON_FIELDS | {"parent_id", "secondary_category_id"}
+    ),
     "cost-codes": EntityConfig(CostCode, COMMON_FIELDS | {"cost_category_id"}),
     "vendors": EntityConfig(Vendor, VENDOR_FIELDS),
     "item-categories": EntityConfig(ItemCategory, COMMON_FIELDS | {"applies_to"}),
@@ -386,6 +404,9 @@ class MasterDataService:
             "default_unit_id": Unit,
             "item_category_id": ItemCategory,
             "sub_category_id": ItemSubCategory,
+            "primary_category_id": PrimaryCategory,
+            "secondary_category_id": SecondaryCategory,
+            "tertiary_category_id": TertiaryCategory,
         }
         for field, model in reference_models.items():
             value = values.get(field)
@@ -412,6 +433,10 @@ class MasterDataService:
             "default_unit_id": getattr(instance, "default_unit_id", None),
             "item_category_id": getattr(instance, "item_category_id", None),
             "sub_category_id": getattr(instance, "sub_category_id", None),
+            "primary_category_id": getattr(instance, "primary_category_id", None),
+            "secondary_category_id": getattr(instance, "secondary_category_id", None),
+            "tertiary_category_id": getattr(instance, "tertiary_category_id", None),
+            "sequence": getattr(instance, "sequence", None),
             "rate_basis": getattr(instance, "rate_basis", None),
             "material_number": getattr(instance, "material_number", None),
             "specification": getattr(instance, "specification", None),
@@ -426,6 +451,32 @@ class MasterDataService:
         }
         if isinstance(instance, CostCategory):
             values["parent_code"] = instance.parent.code if instance.parent else None
+            values["secondary_category_code"] = None
+            values["secondary_category_name"] = None
+            try:
+                if getattr(instance, "secondary_category", None):
+                    values["secondary_category_code"] = instance.secondary_category.code
+                    values["secondary_category_name"] = instance.secondary_category.name
+            except Exception:
+                pass
+        if isinstance(instance, SecondaryCategory):
+            try:
+                values["primary_category_code"] = instance.primary_category.code
+                values["primary_category_name"] = instance.primary_category.name
+            except Exception:
+                values["primary_category_code"] = None
+                values["primary_category_name"] = None
+        if isinstance(instance, TertiaryCategory):
+            try:
+                values["secondary_category_code"] = instance.secondary_category.code
+                values["secondary_category_name"] = instance.secondary_category.name
+                values["primary_category_code"] = instance.secondary_category.primary_category.code
+                values["primary_category_name"] = instance.secondary_category.primary_category.name
+            except Exception:
+                values["secondary_category_code"] = None
+                values["secondary_category_name"] = None
+                values["primary_category_code"] = None
+                values["primary_category_name"] = None
         if isinstance(instance, CostCode):
             values["cost_category_code"] = instance.cost_category.code
         if isinstance(instance, CatalogItem):

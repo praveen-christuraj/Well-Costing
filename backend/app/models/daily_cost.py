@@ -19,6 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import AuditMixin, Base, TimestampMixin
 from app.models.afe import Afe, Well
+from app.models.categories import WellActivity
 from app.models.master_data import CatalogItem, CostCode, HoleSection, Unit, Vendor
 
 
@@ -27,7 +28,6 @@ class DailyCostEntry(TimestampMixin, AuditMixin, Base):
 
     __tablename__ = "daily_cost_entries"
     __table_args__ = (
-        UniqueConstraint("well_id", "entry_date", name="uq_daily_cost_entries_well_date"),
         CheckConstraint(
             "current_depth IS NULL OR current_depth >= 0", name="non_negative_current_depth"
         ),
@@ -50,6 +50,9 @@ class DailyCostEntry(TimestampMixin, AuditMixin, Base):
         ForeignKey("hole_sections.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     phase: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    sub_activity_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("well_activities.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     current_depth: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
     daily_progress: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
     operational_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -72,6 +75,7 @@ class DailyCostEntry(TimestampMixin, AuditMixin, Base):
     well: Mapped[Well] = relationship(lazy="joined")
     afe: Mapped[Afe | None] = relationship(lazy="joined")
     hole_section: Mapped[HoleSection | None] = relationship(lazy="joined")
+    sub_activity: Mapped[WellActivity | None] = relationship(lazy="joined")
     services: Mapped[list["DailyCostServiceLine"]] = relationship(
         back_populates="entry", cascade="all, delete-orphan", lazy="selectin"
     )
@@ -89,6 +93,15 @@ class DailyCostServiceLine(TimestampMixin, AuditMixin, Base):
         CheckConstraint("operating_days >= 0", name="non_negative_operating_days"),
         CheckConstraint("unit_rate >= 0", name="non_negative_service_unit_rate"),
         CheckConstraint("amount >= 0", name="non_negative_service_amount"),
+        CheckConstraint(
+            "override_rate IS NULL OR override_rate >= 0",
+            name="non_negative_service_override_rate",
+        ),
+        CheckConstraint(
+            "service_type IN ('operation','standby','mobilisation','demobilisation',"
+            "'personnel_operation','personnel_standby','other')",
+            name="valid_service_type",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -107,6 +120,12 @@ class DailyCostServiceLine(TimestampMixin, AuditMixin, Base):
     hole_section_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("hole_sections.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    sub_activity_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("well_activities.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    service_type: Mapped[str] = mapped_column(
+        String(30), default="operation", server_default="operation", index=True
+    )
     service_hours: Mapped[Decimal] = mapped_column(
         Numeric(8, 2), default=Decimal("24.0"), server_default="24.0"
     )
@@ -119,6 +138,7 @@ class DailyCostServiceLine(TimestampMixin, AuditMixin, Base):
     unit_rate: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), default=Decimal("0"), server_default="0"
     )
+    override_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
     amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), default=Decimal("0"), server_default="0"
     )
@@ -129,6 +149,7 @@ class DailyCostServiceLine(TimestampMixin, AuditMixin, Base):
     cost_code: Mapped[CostCode] = relationship(lazy="joined")
     vendor: Mapped[Vendor | None] = relationship(lazy="joined")
     hole_section: Mapped[HoleSection | None] = relationship(lazy="joined")
+    sub_activity: Mapped[WellActivity | None] = relationship(lazy="joined")
 
 
 class DailyCostConsumableLine(TimestampMixin, AuditMixin, Base):
@@ -139,6 +160,10 @@ class DailyCostConsumableLine(TimestampMixin, AuditMixin, Base):
         CheckConstraint("quantity >= 0", name="non_negative_consumable_quantity"),
         CheckConstraint("unit_rate >= 0", name="non_negative_consumable_unit_rate"),
         CheckConstraint("amount >= 0", name="non_negative_consumable_amount"),
+        CheckConstraint(
+            "override_rate IS NULL OR override_rate >= 0",
+            name="non_negative_consumable_override_rate",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -154,6 +179,9 @@ class DailyCostConsumableLine(TimestampMixin, AuditMixin, Base):
     vendor_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("vendors.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    sub_activity_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("well_activities.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), default=Decimal("0"), server_default="0"
     )
@@ -161,6 +189,7 @@ class DailyCostConsumableLine(TimestampMixin, AuditMixin, Base):
     unit_rate: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), default=Decimal("0"), server_default="0"
     )
+    override_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
     amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), default=Decimal("0"), server_default="0"
     )
@@ -171,3 +200,4 @@ class DailyCostConsumableLine(TimestampMixin, AuditMixin, Base):
     cost_code: Mapped[CostCode] = relationship(lazy="joined")
     vendor: Mapped[Vendor | None] = relationship(lazy="joined")
     unit: Mapped[Unit] = relationship(lazy="joined")
+    sub_activity: Mapped[WellActivity | None] = relationship(lazy="joined")

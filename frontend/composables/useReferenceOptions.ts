@@ -16,6 +16,11 @@ export function useReferenceOptions() {
   const services = ref<GridSelectOption[]>([])
   const holeSections = ref<GridSelectOption[]>([])
   const itemCategories = ref<GridSelectOption[]>([])
+  const primaryCategories = ref<GridSelectOption[]>([])
+  const secondaryCategories = ref<GridSelectOption[]>([])
+  const tertiaryCategories = ref<GridSelectOption[]>([])
+  const activities = ref<GridSelectOption[]>([])
+  const phases = ref<GridSelectOption[]>([])
   const costCategories = ref<GridSelectOption[]>([])
   const costCodes = ref<GridSelectOption[]>([])
   const serviceOrders = ref<GridSelectOption[]>([])
@@ -59,6 +64,21 @@ export function useReferenceOptions() {
     }
     if (kinds.includes('item-categories')) {
       jobs.push(loadMaster('item-categories').then((options) => { itemCategories.value = options }))
+    }
+    if (kinds.includes('primary-categories')) {
+      jobs.push(loadMaster('primary-categories').then((options) => { primaryCategories.value = options }))
+    }
+    if (kinds.includes('secondary-categories')) {
+      jobs.push(loadMaster('secondary-categories').then((options) => { secondaryCategories.value = options }))
+    }
+    if (kinds.includes('tertiary-categories')) {
+      jobs.push(loadMaster('tertiary-categories').then((options) => { tertiaryCategories.value = options }))
+    }
+    if (kinds.includes('activities')) {
+      jobs.push(loadMaster('activities').then((options) => { activities.value = options }))
+    }
+    if (kinds.includes('phases')) {
+      jobs.push(loadMaster('phases').then((options) => { phases.value = options }))
     }
     if (kinds.includes('cost-categories')) {
       jobs.push(loadMaster('cost-categories').then((options) => { costCategories.value = options }))
@@ -115,6 +135,11 @@ export function useReferenceOptions() {
     services,
     holeSections,
     itemCategories,
+    primaryCategories,
+    secondaryCategories,
+    tertiaryCategories,
+    activities,
+    phases,
     costCategories,
     costCodes,
     serviceOrders,

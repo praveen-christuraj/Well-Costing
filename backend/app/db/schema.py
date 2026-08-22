@@ -73,7 +73,12 @@ CRITICAL_SCHEMA: dict[str, tuple[str, ...]] = {
     "afe_audit_logs": ("afe_id", "action", "new_status", "created_at", "updated_at"),
     "audit_logs": ("actor_id", "action", "entity_type", "created_at"),
     "drilling_phases": ("code", "name", "sequence"),
-    "daily_cost_entries": ("well_id", "afe_id", "entry_date", "cumulative_cost"),
+    "daily_cost_entries": ("well_id", "afe_id", "entry_date", "cumulative_cost", "sub_activity_id"),
+    "primary_categories": ("code", "name", "is_active"),
+    "secondary_categories": ("code", "name", "primary_category_id", "is_active"),
+    "tertiary_categories": ("code", "name", "secondary_category_id", "is_active"),
+    "activities": ("code", "name", "sequence", "is_active"),
+    "well_activities": ("well_id", "activity_id", "name", "is_active"),
     "cost_estimates": ("afe_id", "code", "title", "currency_id"),
 }
 

@@ -88,6 +88,7 @@ class DailyCostService:
                 entry_date=payload.entry_date,
                 hole_section_id=payload.hole_section_id,
                 phase=payload.phase,
+                sub_activity_id=payload.sub_activity_id,
                 current_depth=payload.current_depth,
                 daily_progress=payload.daily_progress,
                 operational_summary=payload.operational_summary,
@@ -101,6 +102,7 @@ class DailyCostService:
             entry.afe_id = afe_id
             entry.hole_section_id = payload.hole_section_id
             entry.phase = payload.phase
+            entry.sub_activity_id = payload.sub_activity_id
             entry.current_depth = payload.current_depth
             entry.daily_progress = payload.daily_progress
             entry.operational_summary = payload.operational_summary
@@ -122,11 +124,18 @@ class DailyCostService:
             if hours < 0 or hours > 24:
                 raise BusinessValidationError("Service hours must be between 0 and 24")
             operating_days = hours / Decimal("24.0")
-            rate = Decimal(str(s_input.unit_rate))
+            base_rate = Decimal(str(s_input.unit_rate))
+            override = s_input.override_rate
+            # Override rate takes precedence if present and positive
+            effective_rate = (
+                Decimal(str(override))
+                if override is not None and Decimal(str(override)) > 0
+                else base_rate
+            )
             if s_input.rate_basis == "daily":
-                line_amount = operating_days * rate
+                line_amount = operating_days * effective_rate
             else:
-                line_amount = rate
+                line_amount = effective_rate
             total_services += line_amount
 
             s_line = DailyCostServiceLine(
@@ -135,10 +144,13 @@ class DailyCostService:
                 cost_code_id=s_input.cost_code_id,
                 vendor_id=s_input.vendor_id,
                 hole_section_id=s_input.hole_section_id or payload.hole_section_id,
+                sub_activity_id=s_input.sub_activity_id,
+                service_type=s_input.service_type,
                 service_hours=hours,
                 operating_days=operating_days,
                 rate_basis=s_input.rate_basis,
-                unit_rate=rate,
+                unit_rate=base_rate,
+                override_rate=Decimal(str(override)) if override is not None else None,
                 amount=line_amount,
                 remarks=s_input.remarks,
                 created_by=self.actor_id,
@@ -149,8 +161,14 @@ class DailyCostService:
         total_consumables = Decimal("0")
         for c_input in payload.consumables:
             qty = Decimal(str(c_input.quantity))
-            rate = Decimal(str(c_input.unit_rate))
-            line_amount = qty * rate
+            base_rate = Decimal(str(c_input.unit_rate))
+            override = c_input.override_rate
+            effective_rate = (
+                Decimal(str(override))
+                if override is not None and Decimal(str(override)) > 0
+                else base_rate
+            )
+            line_amount = qty * effective_rate
             total_consumables += line_amount
 
             c_line = DailyCostConsumableLine(
@@ -158,9 +176,11 @@ class DailyCostService:
                 consumable_id=c_input.consumable_id,
                 cost_code_id=c_input.cost_code_id,
                 vendor_id=c_input.vendor_id,
+                sub_activity_id=c_input.sub_activity_id,
                 quantity=qty,
                 unit_id=c_input.unit_id,
-                unit_rate=rate,
+                unit_rate=base_rate,
+                override_rate=Decimal(str(override)) if override is not None else None,
                 amount=line_amount,
                 remarks=c_input.remarks,
                 created_by=self.actor_id,
@@ -479,10 +499,14 @@ class DailyCostService:
                 vendor_name=s.vendor.name if s.vendor else None,
                 hole_section_id=s.hole_section_id,
                 hole_section_code=s.hole_section.code if s.hole_section else None,
+                sub_activity_id=s.sub_activity_id,
+                sub_activity_name=s.sub_activity.name if s.sub_activity else None,
+                service_type=getattr(s, "service_type", "operation"),
                 service_hours=s.service_hours,
                 operating_days=s.operating_days,
                 rate_basis=s.rate_basis,
                 unit_rate=s.unit_rate,
+                override_rate=s.override_rate,
                 amount=s.amount,
                 remarks=s.remarks,
                 created_at=s.created_at,
@@ -501,10 +525,13 @@ class DailyCostService:
                 cost_code=c.cost_code.code if c.cost_code else None,
                 vendor_id=c.vendor_id,
                 vendor_name=c.vendor.name if c.vendor else None,
+                sub_activity_id=c.sub_activity_id,
+                sub_activity_name=c.sub_activity.name if c.sub_activity else None,
                 quantity=c.quantity,
                 unit_id=c.unit_id,
                 unit_code=c.unit.code if c.unit else None,
                 unit_rate=c.unit_rate,
+                override_rate=c.override_rate,
                 amount=c.amount,
                 remarks=c.remarks,
                 created_at=c.created_at,
@@ -522,6 +549,8 @@ class DailyCostService:
             hole_section_id=entry.hole_section_id,
             hole_section_code=entry.hole_section.code if entry.hole_section else None,
             phase=entry.phase,
+            sub_activity_id=entry.sub_activity_id,
+            sub_activity_name=entry.sub_activity.name if entry.sub_activity else None,
             current_depth=entry.current_depth,
             daily_progress=entry.daily_progress,
             operational_summary=entry.operational_summary,

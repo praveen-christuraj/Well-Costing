@@ -63,6 +63,9 @@ class CostCategory(MasterDataMixin, Base):
     parent_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("cost_categories.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    secondary_category_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("secondary_categories.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     parent: Mapped["CostCategory | None"] = relationship(remote_side="CostCategory.id")
 
 
@@ -167,6 +170,9 @@ class CatalogItem(TimestampMixin, AuditMixin, Base):
     )
     sub_category_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("item_subcategories.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    tertiary_category_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("tertiary_categories.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     material_number: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     specification: Mapped[str | None] = mapped_column(String(255), nullable=True)

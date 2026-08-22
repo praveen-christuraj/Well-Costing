@@ -1,6 +1,10 @@
-/** Cost category register — the top level of the cost classification hierarchy. */
+/** Primary Category — top-level configurable classification.
+
+Replaces the hardcoded applies_to values. Each Primary Category becomes a
+dropdown option on Secondary Categories, Cost Categories, and any place that
+needs a top-level scope selector.
+*/
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
 import EnterpriseGrid from '~/components/data-grid/EnterpriseGrid.vue'
 import MasterDataNav from '~/components/master-data/MasterDataNav.vue'
 import PageHeader from '~/components/design-system/PageHeader.vue'
@@ -10,21 +14,14 @@ import type { MasterDataRecord, PageResponse } from '~/types/masterData'
 definePageMeta({ middleware: 'auth' })
 
 const api = useMasterData()
-const references = useReferenceOptions()
-const entity = 'cost-categories'
+const entity = 'primary-categories'
 
-onMounted(() => {
-  void references.load(['cost-categories', 'secondary-categories'])
-})
-
-const columns = computed<GridColumn[]>(() => [
+const columns: GridColumn[] = [
   { field: 'code', header: 'Category code', required: true, sortable: true, width: '170px', placeholder: 'e.g. DRILL, SERV, TANG' },
-  { field: 'name', header: 'Category name', required: true, sortable: true, width: '230px', placeholder: 'e.g. Drilling, Services' },
-  { field: 'parent_id', header: 'Parent category', type: 'select', options: references.costCategories.value, width: '210px' },
-  { field: 'secondary_category_id', header: 'Secondary Category', type: 'select', options: references.secondaryCategories.value, width: '240px' },
-  { field: 'description', header: 'Description', type: 'textarea', width: '280px' },
+  { field: 'name', header: 'Category name', required: true, sortable: true, width: '240px', placeholder: 'e.g. Drilling, Services, Tangibles' },
+  { field: 'description', header: 'Description', type: 'textarea', width: '300px' },
   { field: 'is_active', header: 'Status', type: 'checkbox', width: '110px' },
-])
+]
 
 function fetchPage(params: Record<string, unknown>): Promise<PageResponse<Record<string, unknown>>> {
   return api.listPage(entity, params as Record<string, string>) as unknown as Promise<PageResponse<Record<string, unknown>>>
@@ -36,8 +33,6 @@ function toRow(record: Record<string, unknown>) {
     id: item.id,
     code: item.code,
     name: item.name,
-    parent_id: item.parent_id ?? '',
-    secondary_category_id: item.secondary_category_id ?? '',
     description: item.description ?? '',
     is_active: item.is_active,
   }
@@ -47,31 +42,30 @@ function toPayload(row: EditableRow) {
   return {
     code: String(row.code ?? '').trim(),
     name: String(row.name ?? '').trim(),
-    parent_id: row.parent_id || null,
-    secondary_category_id: row.secondary_category_id || null,
     description: row.description || null,
     is_active: row.is_active !== false,
   }
 }
 
-const blankRow = () => ({ code: '', name: '', parent_id: '', secondary_category_id: '', description: '', is_active: true })
-
-const description = computed(
-  () => 'Group cost codes under the categories used in reporting and costing — Drilling, Services, Tangibles, Consumables, and so on. Cost codes belong to a category; categories keep the code list organised and summarise neatly.',
-)
+const blankRow = () => ({ code: '', name: '', description: '', is_active: true })
 </script>
 
 <template>
   <div class="library-page">
-    <PageHeader title="Cost Categories" :description="description" />
-    <MasterDataNav active="cost-categories" />
+    <PageHeader
+      title="Primary Categories"
+      description="Top-level configurable classification for catalogue items and cost structures. Each Primary Category appears as a dropdown option on Secondary Categories and Cost Categories — configure these first."
+    />
+    <MasterDataNav active="primary-categories" />
+
     <div class="uom-tip">
       <i class="pi pi-info-circle" aria-hidden="true" />
-      <span>Create your cost categories first. Every Cost Code you define next must belong to one of these categories, so plan the grouping before you start adding codes.</span>
+      <span>Primary Categories are the foundation of the classification hierarchy. Create these first, then configure Secondary and Tertiary categories beneath them.</span>
     </div>
+
     <EnterpriseGrid
-      title="Cost categories"
-      singular="cost category"
+      title="Primary categories"
+      singular="primary category"
       :columns="columns"
       :fetch-page="fetchPage"
       :to-row="toRow"
@@ -81,10 +75,10 @@ const description = computed(
       :bulk-create="rows => api.bulkCreate(entity, rows as never)"
       :bulk-update="rows => api.bulkUpdate(entity, rows as never)"
       :remove-record="(id, hard) => (hard ? api.remove(entity, id) : api.deactivate(entity, id))"
-      import-entity="cost-categories"
-      export-entity="cost-categories"
+      import-entity="primary-categories"
+      export-entity="primary-categories"
       default-sort="code"
-      search-placeholder="Search by category code or name…"
+      search-placeholder="Search primary categories…"
     />
   </div>
 </template>

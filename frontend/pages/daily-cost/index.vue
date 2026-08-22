@@ -46,6 +46,7 @@ definePageMeta({ middleware: 'auth' })
 const api = useDailyCost()
 const afeApi = useAfe()
 const master = useMasterData()
+const wellActApi = useWellActivities()
 
 const wells = ref<WellRecord[]>([])
 const selectedWellId = ref<string>('')
@@ -97,27 +98,52 @@ function toDateString(value: Date | null): string {
 
 const formattedDate = computed(() => toDateString(selectedDate.value))
 const selectedWell = computed(() => wells.value.find(w => w.id === selectedWellId.value))
+const wellActivities = computed(() => wellActApi.wellActivities.value)
 
 /* -------------------------------- Calculations ---------------------------- */
 function computeServiceAmount(line: DailyCostServiceLine): number {
   const hours = Number(line.service_hours) || 0
-  const rate = Number(line.unit_rate) || 0
+  const baseRate = Number(line.unit_rate) || 0
+  // Override rate takes precedence if present
+  const effectiveRate = (line.override_rate != null && Number(line.override_rate) > 0)
+    ? Number(line.override_rate)
+    : baseRate
   const days = hours / 24.0
   line.operating_days = Number(days.toFixed(4))
 
   if (line.rate_basis === 'daily') {
-    const amt = days * rate
+    // Daily rate: hours / 24 * daily rate
+    const amt = days * effectiveRate
     line.amount = Number(amt.toFixed(2))
     return line.amount
   }
-  line.amount = Number(rate.toFixed(2))
+  if (line.rate_basis === 'per_section') {
+    // Per section: flat rate per section selected
+    line.amount = Number(effectiveRate.toFixed(2))
+    return line.amount
+  }
+  if (line.rate_basis === 'per_service') {
+    // Per service: flat rate from AFE for this service
+    line.amount = Number(effectiveRate.toFixed(2))
+    return line.amount
+  }
+  if (line.rate_basis === 'fixed') {
+    // Fixed rate: one-time charge from AFE, override available
+    line.amount = Number(effectiveRate.toFixed(2))
+    return line.amount
+  }
+  line.amount = Number(effectiveRate.toFixed(2))
   return line.amount
 }
 
 function computeConsumableAmount(line: DailyCostConsumableLine): number {
   const qty = Number(line.quantity) || 0
-  const rate = Number(line.unit_rate) || 0
-  const amt = qty * rate
+  const baseRate = Number(line.unit_rate) || 0
+  // Override rate takes precedence if present
+  const effectiveRate = (line.override_rate != null && Number(line.override_rate) > 0)
+    ? Number(line.override_rate)
+    : baseRate
+  const amt = qty * effectiveRate
   line.amount = Number(amt.toFixed(2))
   return line.amount
 }
@@ -138,10 +164,13 @@ function addServiceLine(): void {
     vendor_id: defaultSvc?.vendor_id ?? null,
     vendor_name: defaultSvc?.vendor_name ?? null,
     hole_section_id: entryHoleSectionId.value,
+    sub_activity_id: null,
+    service_type: 'operation',
     service_hours: 24.0,
     operating_days: 1.0,
     rate_basis: (defaultSvc?.rate_basis as any) || 'daily',
     unit_rate: defaultSvc?.operating_rate ?? 0,
+    override_rate: null,
     amount: defaultSvc?.operating_rate ?? 0,
     remarks: '',
   })
@@ -158,6 +187,10 @@ function onServiceSelect(line: DailyCostServiceLine): void {
     line.vendor_name = match.vendor_name ?? null
     line.rate_basis = match.rate_basis
     line.unit_rate = match.operating_rate
+    // For per_section, prompt for section selection; for fixed/per_service, rate auto-populates
+    if (match.rate_basis === 'per_section') {
+      line.hole_section_id = entryHoleSectionId.value
+    }
     computeServiceAmount(line)
   }
 }
@@ -362,6 +395,7 @@ async function onWellChange(): Promise<void> {
     const [refRates, afesPage] = await Promise.all([
       api.getReferenceRates(selectedWellId.value),
       afeApi.listAfes(selectedWellId.value),
+      wellActApi.loadForWell(selectedWellId.value),
     ])
     refServices.value = refRates.services || []
     refConsumables.value = refRates.consumables || []
@@ -671,10 +705,10 @@ onMounted(() => void loadAll())
             </div>
 
             <DataTable :value="serviceLines" data-key="service_id" striped-rows show-gridlines size="small" class="dc-table">
-              <Column header="#" style="width: 50px">
+              <Column header="#" style="width: 40px">
                 <template #body="{ index }">{{ index + 1 }}</template>
               </Column>
-              <Column header="Service Item" style="min-width: 240px">
+              <Column header="Service Item" style="min-width: 220px">
                 <template #body="{ data }">
                   <Select
                     v-model="data.service_id"
@@ -692,12 +726,46 @@ onMounted(() => void loadAll())
                   </Select>
                 </template>
               </Column>
-              <Column header="Section" style="width: 140px">
+              <Column header="Service Type" style="width: 160px">
+                <template #body="{ data }">
+                  <Select
+                    v-model="data.service_type"
+                    :options="[
+                      { label: 'Equipment Operation', value: 'operation' },
+                      { label: 'Equipment Standby', value: 'standby' },
+                      { label: 'Mobilization', value: 'mobilisation' },
+                      { label: 'Demobilization', value: 'demobilisation' },
+                      { label: 'Personnel Operation', value: 'personnel_operation' },
+                      { label: 'Personnel Standby', value: 'personnel_standby' },
+                      { label: 'Others', value: 'other' },
+                    ]"
+                    option-label="label"
+                    option-value="value"
+                    fluid
+                    size="small"
+                  />
+                </template>
+              </Column>
+              <Column header="Section" style="width: 130px">
                 <template #body="{ data }">
                   <Select v-model="data.hole_section_id" :options="holeSections" option-label="code" option-value="id" placeholder="Section" show-clear fluid size="small" />
                 </template>
               </Column>
-              <Column header="Hours (0-24)" style="width: 130px">
+              <Column header="Sub-Activity" style="width: 160px">
+                <template #body="{ data }">
+                  <Select
+                    v-model="data.sub_activity_id"
+                    :options="wellActivities"
+                    option-label="name"
+                    option-value="id"
+                    placeholder="Activity"
+                    show-clear
+                    fluid
+                    size="small"
+                  />
+                </template>
+              </Column>
+              <Column header="Hours/Days" style="width: 120px">
                 <template #body="{ data }">
                   <InputNumber
                     v-model="data.service_hours"
@@ -706,34 +774,22 @@ onMounted(() => void loadAll())
                     :max-fraction-digits="2"
                     fluid
                     size="small"
+                    :placeholder="data.rate_basis === 'daily' ? 'Hours' : 'Days'"
                     @input="computeServiceAmount(data)"
                   />
                 </template>
               </Column>
-              <Column header="Operating Days" style="width: 120px">
+              <Column header="Days" style="width: 80px">
                 <template #body="{ data }">
-                  <Tag :value="`${(Number(data.service_hours || 0) / 24).toFixed(4)} d`" severity="secondary" />
+                  <Tag :value="`${(Number(data.service_hours || 0) / 24).toFixed(2)}d`" severity="secondary" />
                 </template>
               </Column>
-              <Column header="Rate Basis" style="width: 140px">
+              <Column header="Rate Basis" style="width: 120px">
                 <template #body="{ data }">
-                  <Select
-                    v-model="data.rate_basis"
-                    :options="[
-                      { label: 'Daily rate', value: 'daily' },
-                      { label: 'Per section', value: 'per_section' },
-                      { label: 'Per service', value: 'per_service' },
-                      { label: 'Fixed', value: 'fixed' },
-                    ]"
-                    option-label="label"
-                    option-value="value"
-                    fluid
-                    size="small"
-                    @change="computeServiceAmount(data)"
-                  />
+                  <Tag :value="data.rate_basis === 'daily' ? 'Daily' : data.rate_basis === 'per_section' ? 'Per Section' : data.rate_basis === 'per_service' ? 'Per Service' : 'Fixed'" :severity="data.rate_basis === 'fixed' ? 'warn' : 'info'" />
                 </template>
               </Column>
-              <Column header="Rate ($)" style="width: 130px">
+              <Column header="Unit Rate ($)" style="width: 120px">
                 <template #body="{ data }">
                   <InputNumber
                     v-model="data.unit_rate"
@@ -741,21 +797,35 @@ onMounted(() => void loadAll())
                     :max-fraction-digits="2"
                     fluid
                     size="small"
+                    :disabled="data.rate_basis === 'fixed' || data.rate_basis === 'per_service'"
                     @input="computeServiceAmount(data)"
                   />
                 </template>
               </Column>
-              <Column header="Daily Amount ($)" style="width: 140px">
+              <Column header="Override ($)" style="width: 110px">
+                <template #body="{ data }">
+                  <InputNumber
+                    v-model="data.override_rate"
+                    :min="0"
+                    :max-fraction-digits="2"
+                    fluid
+                    size="small"
+                    placeholder="Override"
+                    @input="computeServiceAmount(data)"
+                  />
+                </template>
+              </Column>
+              <Column header="Amount ($)" style="width: 120px">
                 <template #body="{ data }">
                   <strong>${{ Number(data.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</strong>
                 </template>
               </Column>
-              <Column header="Remarks" style="min-width: 150px">
+              <Column header="Remarks" style="min-width: 120px">
                 <template #body="{ data }">
-                  <InputText v-model="data.remarks" fluid size="small" placeholder="Notes/activity" />
+                  <InputText v-model="data.remarks" fluid size="small" placeholder="Notes" />
                 </template>
               </Column>
-              <Column header="" style="width: 50px">
+              <Column header="" style="width: 40px">
                 <template #body="{ index }">
                   <Button icon="pi pi-trash" size="small" text severity="danger" @click="removeServiceLine(index)" />
                 </template>
@@ -782,10 +852,10 @@ onMounted(() => void loadAll())
             </div>
 
             <DataTable :value="consumableLines" data-key="consumable_id" striped-rows show-gridlines size="small" class="dc-table">
-              <Column header="#" style="width: 50px">
+              <Column header="#" style="width: 40px">
                 <template #body="{ index }">{{ index + 1 }}</template>
               </Column>
-              <Column header="Chemical / Additive" style="min-width: 240px">
+              <Column header="Chemical / Additive" style="min-width: 220px">
                 <template #body="{ data }">
                   <Select
                     v-model="data.consumable_id"
@@ -803,7 +873,21 @@ onMounted(() => void loadAll())
                   </Select>
                 </template>
               </Column>
-              <Column header="Usage Quantity" style="width: 140px">
+              <Column header="Sub-Activity" style="width: 150px">
+                <template #body="{ data }">
+                  <Select
+                    v-model="data.sub_activity_id"
+                    :options="wellActivities"
+                    option-label="name"
+                    option-value="id"
+                    placeholder="Activity"
+                    show-clear
+                    fluid
+                    size="small"
+                  />
+                </template>
+              </Column>
+              <Column header="Quantity" style="width: 120px">
                 <template #body="{ data }">
                   <InputNumber
                     v-model="data.quantity"
@@ -815,12 +899,12 @@ onMounted(() => void loadAll())
                   />
                 </template>
               </Column>
-              <Column header="Unit" style="width: 110px">
+              <Column header="Unit" style="width: 100px">
                 <template #body="{ data }">
                   <Select v-model="data.unit_id" :options="units" option-label="code" option-value="id" fluid size="small" />
                 </template>
               </Column>
-              <Column header="Unit Rate ($)" style="width: 130px">
+              <Column header="Unit Rate ($)" style="width: 120px">
                 <template #body="{ data }">
                   <InputNumber
                     v-model="data.unit_rate"
@@ -832,17 +916,30 @@ onMounted(() => void loadAll())
                   />
                 </template>
               </Column>
-              <Column header="Total Cost ($)" style="width: 140px">
+              <Column header="Override ($)" style="width: 110px">
+                <template #body="{ data }">
+                  <InputNumber
+                    v-model="data.override_rate"
+                    :min="0"
+                    :max-fraction-digits="2"
+                    fluid
+                    size="small"
+                    placeholder="Override"
+                    @input="computeConsumableAmount(data)"
+                  />
+                </template>
+              </Column>
+              <Column header="Total ($)" style="width: 120px">
                 <template #body="{ data }">
                   <strong>${{ Number(data.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</strong>
                 </template>
               </Column>
-              <Column header="Remarks" style="min-width: 150px">
+              <Column header="Remarks" style="min-width: 120px">
                 <template #body="{ data }">
-                  <InputText v-model="data.remarks" fluid size="small" placeholder="Purpose / mud treatment" />
+                  <InputText v-model="data.remarks" fluid size="small" placeholder="Purpose" />
                 </template>
               </Column>
-              <Column header="" style="width: 50px">
+              <Column header="" style="width: 40px">
                 <template #body="{ index }">
                   <Button icon="pi pi-trash" size="small" text severity="danger" @click="removeConsumableLine(index)" />
                 </template>

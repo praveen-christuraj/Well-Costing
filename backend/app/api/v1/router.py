@@ -20,6 +20,7 @@ from app.api.v1.routes import (
     procurement,
     rates,
     reporting,
+    well_activities,
     well_costing,
     workflow,
 )
@@ -42,5 +43,6 @@ api_router.include_router(imports.router)
 api_router.include_router(afe_imports.router)
 api_router.include_router(afe.router)
 api_router.include_router(well_costing.router)
+api_router.include_router(well_activities.router)
 api_router.include_router(daily_cost.router)
 api_router.include_router(audit.router)
