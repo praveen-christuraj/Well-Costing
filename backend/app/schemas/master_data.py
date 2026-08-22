@@ -22,6 +22,10 @@ class MasterDataCreate(BaseModel):
     default_unit_id: UUID | None = None
     item_category_id: UUID | None = None
     sub_category_id: UUID | None = None
+    primary_category_id: UUID | None = None
+    secondary_category_id: UUID | None = None
+    tertiary_category_id: UUID | None = None
+    sequence: int | None = Field(default=None, ge=1)
     rate_basis: str | None = Field(default=None, max_length=20)
     material_number: str | None = Field(default=None, max_length=100)
     specification: str | None = Field(default=None, max_length=255)
@@ -48,6 +52,10 @@ class MasterDataUpdate(BaseModel):
     default_unit_id: UUID | None = None
     item_category_id: UUID | None = None
     sub_category_id: UUID | None = None
+    primary_category_id: UUID | None = None
+    secondary_category_id: UUID | None = None
+    tertiary_category_id: UUID | None = None
+    sequence: int | None = Field(default=None, ge=1)
     rate_basis: str | None = Field(default=None, max_length=20)
     material_number: str | None = Field(default=None, max_length=100)
     specification: str | None = Field(default=None, max_length=255)
@@ -79,6 +87,10 @@ class MasterDataRead(BaseModel):
     default_unit_id: UUID | None = None
     item_category_id: UUID | None = None
     sub_category_id: UUID | None = None
+    primary_category_id: UUID | None = None
+    secondary_category_id: UUID | None = None
+    tertiary_category_id: UUID | None = None
+    sequence: int | None = None
     rate_basis: str | None = None
     material_number: str | None = None
     specification: str | None = None
@@ -98,6 +110,10 @@ class MasterDataRead(BaseModel):
     item_category_name: str | None = None
     sub_category_code: str | None = None
     sub_category_name: str | None = None
+    primary_category_code: str | None = None
+    primary_category_name: str | None = None
+    secondary_category_code: str | None = None
+    secondary_category_name: str | None = None
 
 
 class RateCreate(BaseModel):

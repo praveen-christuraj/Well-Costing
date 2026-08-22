@@ -20,10 +20,11 @@ export interface AppNavigationGroup {
 
 export const appNavigation: AppNavigationItem[] = [
   { key: 'dashboard', label: 'Dashboard', icon: 'pi pi-home', to: '/dashboard', enabled: true },
-  { key: 'master-data', label: 'Master Data', icon: 'pi pi-book', to: '/master-data/vendors', enabled: true },
+  { key: 'master-data', label: 'Master Data', icon: 'pi pi-book', to: '/master-data/primary-categories', enabled: true },
   { key: 'afe', label: 'AFE', icon: 'pi pi-clipboard', to: '/afe', enabled: true },
   { key: 'cost-builder', label: 'Cost Builder', icon: 'pi pi-calculator', to: '/cost-builder', enabled: true },
   { key: 'daily-cost', label: 'Daily Cost', icon: 'pi pi-calendar-plus', to: '/daily-cost', enabled: true },
+  { key: 'well-activities', label: 'Well Activities', icon: 'pi pi-list-check', to: '/daily-cost/well-activities', enabled: true },
   { key: 'cost-control', label: 'Cost Control', icon: 'pi pi-arrow-right-arrow-left', to: '/cost-control', enabled: true },
   { key: 'reports', label: 'Reports', icon: 'pi pi-chart-bar', to: '/reports', enabled: true },
   { key: 'assurance', label: 'Assurance', icon: 'pi pi-shield', to: '/assurance', enabled: true },
@@ -39,7 +40,7 @@ const GROUPS: { key: string, label: string, keys: string[] }[] = [
   { key: 'home', label: 'Home', keys: ['dashboard'] },
   { key: 'foundation', label: 'Master Data', keys: ['master-data'] },
   { key: 'planning', label: 'Planning', keys: ['afe', 'cost-builder'] },
-  { key: 'execution', label: 'Execution', keys: ['daily-cost', 'cost-control', 'reports', 'assurance', 'audit'] },
+  { key: 'execution', label: 'Execution', keys: ['daily-cost', 'well-activities', 'cost-control', 'reports', 'assurance', 'audit'] },
   { key: 'configuration', label: 'Configuration', keys: ['administration'] },
   { key: 'support', label: 'Support', keys: ['help'] },
 ]

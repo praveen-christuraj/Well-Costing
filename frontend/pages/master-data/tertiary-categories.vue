@@ -1,4 +1,7 @@
-/** Cost category register — the top level of the cost classification hierarchy. */
+/** Tertiary Category — third-level classification linked to a Secondary Category.
+
+Auto-links to the Primary Category through its Secondary parent.
+*/
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import EnterpriseGrid from '~/components/data-grid/EnterpriseGrid.vue'
@@ -11,17 +14,16 @@ definePageMeta({ middleware: 'auth' })
 
 const api = useMasterData()
 const references = useReferenceOptions()
-const entity = 'cost-categories'
+const entity = 'tertiary-categories'
 
 onMounted(() => {
-  void references.load(['cost-categories', 'secondary-categories'])
+  void references.load(['secondary-categories'])
 })
 
 const columns = computed<GridColumn[]>(() => [
-  { field: 'code', header: 'Category code', required: true, sortable: true, width: '170px', placeholder: 'e.g. DRILL, SERV, TANG' },
-  { field: 'name', header: 'Category name', required: true, sortable: true, width: '230px', placeholder: 'e.g. Drilling, Services' },
-  { field: 'parent_id', header: 'Parent category', type: 'select', options: references.costCategories.value, width: '210px' },
-  { field: 'secondary_category_id', header: 'Secondary Category', type: 'select', options: references.secondaryCategories.value, width: '240px' },
+  { field: 'code', header: 'Tertiary code', required: true, sortable: true, width: '170px', placeholder: 'e.g. HOIST, ROT' },
+  { field: 'name', header: 'Tertiary name', required: true, sortable: true, width: '240px', placeholder: 'e.g. Hoisting, Rotating' },
+  { field: 'secondary_category_id', header: 'Secondary Category', type: 'select', options: references.secondaryCategories.value, required: true, width: '240px' },
   { field: 'description', header: 'Description', type: 'textarea', width: '280px' },
   { field: 'is_active', header: 'Status', type: 'checkbox', width: '110px' },
 ])
@@ -36,7 +38,6 @@ function toRow(record: Record<string, unknown>) {
     id: item.id,
     code: item.code,
     name: item.name,
-    parent_id: item.parent_id ?? '',
     secondary_category_id: item.secondary_category_id ?? '',
     description: item.description ?? '',
     is_active: item.is_active,
@@ -47,31 +48,31 @@ function toPayload(row: EditableRow) {
   return {
     code: String(row.code ?? '').trim(),
     name: String(row.name ?? '').trim(),
-    parent_id: row.parent_id || null,
     secondary_category_id: row.secondary_category_id || null,
     description: row.description || null,
     is_active: row.is_active !== false,
   }
 }
 
-const blankRow = () => ({ code: '', name: '', parent_id: '', secondary_category_id: '', description: '', is_active: true })
-
-const description = computed(
-  () => 'Group cost codes under the categories used in reporting and costing — Drilling, Services, Tangibles, Consumables, and so on. Cost codes belong to a category; categories keep the code list organised and summarise neatly.',
-)
+const blankRow = () => ({ code: '', name: '', secondary_category_id: '', description: '', is_active: true })
 </script>
 
 <template>
   <div class="library-page">
-    <PageHeader title="Cost Categories" :description="description" />
-    <MasterDataNav active="cost-categories" />
+    <PageHeader
+      title="Tertiary Categories"
+      description="Third-level classification linked to a Secondary Category. The Primary Category is auto-resolved through the Secondary parent — for example Drilling → Rig Operations → Hoisting."
+    />
+    <MasterDataNav active="tertiary-categories" />
+
     <div class="uom-tip">
       <i class="pi pi-info-circle" aria-hidden="true" />
-      <span>Create your cost categories first. Every Cost Code you define next must belong to one of these categories, so plan the grouping before you start adding codes.</span>
+      <span>Configure Primary and Secondary Categories first. Each Tertiary Category links to a Secondary Category, which auto-resolves the Primary.</span>
     </div>
+
     <EnterpriseGrid
-      title="Cost categories"
-      singular="cost category"
+      title="Tertiary categories"
+      singular="tertiary category"
       :columns="columns"
       :fetch-page="fetchPage"
       :to-row="toRow"
@@ -81,10 +82,10 @@ const description = computed(
       :bulk-create="rows => api.bulkCreate(entity, rows as never)"
       :bulk-update="rows => api.bulkUpdate(entity, rows as never)"
       :remove-record="(id, hard) => (hard ? api.remove(entity, id) : api.deactivate(entity, id))"
-      import-entity="cost-categories"
-      export-entity="cost-categories"
+      import-entity="tertiary-categories"
+      export-entity="tertiary-categories"
       default-sort="code"
-      search-placeholder="Search by category code or name…"
+      search-placeholder="Search tertiary categories…"
     />
   </div>
 </template>

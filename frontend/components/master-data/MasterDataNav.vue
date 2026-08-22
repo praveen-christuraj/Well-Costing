@@ -15,13 +15,23 @@ defineProps<{ active: string }>()
 
 const groups: NavGroup[] = [
   {
+    label: 'Classification',
+    items: [
+      { key: 'primary-categories', label: 'Primary Categories', to: '/master-data/primary-categories' },
+      { key: 'secondary-categories', label: 'Secondary Categories', to: '/master-data/secondary-categories' },
+      { key: 'tertiary-categories', label: 'Tertiary Categories', to: '/master-data/tertiary-categories' },
+    ],
+  },
+  {
     label: 'Configuration',
     items: [
       { key: 'units', label: 'Units of Measure', to: '/master-data/units' },
       { key: 'currencies', label: 'Currencies', to: '/master-data/currencies' },
+      { key: 'hole-sections', label: 'Hole Sections', to: '/master-data/hole-sections' },
+      { key: 'phases', label: 'Phases', to: '/master-data/phases' },
+      { key: 'activities', label: 'Activities', to: '/master-data/activities' },
       { key: 'item-categories', label: 'Item Categories', to: '/master-data/item-categories' },
       { key: 'item-subcategories', label: 'Item Sub Categories', to: '/master-data/item-subcategories' },
-      { key: 'hole-sections', label: 'Hole Sections', to: '/master-data/hole-sections' },
     ],
   },
   {
