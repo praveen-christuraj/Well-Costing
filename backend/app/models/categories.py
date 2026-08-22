@@ -99,7 +99,14 @@ class TertiaryCategory(TimestampMixin, AuditMixin, Base):
         Boolean, default=True, server_default="true", index=True
     )
     secondary_category_id: Mapped[UUID] = mapped_column(
-        ForeignKey("secondary_categories.id", ondelete="RESTRICT"), index=True
+        ForeignKey(
+            "secondary_categories.id",
+            ondelete="RESTRICT",
+            # Convention-derived name is 65 chars (> PostgreSQL's 63-char limit);
+            # keep it in sync with the migration's explicit short name.
+            name="fk_tertiary_categories_secondary_category_id",
+        ),
+        index=True,
     )
 
     secondary_category: Mapped[SecondaryCategory] = relationship(
