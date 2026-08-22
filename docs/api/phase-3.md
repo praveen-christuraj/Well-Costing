@@ -12,6 +12,8 @@ replaced the former `/requirements` and `/requirement-items` routes.
 - `GET/PATCH/DELETE /api/v1/projects/{id}`
 - `POST /api/v1/projects/bulk/create`
 - `PATCH /api/v1/projects/bulk/update`
+- `POST /api/v1/projects/{id}/recover`
+- `DELETE /api/v1/projects/{id}/hard`
 
 ## Wells
 
@@ -19,6 +21,8 @@ replaced the former `/requirements` and `/requirement-items` routes.
 - `GET/PATCH/DELETE /api/v1/wells/{id}`
 - `POST /api/v1/wells/bulk/create`
 - `PATCH /api/v1/wells/bulk/update`
+- `POST /api/v1/wells/{id}/recover`
+- `DELETE /api/v1/wells/{id}/hard`
 - Filter by project and active status
 
 ## AFEs
@@ -28,6 +32,8 @@ replaced the former `/requirements` and `/requirement-items` routes.
 - `POST /api/v1/afes/bulk/create`
 - `PATCH /api/v1/afes/bulk/update`
 - `POST /api/v1/afes/{id}/submit`
+- `POST /api/v1/afes/{id}/recover`
+- `DELETE /api/v1/afes/{id}/hard`
 - Filter by search, project, well, status, and active state
 
 ## AFE lines
@@ -37,6 +43,28 @@ replaced the former `/requirements` and `/requirement-items` routes.
 - `POST /api/v1/afes/{id}/lines/bulk/create`
 - `PATCH /api/v1/afe-lines/bulk/update`
 - `PATCH/DELETE /api/v1/afe-lines/{line_id}`
+- `POST /api/v1/afe-lines/{line_id}/recover`
+- `GET /api/v1/afes/{id}/lines/removed`
+
+## The deletion procedure (all entities)
+
+Every user-created entry follows the same audited lifecycle so nothing is ever
+lost by accident and no deletion can corrupt references:
+
+1. **Soft delete** — `DELETE /{entity}/{id}` sets `is_active = false`. The row
+   stays in the database and in the audit trail; lists filter it out.
+2. **Recover** — `POST /{entity}/{id}/recover` restores a soft-deleted entry.
+   Refused with 409/422 when doing so would create a duplicate (same code, or
+   the parent project is itself deleted).
+3. **Permanent delete** — `DELETE /{entity}/{id}/hard` requires a soft delete
+   first and refuses with **409 Conflict** while other records still reference
+   the entry (an AFE with cost estimates, a well with AFEs, a project with
+   wells), naming what blocks it. AFE hard delete removes its sections, lines,
+   and audit history with it.
+
+Every create, update, soft delete, recover, and permanent delete writes an entry
+to the global audit log (`GET /api/v1/audit-logs`), and AFE-level lifecycle
+actions additionally write to the per-AFE audit history.
 
 ### Line fields that decide how a line is charged
 

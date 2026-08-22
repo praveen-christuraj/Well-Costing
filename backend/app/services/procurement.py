@@ -37,6 +37,7 @@ from app.schemas.procurement import (
     RateRevisionRead,
     ServiceOrderRead,
 )
+from app.services.audit import log_entity_action
 
 # ``Generic`` is used instead of PEP 695 type parameters so the module also imports
 # under Python 3.11 tooling; behaviour is identical on the supported 3.12+ runtime.
@@ -57,6 +58,29 @@ class _BaseService(Generic[ModelT, ReadT]):  # noqa: UP046
     def __init__(self, session: Session, actor_id: UUID) -> None:
         self.session = session
         self.actor_id = actor_id
+
+    @property
+    def entity_type(self) -> str:
+        """Audit entity type for this service's records."""
+
+        return self.label.lower().replace(" ", "_")
+
+    def _audit(
+        self,
+        action: str,
+        record_id: UUID | None,
+        record_code: str | None = None,
+        details: Any = None,
+    ) -> None:
+        log_entity_action(
+            self.session,
+            self.actor_id,
+            action,
+            self.entity_type,
+            entity_id=record_id,
+            entity_code=record_code,
+            details=details,
+        )
 
     # -- querying ---------------------------------------------------------
     def _apply_filters(self, statement: Select[Any], filters: dict[str, Any]) -> Select[Any]:
@@ -123,9 +147,10 @@ class _BaseService(Generic[ModelT, ReadT]):  # noqa: UP046
         self.session.add(record)
         try:
             self.session.flush()
+            self._audit("create", record.id, self._record_code(record), values)
             if commit:
                 self.session.commit()
-            self.session.refresh(record)
+                self.session.refresh(record)
         except IntegrityError as exc:
             self.session.rollback()
             raise ConflictError(
@@ -142,9 +167,10 @@ class _BaseService(Generic[ModelT, ReadT]):  # noqa: UP046
         record.updated_by = self.actor_id  # type: ignore[attr-defined]
         try:
             self.session.flush()
+            self._audit("update", record.id, self._record_code(record), values)
             if commit:
                 self.session.commit()
-            self.session.refresh(record)
+                self.session.refresh(record)
         except IntegrityError as exc:
             self.session.rollback()
             raise ConflictError(
@@ -156,12 +182,17 @@ class _BaseService(Generic[ModelT, ReadT]):  # noqa: UP046
         record = self._require(record_id)
         record.is_active = False  # type: ignore[attr-defined]
         record.updated_by = self.actor_id  # type: ignore[attr-defined]
+        self.session.flush()
+        self._audit("soft_delete", record.id, self._record_code(record), None)
         self.session.commit()
 
     def delete(self, record_id: UUID) -> None:
         record = self._require(record_id)
+        code = self._record_code(record)
         try:
             self.session.delete(record)
+            self.session.flush()
+            self._audit("hard_delete", record_id, code, None)
             self.session.commit()
         except IntegrityError as exc:
             self.session.rollback()
@@ -169,6 +200,14 @@ class _BaseService(Generic[ModelT, ReadT]):  # noqa: UP046
                 f"This {self.label.lower()} is referenced by other records and cannot be deleted. "
                 "Deactivate it instead."
             ) from exc
+
+    @staticmethod
+    def _record_code(record: Base) -> str | None:
+        for field in ("order_number", "code", "name"):
+            value = getattr(record, field, None)
+            if value:
+                return str(value)
+        return None
 
     def validate_bulk(self, rows: list[Any]) -> BulkValidationResult:
         errors: list[BulkRowError] = []
@@ -508,6 +547,17 @@ class ItemPriceService(_BaseService[ItemPrice, ItemPriceRead]):
             previous=previous_amount,
             previous_price_id=current.id,
             reason=payload.change_reason,
+        )
+        self._audit(
+            "update",
+            revision.id,
+            None,
+            {
+                "action": "revise",
+                "previous_price_id": str(current.id),
+                "previous_amount": str(previous_amount),
+                "reason": payload.change_reason,
+            },
         )
         self.session.commit()
         self.session.refresh(revision)

@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import BusinessValidationError, NotFoundError
+from app.core.exceptions import BusinessValidationError, ConflictError, NotFoundError
 from app.models.afe import Afe, Well
 from app.models.daily_cost import (
     DailyCostConsumableLine,
@@ -30,6 +30,7 @@ from app.schemas.daily_cost import (
     ReferenceServiceRate,
     ServiceBreakdownItem,
 )
+from app.services.audit import log_entity_action
 
 
 class DailyCostService:
@@ -80,6 +81,7 @@ class DailyCostService:
         )
 
         if not entry:
+            created = True
             entry = DailyCostEntry(
                 well_id=well_id,
                 afe_id=afe_id,
@@ -95,6 +97,7 @@ class DailyCostService:
             self.session.add(entry)
             self.session.flush()
         else:
+            created = False
             entry.afe_id = afe_id
             entry.hole_section_id = payload.hole_section_id
             entry.phase = payload.phase
@@ -170,19 +173,77 @@ class DailyCostService:
         entry.total_daily_cost = total_services + total_consumables
         self.session.flush()
 
+        log_entity_action(
+            self.session,
+            self.actor_id,
+            "create" if created else "update",
+            "daily_cost_entry",
+            entity_id=entry.id,
+            entity_code=str(entry.entry_date),
+            details={"well_id": str(well_id), "total": str(entry.total_daily_cost)},
+        )
         self._recompute_cumulative_costs(well_id)
         self.session.commit()
         self.session.refresh(entry)
         return self._read_entry(entry)
 
     def delete_entry(self, well_id: UUID, entry_id: UUID) -> None:
+        """Soft-delete a daily cost entry and recompute the cumulative costs."""
         entry = self.session.get(DailyCostEntry, entry_id)
         if not entry or entry.well_id != well_id:
             raise NotFoundError("Daily cost entry not found")
-        self.session.delete(entry)
+        if not entry.is_active:
+            raise BusinessValidationError("Daily cost entry is already deleted")
+        entry.is_active = False
+        entry.updated_by = self.actor_id
         self.session.flush()
+        log_entity_action(
+            self.session,
+            self.actor_id,
+            "soft_delete",
+            "daily_cost_entry",
+            entity_id=entry.id,
+            entity_code=str(entry.entry_date),
+            details={"well_id": str(well_id)},
+        )
         self._recompute_cumulative_costs(well_id)
         self.session.commit()
+
+    def recover_entry(self, well_id: UUID, entry_id: UUID) -> DailyCostEntryRead:
+        """Recover a soft-deleted daily cost entry."""
+        entry = self.session.get(DailyCostEntry, entry_id)
+        if not entry or entry.well_id != well_id:
+            raise NotFoundError("Daily cost entry not found")
+        if entry.is_active:
+            raise BusinessValidationError("Daily cost entry is not deleted and cannot be recovered")
+        existing = self.session.scalar(
+            select(DailyCostEntry).where(
+                DailyCostEntry.well_id == well_id,
+                DailyCostEntry.entry_date == entry.entry_date,
+                DailyCostEntry.is_active.is_(True),
+                DailyCostEntry.id != entry.id,
+            )
+        )
+        if existing:
+            raise ConflictError(
+                "An active entry for this date already exists. Delete it before recovering."
+            )
+        entry.is_active = True
+        entry.updated_by = self.actor_id
+        self.session.flush()
+        log_entity_action(
+            self.session,
+            self.actor_id,
+            "recover",
+            "daily_cost_entry",
+            entity_id=entry.id,
+            entity_code=str(entry.entry_date),
+            details={"well_id": str(well_id)},
+        )
+        self._recompute_cumulative_costs(well_id)
+        self.session.commit()
+        self.session.refresh(entry)
+        return self._read_entry(entry)
 
     def get_reference_rates(self, well_id: UUID) -> dict[str, list[Any]]:
         well = self.session.get(Well, well_id)

@@ -16,6 +16,47 @@ from app.schemas.audit import AuditLogRead
 logger = logging.getLogger("app.audit")
 
 
+def log_entity_action(
+    session: Session,
+    actor_id: UUID | None,
+    action: str,
+    entity_type: str,
+    entity_id: UUID | None = None,
+    entity_code: str | None = None,
+    details: Any | None = None,
+) -> None:
+    """Record a global audit entry for an entity action.
+
+    Shared by every service so create/update/soft_delete/recover/hard_delete all
+    follow the same audited procedure. Never raises: an audit failure must not
+    block the business operation the entry describes.
+    """
+
+    try:
+        actor_email = None
+        try:
+            from app.models.user import User
+
+            user = session.get(User, actor_id) if actor_id is not None else None
+            if user:
+                actor_email = user.email
+        except Exception:
+            pass
+        AuditService(session, actor_id, actor_email).log(
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            entity_code=entity_code,
+            details=details,
+            commit=False,
+        )
+    except Exception:
+        logger.exception(
+            "Audit log write failed",
+            extra={"action": action, "entity_type": entity_type, "entity_id": str(entity_id)},
+        )
+
+
 class AuditService:
     def __init__(self, session: Session, actor_id: UUID | None = None, actor_email: str | None = None) -> None:
         self.session = session

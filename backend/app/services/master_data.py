@@ -46,6 +46,7 @@ from app.schemas.master_data import (
     RateRead,
     RateUpdate,
 )
+from app.services.audit import log_entity_action
 
 
 @dataclass(frozen=True)
@@ -101,26 +102,15 @@ def get_entity_config(entity: str) -> EntityConfig:
 
 
 def _audit_master(session, actor_id, action, entity_type, entity_id, entity_code=None, details=None):
-    try:
-        from app.services.audit import AuditService
-        actor_email = None
-        try:
-            from app.models.user import User
-            u = session.get(User, actor_id)
-            if u:
-                actor_email = u.email
-        except Exception:
-            pass
-        AuditService(session, actor_id, actor_email).log(
-            action=action,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            entity_code=entity_code,
-            details=details,
-            commit=False,
-        )
-    except Exception:
-        pass
+    log_entity_action(
+        session,
+        actor_id,
+        action,
+        entity_type,
+        entity_id=entity_id,
+        entity_code=entity_code,
+        details=details,
+    )
 
 class MasterDataService:
     """Generic audited workflow for reference and catalogue entities."""

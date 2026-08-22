@@ -54,6 +54,7 @@ from app.schemas.afe import (
     WellUpdate,
 )
 from app.schemas.master_data import BulkRowError, BulkValidationResult, PageResponse
+from app.services.audit import log_entity_action
 
 
 def _page(items: list[Any], page: int, page_size: int, total: int) -> PageResponse:
@@ -67,28 +68,17 @@ def _page(items: list[Any], page: int, page_size: int, total: int) -> PageRespon
 
 
 def _audit(session: Session, actor_id: UUID, action: str, entity_type: str, entity_id: UUID | None, entity_code: str | None = None, details: Any | None = None) -> None:
-    try:
-        from app.services.audit import AuditService
-        # Lazy import to avoid circular imports; fetch email if possible
-        actor_email = None
-        try:
-            from app.models.user import User
-            user = session.get(User, actor_id)
-            if user:
-                actor_email = user.email
-        except Exception:
-            pass
-        AuditService(session, actor_id, actor_email).log(
-            action=action,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            entity_code=entity_code,
-            details=details if isinstance(details, (str, dict)) else str(details) if details is not None else None,
-            commit=False,
-        )
-    except Exception:
-        # Audit failures should not block main operation
-        pass
+    """Single audited-procedure hook shared by every entity action below."""
+
+    log_entity_action(
+        session,
+        actor_id,
+        action,
+        entity_type,
+        entity_id=entity_id,
+        entity_code=entity_code,
+        details=details,
+    )
 
 
 DEFAULT_DRILLING_PHASES = [
@@ -187,9 +177,34 @@ class DrillingPhaseService:
             raise NotFoundError("Drilling phase not found")
         phase.is_active = False
         phase.updated_by = self.actor_id
-        self.session.commit()
+        self.session.flush()
         _audit(self.session, self.actor_id, "soft_delete", "drilling_phase", phase.id, phase.code, None)
         self.session.commit()
+
+    def recover(self, phase_id: UUID) -> DrillingPhaseRead:
+        phase = self.session.get(DrillingPhase, phase_id)
+        if not phase:
+            raise NotFoundError("Drilling phase not found")
+        if phase.is_active:
+            raise BusinessValidationError("Drilling phase is not deleted and cannot be recovered")
+        existing = self.session.scalar(
+            select(DrillingPhase).where(
+                DrillingPhase.code == phase.code,
+                DrillingPhase.is_active.is_(True),
+                DrillingPhase.id != phase.id,
+            )
+        )
+        if existing:
+            raise ConflictError(
+                f"Cannot recover: an active drilling phase with code '{phase.code}' already exists"
+            )
+        phase.is_active = True
+        phase.updated_by = self.actor_id
+        self.session.commit()
+        self.session.refresh(phase)
+        _audit(self.session, self.actor_id, "recover", "drilling_phase", phase.id, phase.code, None)
+        self.session.commit()
+        return DrillingPhaseRead.model_validate(phase)
 
 
 class ProjectService:
@@ -267,6 +282,69 @@ class ProjectService:
         self.session.flush()
         _audit(self.session, self.actor_id, "soft_delete", "project", project.id, project.code, None)
         self.session.commit()
+
+    def recover(self, project_id: UUID) -> ProjectRead:
+        """Restore a soft-deleted project back to active use."""
+        project = self.repository.get(project_id)
+        if project is None:
+            raise NotFoundError("Project not found")
+        if project.is_active:
+            raise BusinessValidationError("Project is not deleted and cannot be recovered")
+        existing = self.session.scalar(
+            select(Project).where(
+                Project.code == project.code,
+                Project.is_active.is_(True),
+                Project.id != project.id,
+            )
+        )
+        if existing:
+            raise ConflictError(
+                f"Cannot recover: an active project with code '{project.code}' already exists"
+            )
+        project.is_active, project.updated_by = True, self.actor_id
+        self.session.flush()
+        _audit(self.session, self.actor_id, "recover", "project", project.id, project.code, None)
+        self.session.commit()
+        self.session.refresh(project)
+        return ProjectRead.model_validate(project)
+
+    def hard_delete(self, project_id: UUID) -> None:
+        """Permanently delete a soft-deleted project.
+
+        Refuses with a clear conflict message while the project still owns wells,
+        because wells reference projects with an ON DELETE RESTRICT constraint.
+        """
+
+        project = self.repository.get(project_id)
+        if project is None:
+            raise NotFoundError("Project not found")
+        if project.is_active:
+            raise BusinessValidationError(
+                "Project must be deleted (deactivated) before permanent deletion"
+            )
+        well_count = int(
+            self.session.scalar(
+                select(func.count()).select_from(Well).where(Well.project_id == project.id)
+            )
+            or 0
+        )
+        if well_count:
+            raise ConflictError(
+                f"Project '{project.code}' still has {well_count} well(s). "
+                "Delete its wells first before permanently deleting the project."
+            )
+        code = project.code
+        try:
+            self.session.delete(project)
+            self.session.flush()
+            _audit(self.session, self.actor_id, "hard_delete", "project", project_id, code, None)
+            self.session.commit()
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise ConflictError(
+                "This project is referenced by other records and cannot be permanently "
+                "deleted. Delete the referencing records first."
+            ) from exc
 
     def bulk_create(self, rows: list[ProjectCreate]) -> list[ProjectRead]:
         errors: list[BulkRowError] = []
@@ -383,6 +461,78 @@ class WellService:
         self.session.flush()
         _audit(self.session, self.actor_id, "soft_delete", "well", well.id, well.code, None)
         self.session.commit()
+
+    def recover(self, well_id: UUID) -> WellRead:
+        """Restore a soft-deleted well back to active use."""
+        well = self.repository.get(well_id)
+        if well is None:
+            raise NotFoundError("Well not found")
+        if well.is_active:
+            raise BusinessValidationError("Well is not deleted and cannot be recovered")
+        project = self.session.get(Project, well.project_id)
+        if project is None or not project.is_active:
+            raise BusinessValidationError(
+                "The project this well belongs to is deleted. Recover the project first."
+            )
+        existing = self.session.scalar(
+            select(Well).where(
+                Well.project_id == well.project_id,
+                Well.code == well.code,
+                Well.is_active.is_(True),
+                Well.id != well.id,
+            )
+        )
+        if existing:
+            raise ConflictError(
+                f"Cannot recover: an active well with code '{well.code}' already exists "
+                "in this project"
+            )
+        well.is_active, well.updated_by = True, self.actor_id
+        self.session.flush()
+        _audit(self.session, self.actor_id, "recover", "well", well.id, well.code, None)
+        self.session.commit()
+        self.session.refresh(well)
+        return self._read(well)
+
+    def hard_delete(self, well_id: UUID) -> None:
+        """Permanently delete a soft-deleted well.
+
+        Refuses with a clear conflict message while AFEs still reference the well,
+        because AFEs reference wells with an ON DELETE RESTRICT constraint. Well
+        rates, unplanned items, and daily cost entries are removed with the well
+        by the database's cascade rules.
+        """
+
+        well = self.repository.get(well_id)
+        if well is None:
+            raise NotFoundError("Well not found")
+        if well.is_active:
+            raise BusinessValidationError(
+                "Well must be deleted (deactivated) before permanent deletion"
+            )
+        afe_count = int(
+            self.session.scalar(
+                select(func.count()).select_from(Afe).where(Afe.well_id == well.id)
+            )
+            or 0
+        )
+        if afe_count:
+            raise ConflictError(
+                f"Well '{well.code}' still has {afe_count} AFE(s) (active or deleted). "
+                "Delete the AFEs permanently first, then delete the well."
+            )
+        code = well.code
+        try:
+            self.session.delete(well)
+            self.session.flush()
+            _audit(self.session, self.actor_id, "hard_delete", "well", well_id, code, None)
+            self.session.commit()
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise ConflictError(
+                "This well is referenced by other records and cannot be permanently "
+                "deleted. Delete the referencing records first."
+            ) from exc
 
     def bulk_create(self, rows: list[WellCreate]) -> list[WellRead]:
         try:
@@ -724,18 +874,46 @@ class AfeService:
         return self._read(afe, include_items=True)
 
     def hard_delete(self, afe_id: UUID) -> None:
-        """Permanently delete a soft-deleted AFE."""
+        """Permanently delete a soft-deleted AFE.
+
+        The AFE's own sections, lines, and audit trail are removed with it. A
+        clear conflict is raised when other records (cost estimates built in the
+        Cost Builder) still reference the AFE, instead of an unhandled database
+        error.
+        """
+
         afe = self.repository.get(afe_id)
         if afe is None:
             raise NotFoundError("AFE not found")
         if afe.is_active:
             raise BusinessValidationError("AFE must be soft-deleted before permanent deletion. Soft-delete it first.")
+        from app.models.estimates import CostEstimate
+
+        estimate_count = int(
+            self.session.scalar(
+                select(func.count()).select_from(CostEstimate).where(CostEstimate.afe_id == afe.id)
+            )
+            or 0
+        )
+        if estimate_count:
+            raise ConflictError(
+                f"AFE '{afe.code}' still has {estimate_count} cost estimate(s) built from it "
+                "in the Cost Builder. Delete those estimates first (Cost Builder → Delete → "
+                "Delete forever), then permanently delete the AFE."
+            )
         # Keep code for audit before deletion
         code = afe.code
-        self.session.delete(afe)
-        self.session.flush()
-        _audit(self.session, self.actor_id, "hard_delete", "afe", afe_id, code, None)
-        self.session.commit()
+        try:
+            self.session.delete(afe)
+            self.session.flush()
+            _audit(self.session, self.actor_id, "hard_delete", "afe", afe_id, code, None)
+            self.session.commit()
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise ConflictError(
+                "This AFE is referenced by other records and cannot be permanently deleted. "
+                "Delete the referencing records first."
+            ) from exc
 
     def bulk_create(self, rows: list[AfeCreate]) -> list[AfeRead]:
         try:
@@ -764,7 +942,8 @@ class AfeService:
 
     @staticmethod
     def _read(afe: Afe, include_items: bool) -> AfeRead:
-        items = [AfeLineService.read(item) for item in afe.items] if include_items else []
+        active_items = [item for item in (afe.items or []) if item.is_active]
+        items = [AfeLineService.read(item) for item in active_items] if include_items else []
         sections = [
             AfeSectionRead(
                 id=s.id,
@@ -828,7 +1007,7 @@ class AfeService:
                     afe.well.project.code if afe.well and afe.well.project else None
                 ),
                 "depth_unit_code": afe.depth_unit.code if afe.depth_unit else None,
-                "item_count": len(items) if include_items else len(afe.items),
+                "item_count": len(active_items),
                 "sections": sections,
                 "items": items,
                 "audit_logs": audit_logs,
@@ -843,7 +1022,16 @@ class AfeLineService:
 
     def list_items(self, afe_id: UUID) -> list[AfeLineRead]:
         self._afe(afe_id)
-        return [self.read(item) for item in self.repository.list_for_afe(afe_id)]
+        return [self.read(item) for item in self.repository.list_for_afe(afe_id) if item.is_active]
+
+    def list_removed_items(self, afe_id: UUID) -> list[AfeLineRead]:
+        """Soft-deleted lines of an AFE, for recovery in the lines workspace."""
+        self._afe(afe_id)
+        return [
+            self.read(item)
+            for item in self.repository.list_for_afe(afe_id)
+            if not item.is_active
+        ]
 
     def create(self, afe_id: UUID, payload: AfeLineCreate, commit: bool = True) -> AfeLineRead:
         afe = self._afe(afe_id, must_be_draft=True)
@@ -925,6 +1113,43 @@ class AfeLineService:
         self.session.flush()
         _audit(self.session, self.actor_id, "soft_delete", "afe_line", item.id, str(item.line_number), None)
         self.session.commit()
+
+    def recover(self, item_id: UUID) -> AfeLineRead:
+        """Restore a removed (soft-deleted) AFE line on a draft AFE."""
+        item = self.repository.get(item_id)
+        if item is None:
+            raise NotFoundError("AFE item not found")
+        afe = self._afe(item.afe_id, must_be_draft=True)
+        if item.is_active:
+            raise BusinessValidationError("AFE line is not deleted and cannot be recovered")
+        if item.line_number is not None:
+            clash = self.session.scalar(
+                select(AfeLine).where(
+                    AfeLine.afe_id == afe.id,
+                    AfeLine.line_number == item.line_number,
+                    AfeLine.is_active.is_(True),
+                    AfeLine.id != item.id,
+                )
+            )
+            if clash:
+                raise ConflictError(
+                    f"Line number {item.line_number} is already in use on this AFE. "
+                    "Edit the line numbers first, then recover the removed line."
+                )
+        item.is_active, item.updated_by = True, self.actor_id
+        self.session.flush()
+        _audit(
+            self.session,
+            self.actor_id,
+            "recover",
+            "afe_line",
+            item.id,
+            str(item.line_number),
+            None,
+        )
+        self.session.commit()
+        self.session.refresh(item)
+        return self.read(item)
 
     def validate_bulk(self, afe_id: UUID, rows: list[AfeLineCreate]) -> BulkValidationResult:
         afe = self._afe(afe_id, must_be_draft=True)
