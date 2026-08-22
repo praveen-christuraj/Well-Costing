@@ -3,8 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import CurrentUser
@@ -37,8 +36,11 @@ def list_estimates(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=500)] = 50,
     search: str | None = None,
+    is_active: bool | None = None,
 ) -> PageResponse:
-    return CostEstimateService(session, current_user.id).list_page(page, page_size, search)
+    return CostEstimateService(session, current_user.id).list_page(
+        page, page_size, search, is_active
+    )
 
 
 @router.post("/from-afe", response_model=EstimateRead, status_code=201)
@@ -152,3 +154,27 @@ def duplicate_version(
 @router.get("/{estimate_id}", response_model=EstimateRead)
 def get_estimate(estimate_id: UUID, current_user: CurrentUser, session: DbSession) -> EstimateRead:
     return CostEstimateService(session, current_user.id).get(estimate_id)
+
+
+@router.delete("/{estimate_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_estimate(estimate_id: UUID, current_user: CurrentUser, session: DbSession) -> Response:
+    """Soft-delete an estimate — it moves to the deleted state until recovered."""
+    CostEstimateService(session, current_user.id).deactivate(estimate_id)
+    return Response(status_code=204)
+
+
+@router.post("/{estimate_id}/recover", response_model=EstimateRead)
+def recover_estimate(
+    estimate_id: UUID, current_user: CurrentUser, session: DbSession
+) -> EstimateRead:
+    """Recover a soft-deleted estimate."""
+    return CostEstimateService(session, current_user.id).recover(estimate_id)
+
+
+@router.delete("/{estimate_id}/hard", status_code=status.HTTP_204_NO_CONTENT)
+def hard_delete_estimate(
+    estimate_id: UUID, current_user: CurrentUser, session: DbSession
+) -> Response:
+    """Permanently delete a soft-deleted estimate."""
+    CostEstimateService(session, current_user.id).hard_delete(estimate_id)
+    return Response(status_code=204)

@@ -1,5 +1,6 @@
 """Phase 4 estimate-build orchestration without cost calculations."""
 
+from datetime import UTC, datetime
 from math import ceil
 from typing import Never
 from uuid import UUID
@@ -22,13 +23,37 @@ from app.schemas.estimates import (
     EstimateVersionRead,
 )
 from app.schemas.master_data import PageResponse
+from app.services.audit import log_entity_action
 
 
 class CostEstimateService:
     def __init__(self, session: Session, actor_id: UUID) -> None:
         self.session, self.actor_id = session, actor_id
 
-    def list_page(self, page: int, page_size: int, search: str | None) -> PageResponse:
+    def _audit(
+        self,
+        action: str,
+        entity_id: UUID,
+        entity_code: str | None,
+        details: object = None,
+    ) -> None:
+        log_entity_action(
+            self.session,
+            self.actor_id,
+            action,
+            "estimate",
+            entity_id=entity_id,
+            entity_code=entity_code,
+            details=details,
+        )
+
+    def list_page(
+        self,
+        page: int,
+        page_size: int,
+        search: str | None,
+        is_active: bool | None = None,
+    ) -> PageResponse:
         statement = select(CostEstimate)
         count = select(func.count()).select_from(CostEstimate)
         if search:
@@ -39,6 +64,9 @@ class CostEstimateService:
             count = count.where(
                 CostEstimate.code.ilike(pattern) | CostEstimate.title.ilike(pattern)
             )
+        if is_active is not None:
+            statement = statement.where(CostEstimate.is_active.is_(is_active))
+            count = count.where(CostEstimate.is_active.is_(is_active))
         statement = (
             statement.order_by(CostEstimate.updated_at.desc())
             .offset((page - 1) * page_size)
@@ -104,12 +132,102 @@ class CostEstimateService:
             )
         self.session.add(estimate)
         try:
+            self.session.flush()
+            self._audit("create", estimate.id, estimate.code, {"afe_id": str(afe.id)})
             self.session.commit()
             self.session.refresh(estimate)
         except IntegrityError as exc:
             self.session.rollback()
             raise ConflictError("Estimate code already exists") from exc
         return self.read(estimate, include_versions=True)
+
+    def deactivate(self, estimate_id: UUID) -> None:
+        """Soft-delete an estimate — it disappears from the builder until recovered."""
+        estimate = self.session.get(CostEstimate, estimate_id)
+        if estimate is None:
+            raise NotFoundError("Estimate not found")
+        if not estimate.is_active:
+            raise BusinessValidationError("Estimate is already deleted")
+        estimate.is_active = False
+        estimate.deleted_at = datetime.now(UTC)
+        estimate.deleted_by = self.actor_id
+        estimate.updated_by = self.actor_id
+        self.session.flush()
+        self._audit("soft_delete", estimate.id, estimate.code, None)
+        self.session.commit()
+
+    def recover(self, estimate_id: UUID) -> EstimateRead:
+        """Recover a soft-deleted estimate."""
+        estimate = self.session.get(CostEstimate, estimate_id)
+        if estimate is None:
+            raise NotFoundError("Estimate not found")
+        if estimate.is_active:
+            raise BusinessValidationError("Estimate is not deleted and cannot be recovered")
+        existing = self.session.scalar(
+            select(CostEstimate).where(
+                CostEstimate.code == estimate.code,
+                CostEstimate.is_active.is_(True),
+                CostEstimate.id != estimate.id,
+            )
+        )
+        if existing:
+            raise ConflictError(
+                f"Cannot recover: an active estimate with code '{estimate.code}' already exists"
+            )
+        estimate.is_active = True
+        estimate.deleted_at = None
+        estimate.deleted_by = None
+        estimate.updated_by = self.actor_id
+        self.session.flush()
+        self._audit("recover", estimate.id, estimate.code, None)
+        self.session.commit()
+        self.session.refresh(estimate)
+        return self.read(estimate, include_versions=True)
+
+    def hard_delete(self, estimate_id: UUID) -> None:
+        """Permanently delete a soft-deleted estimate and its versions.
+
+        Refuses while an immutable baseline AFE snapshot still pins one of the
+        estimate's versions — those snapshots are audit artefacts.
+        """
+
+        from app.models.afe_snapshots import AfeSnapshot
+
+        estimate = self.session.get(CostEstimate, estimate_id)
+        if estimate is None:
+            raise NotFoundError("Estimate not found")
+        if estimate.is_active:
+            raise BusinessValidationError(
+                "Estimate must be deleted first before permanent deletion"
+            )
+        version_ids = [version.id for version in estimate.versions]
+        snapshot_count = 0
+        if version_ids:
+            snapshot_count = int(
+                self.session.scalar(
+                    select(func.count())
+                    .select_from(AfeSnapshot)
+                    .where(AfeSnapshot.estimate_version_id.in_(version_ids))
+                )
+                or 0
+            )
+        if snapshot_count:
+            raise ConflictError(
+                f"Estimate '{estimate.code}' has {snapshot_count} immutable baseline AFE "
+                "snapshot(s) and cannot be permanently deleted."
+            )
+        code = estimate.code
+        try:
+            self.session.delete(estimate)
+            self.session.flush()
+            self._audit("hard_delete", estimate_id, code, None)
+            self.session.commit()
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise ConflictError(
+                "This estimate is referenced by other records and cannot be permanently "
+                "deleted. Remove the referencing records first."
+            ) from exc
 
     def bulk_update_items(
         self, rows: list[tuple[UUID, EstimateItemUpdate]]
@@ -131,6 +249,14 @@ class CostEstimateService:
                 )
                 item.updated_by = self.actor_id
                 changed.append(item)
+            self.session.flush()
+            if changed:
+                self._audit(
+                    "update",
+                    changed[0].version.estimate_id,
+                    None,
+                    {"action": "bulk_update_items", "rows": len(rows)},
+                )
             self.session.commit()
         except Exception:
             self.session.rollback()
@@ -157,6 +283,13 @@ class CostEstimateService:
                 )
                 item.updated_by = self.actor_id
                 result.append(self.read_item(item))
+            self.session.flush()
+            self._audit(
+                "update",
+                version.estimate_id,
+                None,
+                {"action": "bulk_assign", "items": len(payload.item_ids)},
+            )
             self.session.commit()
         except Exception:
             self.session.rollback()
@@ -188,6 +321,13 @@ class CostEstimateService:
             next_line += 1
             self.session.add(copy)
             created.append(copy)
+        self.session.flush()
+        self._audit(
+            "create",
+            version.estimate_id,
+            None,
+            {"action": "duplicate_items", "count": len(created)},
+        )
         self.session.commit()
         for item in created:
             self.session.refresh(item)
@@ -217,6 +357,8 @@ class CostEstimateService:
         for field, value in payload.model_dump(exclude_unset=True).items():
             setattr(existing, field, value)
         existing.updated_by = self.actor_id
+        self.session.flush()
+        self._audit("update", version.estimate_id, None, {"action": "upsert_assumption"})
         self.session.commit()
         self.session.refresh(version)
         return self.read_version(version)
@@ -265,6 +407,13 @@ class CostEstimateService:
         estimate.versions.append(version)
         estimate.current_version_number = next_number
         estimate.updated_by = self.actor_id
+        self.session.flush()
+        self._audit(
+            "create",
+            estimate.id,
+            estimate.code,
+            {"action": "duplicate_version", "version": next_number},
+        )
         self.session.commit()
         self.session.refresh(version)
         return self.read_version(version)
@@ -325,6 +474,8 @@ class CostEstimateService:
                 "currency_id": estimate.currency_id,
                 "currency_code": currency.code if currency else None,
                 "current_version_number": estimate.current_version_number,
+                "is_active": estimate.is_active,
+                "deleted_at": estimate.deleted_at,
                 "versions": [cls.read_version(version) for version in estimate.versions]
                 if include_versions
                 else [],

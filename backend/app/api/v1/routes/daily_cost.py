@@ -60,6 +60,17 @@ def delete_daily_cost_entry(
     return Response(status_code=204)
 
 
+@router.post("/{entry_id}/recover", response_model=DailyCostEntryRead)
+def recover_daily_cost_entry(
+    well_id: UUID,
+    entry_id: UUID,
+    current_user: CurrentUser,
+    session: DbSession,
+) -> DailyCostEntryRead:
+    """Recover a deleted daily cost entry."""
+    return DailyCostService(session, current_user.id).recover_entry(well_id, entry_id)
+
+
 @router.get("/analytics", response_model=DailyCostAnalyticsRead)
 def get_daily_cost_analytics(
     well_id: UUID,

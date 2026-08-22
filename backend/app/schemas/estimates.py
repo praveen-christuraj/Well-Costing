@@ -83,6 +83,8 @@ class EstimateRead(BaseModel):
     currency_id: UUID
     currency_code: str | None = None
     current_version_number: int
+    is_active: bool = True
+    deleted_at: datetime | None = None
     versions: list[EstimateVersionRead]
     created_at: datetime
     created_by: UUID | None

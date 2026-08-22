@@ -843,6 +843,7 @@
   .login-card__footer > a { color: var(--app-teal); text-align: center; font-size: .8rem; }
   .login-card__note { padding: 11px 12px; border: 1px solid #d8ebe7; border-radius: 10px; background: #f3faf8; color: #24534f; font-size: .76rem; line-height: 1.45; }
   .error-copy { color: #b42318; }
+  .success-copy { color: #067647; }
 
   .requirements-page, .requirement-detail-page { width: min(1580px, 100%); margin: 0 auto; }
   .intake-columns { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(220px, .8fr) minmax(420px, 1.4fr); gap: 14px; }

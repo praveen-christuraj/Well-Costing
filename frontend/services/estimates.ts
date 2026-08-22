@@ -5,9 +5,15 @@ import type { PageResponse } from '~/types/masterData'
 
 export class EstimateApi {
   constructor(private readonly api: ApiClient) {}
-  list(): Promise<PageResponse<Estimate>> { return this.api.get('/estimates?page=1&page_size=500') }
+  list(isActive: boolean | null = true): Promise<PageResponse<Estimate>> {
+    const query = isActive === null ? '' : `&is_active=${isActive}`
+    return this.api.get(`/estimates?page=1&page_size=500${query}`)
+  }
   get(id: string): Promise<Estimate> { return this.api.get(`/estimates/${id}`) }
   generate(payload: Record<string, unknown>): Promise<Estimate> { return this.api.post('/estimates/from-afe', payload) }
+  delete(id: string): Promise<undefined> { return this.api.delete(`/estimates/${id}`) }
+  recover(id: string): Promise<Estimate> { return this.api.post(`/estimates/${id}/recover`, {}) }
+  hardDelete(id: string): Promise<undefined> { return this.api.delete(`/estimates/${id}/hard`) }
   updateItems(rows: Record<string, unknown>[]): Promise<EstimateItem[]> { return this.api.patch('/estimates/items/bulk', { rows }) }
   assign(versionId: string, itemIds: string[], vendorId: string | null, rateId: string | null): Promise<EstimateItem[]> { return this.api.post(`/estimates/versions/${versionId}/bulk-assign`, { item_ids: itemIds, vendor_id: vendorId, rate_id: rateId }) }
   duplicateItems(versionId: string, itemIds: string[]): Promise<EstimateItem[]> { return this.api.post(`/estimates/versions/${versionId}/duplicate-items`, { item_ids: itemIds }) }

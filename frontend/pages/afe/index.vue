@@ -110,8 +110,37 @@ async function saveProject(): Promise<void> {
 }
 
 async function deactivateProject(record: ProjectRecord): Promise<void> {
-  if (!window.confirm(`Deactivate project ${record.code}? Wells and AFEs stay in place but it can no longer be used.`)) return
-  await api.deleteProject(record.id)
+  if (!window.confirm(`Delete project ${record.code}? It moves to the deleted list — wells and AFEs stay in place, and it can be recovered or permanently deleted from there.`)) return
+  error.value = null
+  try { await api.deleteProject(record.id) }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The project could not be deleted.'
+    return
+  }
+  success.value = `Project ${record.code} deleted.`
+  await loadAll()
+}
+
+async function recoverProject(record: ProjectRecord): Promise<void> {
+  error.value = null
+  try { await api.recoverProject(record.id) }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The project could not be recovered.'
+    return
+  }
+  success.value = `Project ${record.code} recovered.`
+  await loadAll()
+}
+
+async function hardDeleteProject(record: ProjectRecord): Promise<void> {
+  if (!window.confirm(`Permanently delete project ${record.code}? This cannot be undone. Projects with wells cannot be permanently deleted — delete their wells first.`)) return
+  error.value = null
+  try { await api.hardDeleteProject(record.id) }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The project could not be permanently deleted.'
+    return
+  }
+  success.value = `Project ${record.code} permanently deleted.`
   await loadAll()
 }
 
@@ -194,8 +223,37 @@ async function saveWell(): Promise<void> {
 }
 
 async function deactivateWell(record: WellRecord): Promise<void> {
-  if (!window.confirm(`Deactivate well ${record.code}? It can no longer be used on new AFEs.`)) return
-  await api.deleteWell(record.id)
+  if (!window.confirm(`Delete well ${record.code}? It moves to the deleted list — existing AFEs stay in place, and it can be recovered or permanently deleted from there.`)) return
+  error.value = null
+  try { await api.deleteWell(record.id) }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The well could not be deleted.'
+    return
+  }
+  success.value = `Well ${record.code} deleted.`
+  await loadAll()
+}
+
+async function recoverWell(record: WellRecord): Promise<void> {
+  error.value = null
+  try { await api.recoverWell(record.id) }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The well could not be recovered.'
+    return
+  }
+  success.value = `Well ${record.code} recovered.`
+  await loadAll()
+}
+
+async function hardDeleteWell(record: WellRecord): Promise<void> {
+  if (!window.confirm(`Permanently delete well ${record.code}? This cannot be undone and removes its rates and daily cost entries. Wells with AFEs cannot be permanently deleted — delete those AFEs first.`)) return
+  error.value = null
+  try { await api.hardDeleteWell(record.id) }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The well could not be permanently deleted.'
+    return
+  }
+  success.value = `Well ${record.code} permanently deleted.`
   await loadAll()
 }
 
@@ -627,12 +685,47 @@ function removeLine(line: EditableAfeLine): void {
     lines.value = lines.value.filter(candidate => candidate !== line)
     return
   }
-  if (!window.confirm('Remove this line from the AFE?')) return
+  if (!window.confirm('Remove this line from the AFE? Removed lines can be restored with "Removed lines".')) return
   void api.deactivateLine(String(line.id))
-    .then(loadLines)
+    .then(() => Promise.all([loadLines(), loadRemovedLines()]))
     .catch((caught: unknown) => {
       error.value = caught instanceof Error ? caught.message : 'The line could not be removed.'
     })
+}
+
+/* --------------------------------------------- removed line recovery -------- */
+const removedLinesVisible = ref(false)
+const removedLines = ref<AfeLineRecord[]>([])
+
+async function loadRemovedLines(): Promise<void> {
+  if (!selectedAfeId.value || !isDraft.value) {
+    removedLines.value = []
+    return
+  }
+  try {
+    removedLines.value = await api.listRemovedLines(selectedAfeId.value)
+  }
+  catch {
+    removedLines.value = []
+  }
+}
+
+function openRemovedLines(): void {
+  removedLinesVisible.value = true
+}
+
+async function recoverRemovedLine(line: AfeLineRecord): Promise<void> {
+  error.value = null
+  try {
+    await api.recoverLine(line.id)
+    removedLines.value = removedLines.value.filter(candidate => candidate.id !== line.id)
+    await loadLines()
+    if (!removedLines.value.length) removedLinesVisible.value = false
+    success.value = `Line ${line.line_number} restored.`
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The line could not be restored.'
+  }
 }
 
 function applyPaste(): void {
@@ -755,7 +848,16 @@ async function download(kind: 'export' | 'template'): Promise<void> {
 }
 
 /* --------------------------------------------------------------- loading ---- */
+const showDeletedProjects = ref(false)
+const showDeletedWells = ref(false)
+
 const filteredWells = computed(() => (projectFilter.value ? wells.value.filter(well => well.project_id === projectFilter.value) : wells.value))
+const deletedProjectCount = computed(() => projects.value.filter(project => !project.is_active).length)
+const deletedWellCount = computed(() => filteredWells.value.filter(well => !well.is_active).length)
+const visibleProjects = computed(() =>
+  showDeletedProjects.value ? projects.value : projects.value.filter(project => project.is_active))
+const visibleWells = computed(() =>
+  showDeletedWells.value ? filteredWells.value : filteredWells.value.filter(well => well.is_active))
 const filteredAfes = computed(() => afes.value.filter(afe =>
   (!wellFilter.value || afe.well_id === wellFilter.value)
   && (!statusFilter.value || afe.status === statusFilter.value),
@@ -784,6 +886,7 @@ async function loadLines(): Promise<void> {
   if (!selectedAfeId.value) {
     selectedAfe.value = null
     lines.value = []
+    removedLines.value = []
     return
   }
   loadingLines.value = true
@@ -792,6 +895,7 @@ async function loadLines(): Promise<void> {
     const detail = await api.getAfe(selectedAfeId.value)
     selectedAfe.value = detail
     lines.value = detail.items.map(toEditable)
+    await loadRemovedLines()
   }
   catch (caught: unknown) {
     error.value = caught instanceof Error ? caught.message : 'The AFE lines could not be loaded.'
@@ -889,22 +993,36 @@ onMounted(() => void loadAll())
             <div class="grid-toolbar">
               <div><strong>Projects</strong><small class="toolbar-note">The top-level grouping every well belongs to. Register projects before wells.</small></div>
               <div class="grid-toolbar__actions">
+                <Button
+                  :label="showDeletedProjects ? 'Hide deleted' : `Deleted (${deletedProjectCount})`"
+                  icon="pi pi-trash"
+                  text
+                  severity="secondary"
+                  :disabled="!deletedProjectCount && !showDeletedProjects"
+                  @click="showDeletedProjects = !showDeletedProjects"
+                />
                 <Button label="Add project" icon="pi pi-plus" @click="openProjectDialog()" />
               </div>
             </div>
-            <DataTable :value="projects" data-key="id" striped-rows show-gridlines size="small" :rows="10" paginator class="afe-table">
+            <DataTable :value="visibleProjects" data-key="id" striped-rows show-gridlines size="small" :rows="10" paginator class="afe-table">
               <Column field="code" header="Code" sortable />
               <Column field="name" header="Name" sortable />
               <Column field="description" header="Description" />
               <Column header="Status">
                 <template #body="{ data }">
-                  <Tag :value="data.is_active ? 'Active' : 'Inactive'" :severity="data.is_active ? 'success' : 'secondary'" />
+                  <Tag :value="data.is_active ? 'Active' : 'Deleted'" :severity="data.is_active ? 'success' : 'danger'" />
                 </template>
               </Column>
-              <Column header="Actions" :style="{ width: '160px' }">
+              <Column header="Actions" :style="{ width: '170px' }">
                 <template #body="{ data }">
-                  <Button icon="pi pi-pencil" size="small" text severity="secondary" aria-label="Edit project" @click="openProjectDialog(data)" />
-                  <Button icon="pi pi-ban" size="small" text severity="danger" aria-label="Deactivate project" @click="deactivateProject(data)" />
+                  <template v-if="data.is_active">
+                    <Button icon="pi pi-pencil" size="small" text severity="secondary" aria-label="Edit project" @click="openProjectDialog(data)" />
+                    <Button icon="pi pi-trash" size="small" text severity="danger" aria-label="Delete project" title="Delete (recoverable)" @click="deactivateProject(data)" />
+                  </template>
+                  <template v-else>
+                    <Button icon="pi pi-undo" size="small" text severity="success" aria-label="Recover project" title="Recover project" @click="recoverProject(data)" />
+                    <Button icon="pi pi-trash" size="small" text severity="danger" aria-label="Permanently delete project" title="Delete forever" @click="hardDeleteProject(data)" />
+                  </template>
                 </template>
               </Column>
               <template #empty>No projects yet — create the first one to start entering well data.</template>
@@ -921,10 +1039,18 @@ onMounted(() => void loadAll())
                 <Select v-model="projectFilter" :options="projects" option-label="code" option-value="id" placeholder="All projects" show-clear filter style="width: 180px; margin-left: 1rem" />
               </div>
               <div class="grid-toolbar__actions">
+                <Button
+                  :label="showDeletedWells ? 'Hide deleted' : `Deleted (${deletedWellCount})`"
+                  icon="pi pi-trash"
+                  text
+                  severity="secondary"
+                  :disabled="!deletedWellCount && !showDeletedWells"
+                  @click="showDeletedWells = !showDeletedWells"
+                />
                 <Button label="Add well" icon="pi pi-plus" @click="openWellDialog()" />
               </div>
             </div>
-            <DataTable :value="filteredWells" data-key="id" striped-rows show-gridlines size="small" :rows="10" paginator class="afe-table">
+            <DataTable :value="visibleWells" data-key="id" striped-rows show-gridlines size="small" :rows="10" paginator class="afe-table">
               <Column field="code" header="Code" sortable />
               <Column field="name" header="Name" sortable />
               <Column header="Project">
@@ -938,13 +1064,24 @@ onMounted(() => void loadAll())
                   <Tag :value="data.status.replace('_', ' ')" :severity="data.status === 'active' ? 'success' : 'info'" />
                 </template>
               </Column>
+              <Column header="Record">
+                <template #body="{ data }">
+                  <Tag :value="data.is_active ? 'Active' : 'Deleted'" :severity="data.is_active ? 'success' : 'danger'" />
+                </template>
+              </Column>
               <Column field="spud_date" header="Spud date">
                 <template #body="{ data }">{{ data.spud_date ?? '—' }}</template>
               </Column>
-              <Column header="Actions" :style="{ width: '160px' }">
+              <Column header="Actions" :style="{ width: '170px' }">
                 <template #body="{ data }">
-                  <Button icon="pi pi-pencil" size="small" text severity="secondary" aria-label="Edit well" @click="openWellDialog(data)" />
-                  <Button icon="pi pi-ban" size="small" text severity="danger" aria-label="Deactivate well" @click="deactivateWell(data)" />
+                  <template v-if="data.is_active">
+                    <Button icon="pi pi-pencil" size="small" text severity="secondary" aria-label="Edit well" @click="openWellDialog(data)" />
+                    <Button icon="pi pi-trash" size="small" text severity="danger" aria-label="Delete well" title="Delete (recoverable)" @click="deactivateWell(data)" />
+                  </template>
+                  <template v-else>
+                    <Button icon="pi pi-undo" size="small" text severity="success" aria-label="Recover well" title="Recover well" @click="recoverWell(data)" />
+                    <Button icon="pi pi-trash" size="small" text severity="danger" aria-label="Permanently delete well" title="Delete forever" @click="hardDeleteWell(data)" />
+                  </template>
                 </template>
               </Column>
               <template #empty>No wells found for the current filters.</template>
@@ -1072,6 +1209,15 @@ onMounted(() => void loadAll())
               </div>
               <div class="grid-toolbar__actions">
                 <Button label="Add row" icon="pi pi-plus" :disabled="!isDraft" @click="addLine" />
+                <Button
+                  v-if="isDraft && removedLines.length"
+                  :label="`Removed (${removedLines.length})`"
+                  icon="pi pi-undo"
+                  text
+                  severity="warn"
+                  title="Restore removed lines"
+                  @click="openRemovedLines"
+                />
                 <Button label="Paste" icon="pi pi-clipboard" text :disabled="!isDraft" @click="pasteVisible = true" />
                 <Button label="Template" icon="pi pi-file-excel" text :disabled="!isDraft" @click="download('template')" />
                 <Button label="Export" icon="pi pi-download" text :disabled="!selectedAfeId" @click="download('export')" />
@@ -1444,6 +1590,31 @@ onMounted(() => void loadAll())
       </div>
       <template #footer>
         <Button label="Done" icon="pi pi-check" @click="phasesDialog = false" />
+      </template>
+    </Dialog>
+
+    <!-- Removed lines dialog -->
+    <Dialog v-model:visible="removedLinesVisible" modal header="Removed lines" :style="{ width: '640px' }">
+      <p class="afe-paste-hint">
+        Lines removed from this draft AFE. Restoring a line brings it back with its original details —
+        the action is recorded in the audit trail.
+      </p>
+      <DataTable :value="removedLines" data-key="id" striped-rows show-gridlines size="small">
+        <Column field="line_number" header="#" :style="{ width: '60px' }" />
+        <Column header="Item">
+          <template #body="{ data }">{{ data.catalog_item_name ?? data.catalog_item_code ?? '—' }}</template>
+        </Column>
+        <Column field="quantity" header="Qty" />
+        <Column field="unit_code" header="Unit" />
+        <Column header="Actions" :style="{ width: '120px' }">
+          <template #body="{ data }">
+            <Button label="Restore" icon="pi pi-undo" size="small" severity="success" text @click="recoverRemovedLine(data)" />
+          </template>
+        </Column>
+        <template #empty>No removed lines for this AFE.</template>
+      </DataTable>
+      <template #footer>
+        <Button label="Close" severity="secondary" text @click="removedLinesVisible = false" />
       </template>
     </Dialog>
 

@@ -1,10 +1,13 @@
 """Phase 4 estimate-build persistence models; calculated amounts remain null."""
 
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Integer,
     Numeric,
@@ -32,6 +35,11 @@ class CostEstimate(TimestampMixin, AuditMixin, Base):
         ForeignKey("currencies.id", ondelete="RESTRICT"), index=True
     )
     current_version_number: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[UUID | None] = mapped_column(nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", index=True
+    )
 
     afe: Mapped[Afe] = relationship(lazy="joined")
     currency: Mapped[Currency] = relationship(lazy="joined")

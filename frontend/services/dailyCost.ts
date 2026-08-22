@@ -24,6 +24,10 @@ export class DailyCostApi {
     return this.api.delete(`/wells/${wellId}/daily-cost/${entryId}`)
   }
 
+  recoverEntry(wellId: string, entryId: string): Promise<DailyCostEntry> {
+    return this.api.post(`/wells/${wellId}/daily-cost/${entryId}/recover`, {})
+  }
+
   getAnalytics(wellId: string): Promise<DailyCostAnalytics> {
     return this.api.get(`/wells/${wellId}/daily-cost/analytics`)
   }

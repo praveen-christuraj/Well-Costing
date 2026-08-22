@@ -78,6 +78,14 @@ def delete_drilling_phase(
     return Response(status_code=204)
 
 
+@router.post("/drilling-phases/{phase_id}/recover", response_model=DrillingPhaseRead)
+def recover_drilling_phase(
+    phase_id: UUID, current_user: CurrentUser, session: DbSession
+) -> DrillingPhaseRead:
+    """Recover a soft-deleted drilling phase."""
+    return DrillingPhaseService(session, current_user.id).recover(phase_id)
+
+
 # ------------------------------------------------------------------ Projects
 @router.get("/projects", response_model=PageResponse)
 def list_projects(
@@ -131,6 +139,21 @@ def update_project(
 @router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deactivate_project(project_id: UUID, current_user: CurrentUser, session: DbSession) -> Response:
     ProjectService(session, current_user.id).deactivate(project_id)
+    return Response(status_code=204)
+
+
+@router.post("/projects/{project_id}/recover", response_model=ProjectRead)
+def recover_project(project_id: UUID, current_user: CurrentUser, session: DbSession) -> ProjectRead:
+    """Recover a soft-deleted project."""
+    return ProjectService(session, current_user.id).recover(project_id)
+
+
+@router.delete("/projects/{project_id}/hard", status_code=status.HTTP_204_NO_CONTENT)
+def hard_delete_project(
+    project_id: UUID, current_user: CurrentUser, session: DbSession
+) -> Response:
+    """Permanently delete a soft-deleted project."""
+    ProjectService(session, current_user.id).hard_delete(project_id)
     return Response(status_code=204)
 
 
@@ -188,6 +211,19 @@ def update_well(
 @router.delete("/wells/{well_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deactivate_well(well_id: UUID, current_user: CurrentUser, session: DbSession) -> Response:
     WellService(session, current_user.id).deactivate(well_id)
+    return Response(status_code=204)
+
+
+@router.post("/wells/{well_id}/recover", response_model=WellRead)
+def recover_well(well_id: UUID, current_user: CurrentUser, session: DbSession) -> WellRead:
+    """Recover a soft-deleted well."""
+    return WellService(session, current_user.id).recover(well_id)
+
+
+@router.delete("/wells/{well_id}/hard", status_code=status.HTTP_204_NO_CONTENT)
+def hard_delete_well(well_id: UUID, current_user: CurrentUser, session: DbSession) -> Response:
+    """Permanently delete a soft-deleted well."""
+    WellService(session, current_user.id).hard_delete(well_id)
     return Response(status_code=204)
 
 
@@ -324,6 +360,20 @@ def update_afe_line(
 def deactivate_afe_line(line_id: UUID, current_user: CurrentUser, session: DbSession) -> Response:
     AfeLineService(session, current_user.id).deactivate(line_id)
     return Response(status_code=204)
+
+
+@router.post("/afe-lines/{line_id}/recover", response_model=AfeLineRead)
+def recover_afe_line(line_id: UUID, current_user: CurrentUser, session: DbSession) -> AfeLineRead:
+    """Restore a removed AFE line on a draft AFE."""
+    return AfeLineService(session, current_user.id).recover(line_id)
+
+
+@router.get("/afes/{afe_id}/lines/removed", response_model=list[AfeLineRead])
+def list_removed_afe_lines(
+    afe_id: UUID, current_user: CurrentUser, session: DbSession
+) -> list[AfeLineRead]:
+    """Removed (soft-deleted) lines of an AFE, offered for recovery."""
+    return AfeLineService(session, current_user.id).list_removed_items(afe_id)
 
 
 @router.get("/afes/{afe_id}", response_model=AfeRead)

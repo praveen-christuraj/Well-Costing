@@ -22,9 +22,19 @@ export class AfeApi {
     return this.api.delete(`/projects/${id}`)
   }
 
-  listWells(projectId?: string): Promise<PageResponse<WellRecord>> {
-    const query = projectId ? `&project_id=${projectId}` : ''
-    return this.api.get(`/wells?page=1&page_size=500${query}`)
+  recoverProject(id: string): Promise<ProjectRecord> {
+    return this.api.post(`/projects/${id}/recover`, {})
+  }
+
+  hardDeleteProject(id: string): Promise<undefined> {
+    return this.api.delete(`/projects/${id}/hard`)
+  }
+
+  listWells(projectId?: string, isActive: boolean | null = null): Promise<PageResponse<WellRecord>> {
+    const params = new URLSearchParams({ page: '1', page_size: '500' })
+    if (projectId) params.set('project_id', projectId)
+    if (isActive !== null) params.set('is_active', String(isActive))
+    return this.api.get(`/wells?${params}`)
   }
 
   createWell(payload: Record<string, unknown>): Promise<WellRecord> {
@@ -37,6 +47,14 @@ export class AfeApi {
 
   deleteWell(id: string): Promise<undefined> {
     return this.api.delete(`/wells/${id}`)
+  }
+
+  recoverWell(id: string): Promise<WellRecord> {
+    return this.api.post(`/wells/${id}/recover`, {})
+  }
+
+  hardDeleteWell(id: string): Promise<undefined> {
+    return this.api.delete(`/wells/${id}/hard`)
   }
 
   listAfes(wellId?: string, status?: string, isActive: boolean | null = true): Promise<PageResponse<AfeRecord>> {
@@ -109,6 +127,14 @@ export class AfeApi {
 
   deactivateLine(id: string): Promise<undefined> {
     return this.api.delete(`/afe-lines/${id}`)
+  }
+
+  recoverLine(id: string): Promise<AfeLineRecord> {
+    return this.api.post(`/afe-lines/${id}/recover`, {})
+  }
+
+  listRemovedLines(afeId: string): Promise<AfeLineRecord[]> {
+    return this.api.get(`/afes/${afeId}/lines/removed`)
   }
 
   submit(id: string): Promise<AfeRecord> {
