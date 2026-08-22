@@ -18,7 +18,9 @@ class DailyCostServiceLineInput(BaseModel):
     hole_section_id: UUID | None = None
     sub_activity_id: UUID | None = None
     service_type: str = "operation"
-    service_hours: Decimal = Field(default=Decimal("24.0"), ge=0, le=24, max_digits=8, decimal_places=2)
+    service_hours: Decimal = Field(
+        default=Decimal("24.0"), ge=0, le=24, max_digits=8, decimal_places=2
+    )
     rate_basis: Literal["daily", "per_service", "per_section", "fixed"] = "daily"
     unit_rate: Decimal = Money
     override_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
@@ -100,8 +102,8 @@ class DailyCostEntryCreate(BaseModel):
     current_depth: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=4)
     daily_progress: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=4)
     operational_summary: str | None = None
-    services: list[DailyCostServiceLineInput] = Field(default_factory=list)
-    consumables: list[DailyCostConsumableLineInput] = Field(default_factory=list)
+    services: list[DailyCostServiceLineInput] = Field(default_factory=lambda: [])
+    consumables: list[DailyCostConsumableLineInput] = Field(default_factory=lambda: [])
 
 
 class DailyCostEntryUpdate(BaseModel):
@@ -137,8 +139,8 @@ class DailyCostEntryRead(BaseModel):
     total_daily_cost: Decimal
     cumulative_cost: Decimal
     is_active: bool
-    services: list[DailyCostServiceLineRead] = Field(default_factory=list)
-    consumables: list[DailyCostConsumableLineRead] = Field(default_factory=list)
+    services: list[DailyCostServiceLineRead] = Field(default_factory=lambda: [])
+    consumables: list[DailyCostConsumableLineRead] = Field(default_factory=lambda: [])
     created_at: datetime
     updated_at: datetime
 
@@ -198,7 +200,7 @@ class ReferenceServiceRate(BaseModel):
     service_id: UUID
     service_code: str
     service_name: str
-    cost_code_id: UUID
+    cost_code_id: UUID | None = None
     cost_code: str
     vendor_id: UUID | None = None
     vendor_name: str | None = None
@@ -212,8 +214,8 @@ class ReferenceConsumableRate(BaseModel):
     consumable_code: str
     consumable_name: str
     item_type: str
-    cost_code_id: UUID
+    cost_code_id: UUID | None = None
     cost_code: str
-    unit_id: UUID
+    unit_id: UUID | None = None
     unit_code: str
     unit_rate: Decimal

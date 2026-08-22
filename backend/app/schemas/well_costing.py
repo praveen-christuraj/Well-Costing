@@ -263,9 +263,7 @@ class WellUnplannedItemCreate(BaseModel):
     @model_validator(mode="after")
     def check(self) -> "WellUnplannedItemCreate":
         if self.catalog_item_id is None and not (self.item_description or "").strip():
-            raise ValueError(
-                "item_description is required when the item is not in master data"
-            )
+            raise ValueError("item_description is required when the item is not in master data")
         return self
 
 

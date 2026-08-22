@@ -30,9 +30,7 @@ class PrimaryCategory(TimestampMixin, AuditMixin, Base):
     """
 
     __tablename__ = "primary_categories"
-    __table_args__ = (
-        UniqueConstraint("code", name="uq_primary_categories_code"),
-    )
+    __table_args__ = (UniqueConstraint("code", name="uq_primary_categories_code"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     code: Mapped[str] = mapped_column(String(100), unique=True, index=True)
@@ -56,9 +54,7 @@ class SecondaryCategory(TimestampMixin, AuditMixin, Base):
     """
 
     __tablename__ = "secondary_categories"
-    __table_args__ = (
-        UniqueConstraint("code", name="uq_secondary_categories_code"),
-    )
+    __table_args__ = (UniqueConstraint("code", name="uq_secondary_categories_code"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     code: Mapped[str] = mapped_column(String(100), unique=True, index=True)
@@ -87,9 +83,7 @@ class TertiaryCategory(TimestampMixin, AuditMixin, Base):
     """
 
     __tablename__ = "tertiary_categories"
-    __table_args__ = (
-        UniqueConstraint("code", name="uq_tertiary_categories_code"),
-    )
+    __table_args__ = (UniqueConstraint("code", name="uq_tertiary_categories_code"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     code: Mapped[str] = mapped_column(String(100), unique=True, index=True)
@@ -116,11 +110,7 @@ class TertiaryCategory(TimestampMixin, AuditMixin, Base):
     @property
     def primary_category(self) -> PrimaryCategory | None:
         """Auto-resolved through the secondary parent."""
-        return (
-            self.secondary_category.primary_category
-            if self.secondary_category
-            else None
-        )
+        return self.secondary_category.primary_category if self.secondary_category else None
 
 
 class Activity(TimestampMixin, AuditMixin, Base):
@@ -131,9 +121,7 @@ class Activity(TimestampMixin, AuditMixin, Base):
     """
 
     __tablename__ = "activities"
-    __table_args__ = (
-        UniqueConstraint("code", name="uq_activities_code"),
-    )
+    __table_args__ = (UniqueConstraint("code", name="uq_activities_code"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     code: Mapped[str] = mapped_column(String(50), unique=True, index=True)
@@ -158,14 +146,10 @@ class WellActivity(TimestampMixin, AuditMixin, Base):
     """
 
     __tablename__ = "well_activities"
-    __table_args__ = (
-        UniqueConstraint("well_id", "name", name="uq_well_activities_well_name"),
-    )
+    __table_args__ = (UniqueConstraint("well_id", "name", name="uq_well_activities_well_name"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    well_id: Mapped[UUID] = mapped_column(
-        ForeignKey("wells.id", ondelete="CASCADE"), index=True
-    )
+    well_id: Mapped[UUID] = mapped_column(ForeignKey("wells.id", ondelete="CASCADE"), index=True)
     activity_id: Mapped[UUID] = mapped_column(
         ForeignKey("activities.id", ondelete="RESTRICT"), index=True
     )

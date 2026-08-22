@@ -30,22 +30,22 @@ def required(name: str) -> str:
 
 
 def main() -> None:
-    email = required('PROVISION_USER_EMAIL').strip().lower()
-    password = required('PROVISION_USER_PASSWORD')
-    full_name = required('PROVISION_USER_FULL_NAME').strip()
-    role_name = os.getenv('PROVISION_USER_ROLE', 'admin').strip().lower() or 'admin'
+    email = required("PROVISION_USER_EMAIL").strip().lower()
+    password = required("PROVISION_USER_PASSWORD")
+    full_name = required("PROVISION_USER_FULL_NAME").strip()
+    role_name = os.getenv("PROVISION_USER_ROLE", "admin").strip().lower() or "admin"
 
     if len(password) < 12:
-        raise RuntimeError('PROVISION_USER_PASSWORD must contain at least 12 characters')
+        raise RuntimeError("PROVISION_USER_PASSWORD must contain at least 12 characters")
     if not full_name:
-        raise RuntimeError('PROVISION_USER_FULL_NAME cannot be blank')
+        raise RuntimeError("PROVISION_USER_FULL_NAME cannot be blank")
 
     with SessionLocal() as session:
         role = session.scalar(select(Role).where(Role.name == role_name))
         if role is not None and not role.is_active:
-            raise RuntimeError(f'Cannot provision users with inactive role: {role_name}')
+            raise RuntimeError(f"Cannot provision users with inactive role: {role_name}")
         if role is None:
-            role = Role(name=role_name, description=f'Provisioned role: {role_name}')
+            role = Role(name=role_name, description=f"Provisioned role: {role_name}")
             session.add(role)
 
         user = session.scalar(select(User).where(User.email == email))
@@ -57,19 +57,19 @@ def main() -> None:
                 roles=[role],
             )
             session.add(user)
-            action = 'Created'
+            action = "Created"
         else:
             user.full_name = full_name
             user.hashed_password = hash_password(password)
             user.is_active = True
             if role not in user.roles:
                 user.roles.append(role)
-            action = 'Updated'
+            action = "Updated"
 
         session.commit()
 
-    print(f'{action} hosted user: {email} (role: {role_name})')
+    print(f"{action} hosted user: {email} (role: {role_name})")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

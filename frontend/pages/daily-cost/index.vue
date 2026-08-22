@@ -97,7 +97,6 @@ function toDateString(value: Date | null): string {
 }
 
 const formattedDate = computed(() => toDateString(selectedDate.value))
-const selectedWell = computed(() => wells.value.find(w => w.id === selectedWellId.value))
 const wellActivities = computed(() => wellActApi.wellActivities.value)
 
 /* -------------------------------- Calculations ---------------------------- */
@@ -168,7 +167,7 @@ function addServiceLine(): void {
     service_type: 'operation',
     service_hours: 24.0,
     operating_days: 1.0,
-    rate_basis: (defaultSvc?.rate_basis as any) || 'daily',
+    rate_basis: (defaultSvc?.rate_basis as DailyCostServiceLine['rate_basis']) || 'daily',
     unit_rate: defaultSvc?.operating_rate ?? 0,
     override_rate: null,
     amount: defaultSvc?.operating_rate ?? 0,
@@ -251,10 +250,13 @@ function quickLoadAfeItems(): void {
           cost_code_id: item.cost_code_id,
           cost_code: item.cost_code,
           hole_section_id: item.hole_section_id || entryHoleSectionId.value,
+          sub_activity_id: null,
+          service_type: 'operation',
           service_hours: 24.0,
           operating_days: 1.0,
-          rate_basis: (item.rate_basis as any) || 'daily',
+          rate_basis: (item.rate_basis as DailyCostServiceLine['rate_basis']) || 'daily',
           unit_rate: matchRef?.operating_rate ?? 0,
+          override_rate: null,
           amount: matchRef?.operating_rate ?? 0,
           remarks: item.notes ?? '',
         })
@@ -545,8 +547,9 @@ async function loadAll(): Promise<void> {
     costCodes.value = codePage.items
     units.value = unitPage.items
 
-    if (wells.value.length) {
-      selectedWellId.value = wells.value[0].id
+    const firstWell = wells.value[0]
+    if (firstWell) {
+      selectedWellId.value = firstWell.id
       await onWellChange()
     }
   }

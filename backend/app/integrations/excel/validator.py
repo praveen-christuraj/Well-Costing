@@ -160,16 +160,12 @@ class ExcelValidator:
                     ("unit_code", "unit_id", Unit),
                 ],
             )
-            self._resolve_order(
-                values, "purchase_order_number", "purchase_order_id", PurchaseOrder
-            )
+            self._resolve_order(values, "purchase_order_number", "purchase_order_id", PurchaseOrder)
             values["item_id"] = self._resolve_item(values)
             self._stringify(values, ("item_type", "description"))
             self._coerce_dates(values, ("effective_from", "effective_to"))
             self._coerce_decimal(values, "unit_price")
-            return ItemPriceCreate.model_validate(values).model_dump(
-                mode="json", exclude_none=True
-            )
+            return ItemPriceCreate.model_validate(values).model_dump(mode="json", exclude_none=True)
 
         if entity not in ENTITY_CONFIGS:
             raise ValueError(f"Unsupported entity '{entity}'")
@@ -211,9 +207,7 @@ class ExcelValidator:
                 continue
             # Case-insensitive code lookup
             code_str = str(code).strip()
-            instance = self.session.scalar(
-                select(model).where(model.code.ilike(code_str))
-            )
+            instance = self.session.scalar(select(model).where(model.code.ilike(code_str)))
             if instance is None:
                 raise ValueError(f"{source_field} '{code}' does not exist")
             values[target_field] = instance.id
@@ -242,9 +236,7 @@ class ExcelValidator:
                 continue
             # Case-insensitive lookup using ilike for flexible input matching
             code_str = str(code).strip()
-            instance = self.session.scalar(
-                select(model).where(model.code.ilike(code_str))
-            )
+            instance = self.session.scalar(select(model).where(model.code.ilike(code_str)))
             if instance is None:
                 raise ValueError(f"{source_field} '{code}' does not exist")
             values[target_field] = instance.id
@@ -257,9 +249,7 @@ class ExcelValidator:
             return
         # Case-insensitive order number lookup
         number_str = str(number).strip()
-        instance = self.session.scalar(
-            select(model).where(model.order_number.ilike(number_str))
-        )
+        instance = self.session.scalar(select(model).where(model.order_number.ilike(number_str)))
         if instance is None:
             raise ValueError(f"{source_field} '{number}' does not exist")
         values[target_field] = instance.id
@@ -270,9 +260,7 @@ class ExcelValidator:
             raise ValueError("item_code is required")
         item_type = values.pop("item_type", None)
         # Case-insensitive lookup for item code
-        statement = select(CatalogItem).where(
-            CatalogItem.code.ilike(str(item_code).strip())
-        )
+        statement = select(CatalogItem).where(CatalogItem.code.ilike(str(item_code).strip()))
         if item_type:
             statement = statement.where(
                 CatalogItem.item_type == str(item_type).strip().lower().replace("-", "_")
@@ -418,6 +406,7 @@ class ExcelValidator:
         if isinstance(value, (int, float)):
             # Excel serial date number - approximate from 1899-12-30 epoch
             from datetime import timedelta
+
             try:
                 return date(1899, 12, 30) + timedelta(days=int(value))
             except (OverflowError, ValueError):

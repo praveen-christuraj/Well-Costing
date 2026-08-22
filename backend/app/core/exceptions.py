@@ -160,8 +160,7 @@ def register_exception_handlers(app: FastAPI, settings: Settings) -> None:
         original_error = str(getattr(exc, "orig", exc)) if isinstance(exc, DBAPIError) else None
         if _is_schema_drift(exc):
             logger.warning(
-                "Database schema drift detected — the database is behind the "
-                "application code",
+                "Database schema drift detected — the database is behind the application code",
                 extra={"path": request.url.path, "method": request.method, "error": original_error},
             )
             return _error_response(

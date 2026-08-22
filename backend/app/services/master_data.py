@@ -119,7 +119,15 @@ def get_entity_config(entity: str) -> EntityConfig:
         raise NotFoundError(f"Unknown master-data entity: {entity}") from exc
 
 
-def _audit_master(session, actor_id, action, entity_type, entity_id, entity_code=None, details=None):
+def _audit_master(
+    session: Session,
+    actor_id: UUID,
+    action: str,
+    entity_type: str,
+    entity_id: UUID | None,
+    entity_code: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> None:
     log_entity_action(
         session,
         actor_id,
@@ -129,6 +137,7 @@ def _audit_master(session, actor_id, action, entity_type, entity_id, entity_code
         entity_code=entity_code,
         details=details,
     )
+
 
 class MasterDataService:
     """Generic audited workflow for reference and catalogue entities."""
@@ -180,11 +189,19 @@ class MasterDataService:
         values = self._values(payload)
         self._validate_references(values)
         model = self.config.model
-        instance = model(**values, created_by=self.actor_id, updated_by=self.actor_id)
+        instance: Any = model(**values, created_by=self.actor_id, updated_by=self.actor_id)
         try:
             self.repository.add(instance)
             self.session.flush()
-            _audit_master(self.session, self.actor_id, "create", self.entity, instance.id, instance.code, values)
+            _audit_master(
+                self.session,
+                self.actor_id,
+                "create",
+                self.entity,
+                instance.id,
+                instance.code,
+                values,
+            )
             if commit:
                 self.session.commit()
                 self.session.refresh(instance)
@@ -198,7 +215,7 @@ class MasterDataService:
     def update(
         self, item_id: UUID, payload: MasterDataUpdate, *, commit: bool = True
     ) -> MasterDataRead:
-        instance = self.repository.get(item_id)
+        instance: Any = self.repository.get(item_id)
         if instance is None:
             raise NotFoundError(f"{self.entity} record not found")
         values = self._values(payload)
@@ -208,7 +225,15 @@ class MasterDataService:
         instance.updated_by = self.actor_id
         try:
             self.session.flush()
-            _audit_master(self.session, self.actor_id, "update", self.entity, instance.id, instance.code, values)
+            _audit_master(
+                self.session,
+                self.actor_id,
+                "update",
+                self.entity,
+                instance.id,
+                instance.code,
+                values,
+            )
             if commit:
                 self.session.commit()
                 self.session.refresh(instance)
@@ -224,7 +249,15 @@ class MasterDataService:
         instance.is_active = False
         instance.updated_by = self.actor_id
         self.session.flush()
-        _audit_master(self.session, self.actor_id, "soft_delete", self.entity, instance.id, instance.code, None)
+        _audit_master(
+            self.session,
+            self.actor_id,
+            "soft_delete",
+            self.entity,
+            instance.id,
+            instance.code,
+            None,
+        )
         self.session.commit()
 
     def recover(self, item_id: UUID) -> MasterDataRead:
@@ -236,11 +269,16 @@ class MasterDataService:
         # Check if another active record with same code exists (prevent duplicate)
         existing = self.repository.get_by_code(instance.code)
         if existing is not None and existing.id != instance.id and existing.is_active:
-            raise BusinessValidationError(f"Cannot recover: an active {self.entity} with code '{instance.code}' already exists")
+            raise BusinessValidationError(
+                f"Cannot recover: an active {self.entity} with code '{instance.code}' "
+                "already exists"
+            )
         instance.is_active = True
         instance.updated_by = self.actor_id
         self.session.flush()
-        _audit_master(self.session, self.actor_id, "recover", self.entity, instance.id, instance.code, None)
+        _audit_master(
+            self.session, self.actor_id, "recover", self.entity, instance.id, instance.code, None
+        )
         self.session.commit()
         self.session.refresh(instance)
         return self._serialize(instance)
@@ -255,12 +293,15 @@ class MasterDataService:
         try:
             self.repository.delete(instance)
             self.session.flush()
-            _audit_master(self.session, self.actor_id, "hard_delete", self.entity, item_id, code, None)
+            _audit_master(
+                self.session, self.actor_id, "hard_delete", self.entity, item_id, code, None
+            )
             self.session.commit()
         except IntegrityError as exc:
             self.session.rollback()
             raise ConflictError(
-                f"This {self.entity} record is referenced by other records and cannot be deleted. Deactivate it instead."
+                f"This {self.entity} record is referenced by other records and cannot be deleted. "
+                "Deactivate it instead."
             ) from exc
 
     def delete(self, item_id: UUID) -> None:
@@ -273,7 +314,9 @@ class MasterDataService:
         try:
             self.repository.delete(instance)
             self.session.flush()
-            _audit_master(self.session, self.actor_id, "hard_delete", self.entity, item_id, code, None)
+            _audit_master(
+                self.session, self.actor_id, "hard_delete", self.entity, item_id, code, None
+            )
             self.session.commit()
         except IntegrityError as exc:
             self.session.rollback()
@@ -334,7 +377,15 @@ class MasterDataService:
             for row in rows:
                 created.append(self.create(row, commit=False))
             self.session.commit()
-            _audit_master(self.session, self.actor_id, "bulk_create", self.entity, None, None, {"count": len(rows)})
+            _audit_master(
+                self.session,
+                self.actor_id,
+                "bulk_create",
+                self.entity,
+                None,
+                None,
+                {"count": len(rows)},
+            )
             self.session.commit()
         except Exception:
             self.session.rollback()
@@ -451,14 +502,12 @@ class MasterDataService:
         }
         if isinstance(instance, CostCategory):
             values["parent_code"] = instance.parent.code if instance.parent else None
-            values["secondary_category_code"] = None
-            values["secondary_category_name"] = None
-            try:
-                if getattr(instance, "secondary_category", None):
-                    values["secondary_category_code"] = instance.secondary_category.code
-                    values["secondary_category_name"] = instance.secondary_category.name
-            except Exception:
-                pass
+            values["secondary_category_code"] = (
+                instance.secondary_category.code if instance.secondary_category else None
+            )
+            values["secondary_category_name"] = (
+                instance.secondary_category.name if instance.secondary_category else None
+            )
         if isinstance(instance, SecondaryCategory):
             try:
                 values["primary_category_code"] = instance.primary_category.code

@@ -90,9 +90,7 @@ def _sqlite_view_safe_legacy_mode() -> bool:
 
 def _sqlite_restore_legacy_mode(previous: bool) -> None:
     if _is_sqlite():
-        op.get_bind().exec_driver_sql(
-            "PRAGMA legacy_alter_table=" + ("ON" if previous else "OFF")
-        )
+        op.get_bind().exec_driver_sql("PRAGMA legacy_alter_table=" + ("ON" if previous else "OFF"))
 
 
 def upgrade() -> None:
@@ -107,9 +105,7 @@ def upgrade() -> None:
         )
         batch.add_column(sa.Column("supersedes_id", sa.Uuid(), nullable=True))
         batch.add_column(sa.Column("change_reason", sa.Text(), nullable=True))
-        batch.add_column(
-            sa.Column("superseded_at", sa.DateTime(timezone=True), nullable=True)
-        )
+        batch.add_column(sa.Column("superseded_at", sa.DateTime(timezone=True), nullable=True))
         batch.create_foreign_key(
             op.f("fk_item_prices_supersedes_id_item_prices"),
             "item_prices",
@@ -216,9 +212,7 @@ def upgrade() -> None:
         )
         batch.add_column(sa.Column("spud_date", sa.Date(), nullable=True))
         batch.add_column(sa.Column("completion_date", sa.Date(), nullable=True))
-        batch.add_column(
-            sa.Column("rates_locked_at", sa.DateTime(timezone=True), nullable=True)
-        )
+        batch.add_column(sa.Column("rates_locked_at", sa.DateTime(timezone=True), nullable=True))
         batch.add_column(sa.Column("rate_lock_reference", sa.String(150), nullable=True))
         batch.create_check_constraint("valid_well_status", WELL_STATUS_CHECK)
     _sqlite_restore_legacy_mode(previous_legacy)
@@ -322,9 +316,7 @@ def upgrade() -> None:
         "status",
         "is_active",
     ):
-        op.create_index(
-            op.f(f"ix_well_service_rates_{column}"), "well_service_rates", [column]
-        )
+        op.create_index(op.f(f"ix_well_service_rates_{column}"), "well_service_rates", [column])
     op.create_index(
         "ix_well_service_rates_well_status", "well_service_rates", ["well_id", "status"]
     )
@@ -412,9 +404,7 @@ def upgrade() -> None:
         "status",
         "is_active",
     ):
-        op.create_index(
-            op.f(f"ix_well_tangible_rates_{column}"), "well_tangible_rates", [column]
-        )
+        op.create_index(op.f(f"ix_well_tangible_rates_{column}"), "well_tangible_rates", [column])
     op.create_index(
         "ix_well_tangible_rates_well_status", "well_tangible_rates", ["well_id", "status"]
     )
@@ -473,9 +463,7 @@ def upgrade() -> None:
         "item_code",
         "change_type",
     ):
-        op.create_index(
-            op.f(f"ix_well_rate_revisions_{column}"), "well_rate_revisions", [column]
-        )
+        op.create_index(op.f(f"ix_well_rate_revisions_{column}"), "well_rate_revisions", [column])
     op.create_index(
         "ix_well_rate_revisions_well_created", "well_rate_revisions", ["well_id", "created_at"]
     )
@@ -581,9 +569,7 @@ def upgrade() -> None:
             ondelete="RESTRICT",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_well_unplanned_items")),
-        sa.UniqueConstraint(
-            "well_id", "reference", name=op.f("uq_well_unplanned_items_reference")
-        ),
+        sa.UniqueConstraint("well_id", "reference", name=op.f("uq_well_unplanned_items_reference")),
     )
     for column in (
         "well_id",
@@ -602,9 +588,7 @@ def upgrade() -> None:
         "status",
         "is_active",
     ):
-        op.create_index(
-            op.f(f"ix_well_unplanned_items_{column}"), "well_unplanned_items", [column]
-        )
+        op.create_index(op.f(f"ix_well_unplanned_items_{column}"), "well_unplanned_items", [column])
     op.create_index(
         "ix_well_unplanned_items_well_status", "well_unplanned_items", ["well_id", "status"]
     )
@@ -650,9 +634,7 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_item_prices_supersedes_id"), table_name="item_prices")
     with op.batch_alter_table("item_prices") as batch:
         batch.drop_constraint("positive_item_price_revision", type_="check")
-        batch.drop_constraint(
-            op.f("fk_item_prices_supersedes_id_item_prices"), type_="foreignkey"
-        )
+        batch.drop_constraint(op.f("fk_item_prices_supersedes_id_item_prices"), type_="foreignkey")
         batch.drop_column("superseded_at")
         batch.drop_column("change_reason")
         batch.drop_column("supersedes_id")
@@ -737,6 +719,4 @@ def downgrade() -> None:
         "effective_to",
         "is_active",
     ):
-        op.create_index(
-            op.f(f"ix_service_rate_cards_{column}"), "service_rate_cards", [column]
-        )
+        op.create_index(op.f(f"ix_service_rate_cards_{column}"), "service_rate_cards", [column])

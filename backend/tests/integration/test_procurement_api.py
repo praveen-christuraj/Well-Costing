@@ -157,9 +157,7 @@ def test_tangibles_filter_by_item_category(
     assert response.json()["items"][0]["item_category_code"] == "BITS"
 
 
-def test_master_rates_reject_services(
-    client: TestClient, reference_data: dict[str, Any]
-) -> None:
+def test_master_rates_reject_services(client: TestClient, reference_data: dict[str, Any]) -> None:
     """Services are priced per well, so master data refuses a service rate."""
 
     response = client.post(
@@ -199,9 +197,7 @@ def test_effective_on_filter_excludes_out_of_window_rates(
     )
 
     inside = client.get("/api/v1/procurement/item-prices?effective_on=2026-03-01", headers=headers)
-    outside = client.get(
-        "/api/v1/procurement/item-prices?effective_on=2026-09-01", headers=headers
-    )
+    outside = client.get("/api/v1/procurement/item-prices?effective_on=2026-09-01", headers=headers)
 
     assert inside.json()["total"] == 1
     assert outside.json()["total"] == 0
@@ -279,16 +275,12 @@ def test_item_price_links_purchase_order_and_filters_by_item_type(
     )
 
     assert price["purchase_order_number"] == "PO-2026-014"
-    filtered = client.get(
-        "/api/v1/procurement/item-prices?item_type=mud_chemical", headers=headers
-    )
+    filtered = client.get("/api/v1/procurement/item-prices?item_type=mud_chemical", headers=headers)
     assert filtered.json()["total"] == 1
     assert filtered.json()["items"][0]["item_code"] == "BARITE"
 
 
-def test_bulk_create_is_all_or_nothing(
-    client: TestClient, reference_data: dict[str, Any]
-) -> None:
+def test_bulk_create_is_all_or_nothing(client: TestClient, reference_data: dict[str, Any]) -> None:
     headers = reference_data["headers"]
     rows = [
         {
@@ -318,9 +310,7 @@ def test_bulk_create_is_all_or_nothing(
     assert listed.json()["total"] == 0
 
 
-def test_pagination_reports_page_count(
-    client: TestClient, reference_data: dict[str, Any]
-) -> None:
+def test_pagination_reports_page_count(client: TestClient, reference_data: dict[str, Any]) -> None:
     headers = reference_data["headers"]
     rows = [
         {
@@ -360,9 +350,12 @@ def test_delete_deactivates_by_default_and_hard_delete_removes(
 
     soft = client.delete(f"/api/v1/procurement/purchase-orders/{order['id']}", headers=headers)
     assert soft.status_code == 204
-    assert client.get(
-        "/api/v1/procurement/purchase-orders?is_active=false", headers=headers
-    ).json()["total"] == 1
+    assert (
+        client.get("/api/v1/procurement/purchase-orders?is_active=false", headers=headers).json()[
+            "total"
+        ]
+        == 1
+    )
 
     hard = client.delete(
         f"/api/v1/procurement/purchase-orders/{order['id']}?hard=true", headers=headers

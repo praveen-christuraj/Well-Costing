@@ -52,9 +52,7 @@ class ExcelReader:
         except BusinessValidationError:
             raise
         except Exception as exc:
-            raise BusinessValidationError(
-                "File could not be read", {"reason": str(exc)}
-            ) from exc
+            raise BusinessValidationError("File could not be read", {"reason": str(exc)}) from exc
         return WorkbookRows(
             columns=columns,
             rows=records,

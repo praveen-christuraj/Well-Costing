@@ -78,9 +78,8 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "termux/hosted environments require a PostgreSQL DATABASE_URL (use Supabase)"
                 )
-        if (
-            self.ENVIRONMENT in {"uat", "staging", "production"}
-            and any(origin.startswith("http://localhost") for origin in self.CORS_ORIGINS)
+        if self.ENVIRONMENT in {"uat", "staging", "production"} and any(
+            origin.startswith("http://localhost") for origin in self.CORS_ORIGINS
         ):
             raise ValueError("Hosted environments cannot allow localhost CORS origins")
         return self

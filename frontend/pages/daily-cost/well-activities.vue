@@ -12,11 +12,9 @@ import DataTable from 'primevue/datatable'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Select from 'primevue/select'
-import Textarea from 'primevue/textarea'
 import PageHeader from '~/components/design-system/PageHeader.vue'
 import type { WellRecord } from '~/types/afe'
-import type { ActivityRecord, WellActivityRecord } from '~/types/dailyCost'
-import type { MasterDataRecord } from '~/types/masterData'
+import type { ActivityRecord } from '~/types/dailyCost'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -55,8 +53,8 @@ async function loadWells(): Promise<void> {
     const result = await afeApi.listWells()
     wells.value = result.items || []
   }
-  catch (e: any) {
-    error.value = e?.message || 'Failed to load wells'
+  catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : 'Failed to load wells'
   }
 }
 
@@ -65,8 +63,8 @@ async function loadActivities(): Promise<void> {
     const result = await master.list('activities')
     activities.value = (result.items || []) as ActivityRecord[]
   }
-  catch (e: any) {
-    error.value = e?.message || 'Failed to load activities'
+  catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : 'Failed to load activities'
   }
 }
 
@@ -89,8 +87,8 @@ async function loadWellActivities(): Promise<void> {
       _state: 'clean',
     }))
   }
-  catch (e: any) {
-    error.value = e?.message || 'Failed to load well activities'
+  catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : 'Failed to load well activities'
     rows.value = []
   }
   finally {
@@ -158,9 +156,9 @@ async function saveAll(): Promise<void> {
         }
       }
     }
-    catch (e: any) {
+    catch (e: unknown) {
       failed++
-      error.value = e?.message || 'Save failed'
+      error.value = e instanceof Error ? e.message : 'Save failed'
     }
   }
 

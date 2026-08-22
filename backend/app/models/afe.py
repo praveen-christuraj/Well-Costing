@@ -74,9 +74,7 @@ class DrillingPhase(TimestampMixin, AuditMixin, Base):
     """User-configurable drilling & completion operational phases."""
 
     __tablename__ = "drilling_phases"
-    __table_args__ = (
-        UniqueConstraint("code", name="uq_drilling_phases_code"),
-    )
+    __table_args__ = (UniqueConstraint("code", name="uq_drilling_phases_code"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     code: Mapped[str] = mapped_column(String(50), index=True)
@@ -166,7 +164,8 @@ class AfeSection(TimestampMixin, AuditMixin, Base):
         CheckConstraint("sequence >= 1", name="positive_afe_section_sequence"),
         CheckConstraint("planned_days >= 0", name="non_negative_afe_section_days"),
         CheckConstraint(
-            "planned_depth_from IS NULL OR planned_depth_to IS NULL OR planned_depth_to >= planned_depth_from",
+            "planned_depth_from IS NULL OR planned_depth_to IS NULL"
+            " OR planned_depth_to >= planned_depth_from",
             name="valid_afe_section_depth_range",
         ),
     )

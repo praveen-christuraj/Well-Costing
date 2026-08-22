@@ -349,7 +349,7 @@ function addSectionRow(): void {
   const defaultDepthUnitId = afeForm.value.depth_unit_id || units.value[0]?.id || ''
   const nextSeq = afeForm.value.sections.length + 1
   const prevTo = afeForm.value.sections.length
-    ? afeForm.value.sections[afeForm.value.sections.length - 1].planned_depth_to
+    ? (afeForm.value.sections[afeForm.value.sections.length - 1]?.planned_depth_to ?? 0)
     : 0
   afeForm.value.sections.push({
     sequence: nextSeq,
@@ -1440,7 +1440,7 @@ onMounted(() => void loadAll())
                 <th style="width: 120px">Planned Days</th>
                 <th style="width: 110px">Depth From</th>
                 <th style="width: 110px">Depth To</th>
-                <th style="width: 50px"></th>
+                <th style="width: 50px" />
               </tr>
             </thead>
             <tbody>
@@ -1512,9 +1512,9 @@ onMounted(() => void loadAll())
               <tr>
                 <td colspan="3" style="text-align: right; font-weight: bold">Totals:</td>
                 <td style="font-weight: bold">{{ Number(afeForm.total_planned_days).toFixed(1) }} days</td>
-                <td></td>
+                <td />
                 <td style="font-weight: bold">{{ Number(afeForm.total_planned_depth).toFixed(0) }}</td>
-                <td></td>
+                <td />
               </tr>
             </tfoot>
           </table>

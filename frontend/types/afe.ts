@@ -56,9 +56,9 @@ export interface EditableAfeSection {
   sequence: number
   hole_section_id: string
   phase: string
-  planned_days: number | string
-  planned_depth_from: number | string | null
-  planned_depth_to: number | string | null
+  planned_days: number | null
+  planned_depth_from: number | null
+  planned_depth_to: number | null
   depth_unit_id: string
   notes: string
   is_active: boolean

@@ -170,9 +170,9 @@ class EstimateAfeService:
     ) -> BaselineAfeInput:
         lines: list[AfeLineInput] = []
         for item in version.items:
-            catalog_item = item.catalog_item
-            cost_code = item.cost_code
-            unit = item.unit
+            catalog_item = getattr(item, "catalog_item", None)
+            cost_code = getattr(item, "cost_code", None)
+            unit = getattr(item, "unit", None)
             if catalog_item is None or cost_code is None or unit is None:
                 # A referenced catalogue item/cost code/unit is missing; it cannot be
                 # snapshotted, so skip it rather than crash.

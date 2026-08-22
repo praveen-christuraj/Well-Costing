@@ -2,6 +2,7 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -17,6 +18,9 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+if TYPE_CHECKING:
+    from app.models.categories import SecondaryCategory, TertiaryCategory
 
 from app.db.base import AuditMixin, Base, TimestampMixin
 from app.domain.afe.rate_basis import CONSUMABLE_RATE_BASES, SERVICE_RATE_BASES
@@ -66,6 +70,7 @@ class CostCategory(MasterDataMixin, Base):
     secondary_category_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("secondary_categories.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    secondary_category: Mapped["SecondaryCategory | None"] = relationship(lazy="joined")
     parent: Mapped["CostCategory | None"] = relationship(remote_side="CostCategory.id")
 
 
@@ -174,6 +179,7 @@ class CatalogItem(TimestampMixin, AuditMixin, Base):
     tertiary_category_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("tertiary_categories.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    tertiary_category: Mapped["TertiaryCategory | None"] = relationship(lazy="joined")
     material_number: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     specification: Mapped[str | None] = mapped_column(String(255), nullable=True)
     manufacturer: Mapped[str | None] = mapped_column(String(150), nullable=True)
