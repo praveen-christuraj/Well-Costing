@@ -110,7 +110,9 @@ def upgrade() -> None:
             ["secondary_category_id"],
             ["secondary_categories.id"],
             ondelete="RESTRICT",
-            name="fk_tertiary_categories_secondary_category_id_secondary_categories",
+            # PostgreSQL identifiers are limited to 63 characters; the default
+            # convention-derived name is 65 chars, so use an explicit short name.
+            name="fk_tertiary_categories_secondary_category_id",
         ),
     )
     op.create_index("ix_tertiary_categories_code", "tertiary_categories", ["code"])
