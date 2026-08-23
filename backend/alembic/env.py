@@ -5,6 +5,7 @@ from logging.config import fileConfig
 from alembic import context
 from app import models  # noqa: F401
 from app.core.config import get_settings
+from app.db.alembic_url import escape_for_alembic
 from app.db.base import Base
 from sqlalchemy import engine_from_config, pool
 
@@ -20,7 +21,9 @@ configured_url = config.get_main_option("sqlalchemy.url")
 if not configured_url or configured_url == "driver://user:pass@localhost/dbname":
     config.set_main_option(
         "sqlalchemy.url",
-        settings.MIGRATION_DATABASE_URL or settings.DATABASE_URL,
+        # Percent signs (e.g. percent-encoded password characters) must be
+        # doubled for configparser or set_main_option raises ValueError.
+        escape_for_alembic(settings.MIGRATION_DATABASE_URL or settings.DATABASE_URL),
     )
 target_metadata = Base.metadata
 

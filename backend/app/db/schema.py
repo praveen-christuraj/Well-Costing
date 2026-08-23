@@ -28,6 +28,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.db.alembic_url import escape_for_alembic
 
 logger = logging.getLogger("app")
 
@@ -197,7 +198,9 @@ def auto_upgrade_head(
     config = _alembic_config()
     config.set_main_option(
         "sqlalchemy.url",
-        settings.MIGRATION_DATABASE_URL or settings.DATABASE_URL,
+        # Percent signs (e.g. percent-encoded password characters) must be
+        # doubled for configparser or set_main_option raises ValueError.
+        escape_for_alembic(settings.MIGRATION_DATABASE_URL or settings.DATABASE_URL),
     )
 
     last_error: Exception | None = None
