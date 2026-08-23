@@ -216,6 +216,47 @@ Neither file is committed to git.
 
 ## Troubleshooting
 
+### `FATAL: database "..." does not exist` / I dropped my database
+
+The deploy migrates into whatever database `DATABASE_URL` names — it never
+creates it. If you wiped the database (via PostgresApp, psql, or Supabase),
+recreate an empty one and let migrations build the schema. For a local
+PostgreSQL on the phone, connect as the superuser (psql or the PostgresApp
+query window) and run:
+
+```sql
+CREATE ROLE wellcosting LOGIN PASSWORD 'wellcosting1234';  -- skip if it exists
+CREATE DATABASE wellcosting OWNER wellcosting;
+```
+
+The name and password must match `backend/.env` exactly:
+
+```
+DATABASE_URL=postgresql+psycopg://wellcosting:wellcosting1234@127.0.0.1:5432/wellcosting
+```
+
+Then also reset the admin-seed marker so deploy offers to create your login
+account again (a fresh database has no users):
+
+```bash
+rm -f termux/.admin_seeded
+bash termux/deploy.sh
+```
+
+### `ValueError: invalid interpolation syntax` from alembic/env.py
+
+The password in `DATABASE_URL` contains a `%` (Alembic stores the URL in a
+configparser, where `%` is an interpolation character). Prefer a password
+without `%`. If you need one, percent-encode it in the URL — a literal `%` is
+written `%25`, `@` is `%40`:
+
+```
+DATABASE_URL=postgresql+psycopg://wellcosting:wellcosting%251234@127.0.0.1:5432/wellcosting
+```
+
+Current code escapes the URL correctly for Alembic; older checkouts crash on
+any `%` in the URL, so update (`git pull`) if you see this error.
+
 ### `openssl: command not found` while configuring `backend/.env`
 
 Termux provides the OpenSSL command in `openssl-tool` (the package named
