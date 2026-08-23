@@ -69,7 +69,7 @@ test('creates an AFE and bulk-pastes a validated line', async ({ page, request }
   await page.getByRole('button', { name: /Save 1/ }).click()
   await expect(page.getByText('1 rows saved.')).toBeVisible()
   await page.getByRole('button', { name: 'Submit' }).click()
-  await expect(page.getByText('submitted', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('AFE submitted successfully')).toBeVisible()
 
   const afeResponse = await request.get('/api/v1/afes?page=1&page_size=500&status=submitted', { headers })
   const afePage = await afeResponse.json() as { items: { id: string, code: string }[] }
