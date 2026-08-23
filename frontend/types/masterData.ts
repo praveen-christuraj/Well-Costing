@@ -13,12 +13,6 @@ export interface MasterDataRecord {
   cost_code?: string | null
   default_unit_id?: string | null
   default_unit_code?: string | null
-  item_category_id?: string | null
-  item_category_code?: string | null
-  item_category_name?: string | null
-  sub_category_id?: string | null
-  sub_category_code?: string | null
-  sub_category_name?: string | null
   primary_category_id?: string | null
   primary_category_code?: string | null
   primary_category_name?: string | null
@@ -26,12 +20,13 @@ export interface MasterDataRecord {
   secondary_category_code?: string | null
   secondary_category_name?: string | null
   tertiary_category_id?: string | null
+  tertiary_category_code?: string | null
+  tertiary_category_name?: string | null
   sequence?: number | null
   rate_basis?: string | null
   material_number?: string | null
   specification?: string | null
   manufacturer?: string | null
-  applies_to?: string | null
   vendor_type?: string | null
   contact_person?: string | null
   email?: string | null
@@ -55,7 +50,27 @@ export interface EditableMasterDataRow {
   cost_category_id?: string
   cost_code_id?: string
   default_unit_id?: string
+  primary_category_id?: string
+  secondary_category_id?: string
+  tertiary_category_id?: string
   _state: 'clean' | 'new' | 'dirty'
+}
+
+/** What a permanent delete removes alongside the record itself. */
+export interface DeleteCascade {
+  entity: string
+  label: string
+  count: number
+}
+
+export interface DeleteImpact {
+  entity: string
+  id: string
+  code: string
+  name: string
+  cascades: DeleteCascade[]
+  blockers: string[]
+  requires_confirmation: boolean
 }
 
 export interface PageResponse<T> {
@@ -123,8 +138,10 @@ export interface CostLibraryEntity {
 }
 
 export const costLibraryEntities: CostLibraryEntity[] = [
-  { key: 'services', label: 'Services', singular: 'service', phase: 2 },
-  { key: 'item-categories', label: 'Item Categories', singular: 'item category', phase: 2 },
+  { key: 'catalog-items', label: 'Catalogue Items', singular: 'catalogue item', phase: 2 },
+  { key: 'primary-categories', label: 'Primary Categories', singular: 'primary category', phase: 2 },
+  { key: 'secondary-categories', label: 'Secondary Categories', singular: 'secondary category', phase: 2 },
+  { key: 'tertiary-categories', label: 'Tertiary Categories', singular: 'tertiary category', phase: 2 },
   { key: 'mud-chemicals', label: 'Mud Chemicals', singular: 'mud chemical', phase: 2 },
   { key: 'cement-additives', label: 'Cement Additives', singular: 'cement additive', phase: 2 },
   { key: 'tangibles', label: 'Tangibles', singular: 'tangible', phase: 2 },

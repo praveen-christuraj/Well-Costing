@@ -20,8 +20,6 @@ class MasterDataCreate(BaseModel):
     cost_category_id: UUID | None = None
     cost_code_id: UUID | None = None
     default_unit_id: UUID | None = None
-    item_category_id: UUID | None = None
-    sub_category_id: UUID | None = None
     primary_category_id: UUID | None = None
     secondary_category_id: UUID | None = None
     tertiary_category_id: UUID | None = None
@@ -30,7 +28,7 @@ class MasterDataCreate(BaseModel):
     material_number: str | None = Field(default=None, max_length=100)
     specification: str | None = Field(default=None, max_length=255)
     manufacturer: str | None = Field(default=None, max_length=150)
-    applies_to: str | None = Field(default=None, max_length=30)
+    item_type: str | None = Field(default=None, max_length=30)
     vendor_type: str | None = Field(default=None, max_length=20)
     contact_person: str | None = Field(default=None, max_length=150)
     email: str | None = Field(default=None, max_length=255)
@@ -50,8 +48,6 @@ class MasterDataUpdate(BaseModel):
     cost_category_id: UUID | None = None
     cost_code_id: UUID | None = None
     default_unit_id: UUID | None = None
-    item_category_id: UUID | None = None
-    sub_category_id: UUID | None = None
     primary_category_id: UUID | None = None
     secondary_category_id: UUID | None = None
     tertiary_category_id: UUID | None = None
@@ -60,7 +56,7 @@ class MasterDataUpdate(BaseModel):
     material_number: str | None = Field(default=None, max_length=100)
     specification: str | None = Field(default=None, max_length=255)
     manufacturer: str | None = Field(default=None, max_length=150)
-    applies_to: str | None = Field(default=None, max_length=30)
+    item_type: str | None = Field(default=None, max_length=30)
     vendor_type: str | None = Field(default=None, max_length=20)
     contact_person: str | None = Field(default=None, max_length=150)
     email: str | None = Field(default=None, max_length=255)
@@ -85,8 +81,6 @@ class MasterDataRead(BaseModel):
     cost_category_id: UUID | None = None
     cost_code_id: UUID | None = None
     default_unit_id: UUID | None = None
-    item_category_id: UUID | None = None
-    sub_category_id: UUID | None = None
     primary_category_id: UUID | None = None
     secondary_category_id: UUID | None = None
     tertiary_category_id: UUID | None = None
@@ -95,7 +89,6 @@ class MasterDataRead(BaseModel):
     material_number: str | None = None
     specification: str | None = None
     manufacturer: str | None = None
-    applies_to: str | None = None
     vendor_type: str | None = None
     contact_person: str | None = None
     email: str | None = None
@@ -106,14 +99,32 @@ class MasterDataRead(BaseModel):
     cost_category_code: str | None = None
     cost_code: str | None = None
     default_unit_code: str | None = None
-    item_category_code: str | None = None
-    item_category_name: str | None = None
-    sub_category_code: str | None = None
-    sub_category_name: str | None = None
     primary_category_code: str | None = None
     primary_category_name: str | None = None
     secondary_category_code: str | None = None
     secondary_category_name: str | None = None
+    tertiary_category_code: str | None = None
+    tertiary_category_name: str | None = None
+
+
+class DeleteCascade(BaseModel):
+    """One group of dependent rows removed alongside the record."""
+
+    entity: str
+    label: str
+    count: int
+
+
+class DeleteImpact(BaseModel):
+    """What a permanent delete takes with it, shown before the user confirms."""
+
+    entity: str
+    id: UUID
+    code: str
+    name: str
+    cascades: list[DeleteCascade] = Field(default_factory=lambda: list[DeleteCascade]())
+    blockers: list[str] = Field(default_factory=lambda: list[str]())
+    requires_confirmation: bool = False
 
 
 class RateCreate(BaseModel):

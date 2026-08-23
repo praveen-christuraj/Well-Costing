@@ -3,6 +3,7 @@ import type { ImportBatch, ImportCommitResult, ImportPreview } from '~/types/imp
 import { buildQuery, type QueryValue } from '~/services/procurement'
 import type {
   BulkValidationResult,
+  DeleteImpact,
   MasterDataRecord,
   PageResponse,
   RateRecord,
@@ -19,13 +20,14 @@ export interface MasterDataWrite {
   cost_category_id?: string | null
   cost_code_id?: string | null
   default_unit_id?: string | null
-  item_category_id?: string | null
-  sub_category_id?: string | null
+  primary_category_id?: string | null
+  secondary_category_id?: string | null
+  tertiary_category_id?: string | null
+  item_type?: string | null
   rate_basis?: string | null
   material_number?: string | null
   specification?: string | null
   manufacturer?: string | null
-  applies_to?: string | null
   vendor_type?: string | null
   contact_person?: string | null
   email?: string | null
@@ -75,9 +77,20 @@ export class MasterDataApi {
     return this.api.delete(`/master-data/${entity}/${id}`)
   }
 
-  /** Permanently delete a record; the API refuses when it is still referenced. */
-  remove(entity: string, id: string): Promise<undefined> {
-    return this.api.delete(`/master-data/${entity}/${id}?hard=true`)
+  /**
+   * What a permanent delete would take with it — read this before prompting.
+   * A tangible, for instance, owns its master rates and rate revisions.
+   */
+  deleteImpact(entity: string, id: string): Promise<DeleteImpact> {
+    return this.api.get(`/master-data/${entity}/${id}/delete-impact`)
+  }
+
+  /**
+   * Permanently delete a record. The API refuses while dependent rate history
+   * exists unless `cascade` is set, which removes that history too.
+   */
+  remove(entity: string, id: string, cascade = false): Promise<undefined> {
+    return this.api.delete(`/master-data/${entity}/${id}?hard=true&cascade=${cascade}`)
   }
 
   recover(entity: string, id: string): Promise<MasterDataRecord> {

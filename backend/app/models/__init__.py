@@ -53,7 +53,6 @@ from app.models.master_data import (
     Currency,
     Equipment,
     HoleSection,
-    ItemCategory,
     ItemPrice,
     Material,
     MudChemical,
@@ -66,6 +65,7 @@ from app.models.master_data import (
     Unit,
     Vendor,
 )
+from app.models.reference_bindings import DropdownBinding
 from app.models.reporting import ReportExportAttempt
 from app.models.role import Role
 from app.models.user import User, user_roles
@@ -112,6 +112,7 @@ __all__ = [
     "DailyCostEntry",
     "DailyCostServiceLine",
     "DrillingPhase",
+    "DropdownBinding",
     "EnterpriseHierarchyRule",
     "EnterpriseNode",
     "EnterpriseNodeType",
@@ -127,7 +128,6 @@ __all__ = [
     "HoleSection",
     "ImportBatch",
     "ImportError",
-    "ItemCategory",
     "ItemPrice",
     "Material",
     "MudChemical",

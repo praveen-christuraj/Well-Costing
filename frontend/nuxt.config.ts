@@ -40,7 +40,10 @@ export default defineNuxtConfig({
     '/**': {
       headers: {
         'X-Content-Type-Options': 'nosniff',
-        'X-Frame-Options': 'DENY',
+        // Clickjacking protection stays on for every built artefact. It is
+        // omitted only while running `nuxt dev`, because remote development
+        // previews render the dev server inside an iframe on another origin.
+        ...(process.env.NODE_ENV === 'production' ? { 'X-Frame-Options': 'DENY' } : {}),
         'Referrer-Policy': 'strict-origin-when-cross-origin',
         'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
       },

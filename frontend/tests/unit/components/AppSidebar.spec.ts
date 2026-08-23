@@ -19,7 +19,7 @@ describe('AppSidebar', () => {
     const wrapper = mountNav()
 
     const links = wrapper.findAll('a')
-    expect(links).toHaveLength(12)
+    expect(links).toHaveLength(13)
     expect(links.map(link => link.attributes('href'))).toEqual([
       '/dashboard',
       '/master-data/primary-categories',
@@ -32,6 +32,7 @@ describe('AppSidebar', () => {
       '/assurance',
       '/audit',
       '/administration/enterprise',
+      '/administration/dropdowns',
       '/help',
     ])
     expect(wrapper.text()).toContain('Dashboard')

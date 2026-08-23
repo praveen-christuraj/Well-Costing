@@ -1,21 +1,33 @@
 import { ref } from 'vue'
 import type { GridSelectOption } from '~/types/grid'
 import type { MasterDataRecord } from '~/types/masterData'
+import type { ReferenceOption } from '~/types/reference'
 
 /**
- * Load select options for the reference entities used across master-data grids.
- * Options are labelled "CODE — Name" so long lists stay searchable.
+ * Select options for the reference pickers used across the application.
+ *
+ * Two ways in, deliberately:
+ *
+ * `load([...])`
+ *   The direct master-data lists a maintenance grid needs — units, vendors,
+ *   the classification levels — labelled "CODE — Name" so long lists stay
+ *   searchable.
+ *
+ * `slot(code)` / `cascade(code, parentId)`
+ *   Resolution through the configurable dropdown registry. Screens that render
+ *   a business picker should use this: the source behind the slot is whatever
+ *   the super administrator has configured, and cascading pickers pass the
+ *   parent selection so only valid children are offered.
  */
 export function useReferenceOptions() {
   const api = useMasterData()
   const procurement = useProcurement()
+  const reference = useReference()
 
   const vendors = ref<GridSelectOption[]>([])
   const currencies = ref<GridSelectOption[]>([])
   const units = ref<GridSelectOption[]>([])
-  const services = ref<GridSelectOption[]>([])
   const holeSections = ref<GridSelectOption[]>([])
-  const itemCategories = ref<GridSelectOption[]>([])
   const primaryCategories = ref<GridSelectOption[]>([])
   const secondaryCategories = ref<GridSelectOption[]>([])
   const tertiaryCategories = ref<GridSelectOption[]>([])
@@ -34,6 +46,10 @@ export function useReferenceOptions() {
     }))
   }
 
+  function toSelectOptions(options: ReferenceOption[]): GridSelectOption[] {
+    return options.map(option => ({ label: option.label, value: option.value }))
+  }
+
   async function loadMaster(entity: string): Promise<GridSelectOption[]> {
     try {
       const page = await api.list(entity)
@@ -44,48 +60,56 @@ export function useReferenceOptions() {
     }
   }
 
+  /** Options for one registry slot, resolved through its configured source. */
+  async function slot(
+    slotCode: string,
+    params: { parentId?: string | null, wellId?: string | null, search?: string } = {},
+  ): Promise<ReferenceOption[]> {
+    try {
+      const resolved = await reference.options(slotCode, {
+        parent_id: params.parentId || undefined,
+        well_id: params.wellId || undefined,
+        search: params.search || undefined,
+      })
+      return resolved.options
+    }
+    catch {
+      return []
+    }
+  }
+
+  /**
+   * Children of `parentId` for a cascading slot. An unset parent yields no
+   * options, which is what a cascade should show before the parent is chosen.
+   */
+  async function cascade(slotCode: string, parentId: string | null | undefined): Promise<GridSelectOption[]> {
+    if (!parentId) return []
+    return toSelectOptions(await slot(slotCode, { parentId }))
+  }
+
+  const MASTER_KINDS: Record<string, { entity: string, target: typeof vendors }> = {
+    'vendors': { entity: 'vendors', target: vendors },
+    'currencies': { entity: 'currencies', target: currencies },
+    'units': { entity: 'units', target: units },
+    'hole-sections': { entity: 'hole-sections', target: holeSections },
+    'primary-categories': { entity: 'primary-categories', target: primaryCategories },
+    'secondary-categories': { entity: 'secondary-categories', target: secondaryCategories },
+    'tertiary-categories': { entity: 'tertiary-categories', target: tertiaryCategories },
+    'activities': { entity: 'activities', target: activities },
+    'phases': { entity: 'phases', target: phases },
+    'cost-categories': { entity: 'cost-categories', target: costCategories },
+    'cost-codes': { entity: 'cost-codes', target: costCodes },
+  }
+
   async function load(kinds: string[]): Promise<void> {
     const jobs: Promise<void>[] = []
 
-    if (kinds.includes('vendors')) {
-      jobs.push(loadMaster('vendors').then((options) => { vendors.value = options }))
+    for (const kind of kinds) {
+      const mapped = MASTER_KINDS[kind]
+      if (!mapped) continue
+      jobs.push(loadMaster(mapped.entity).then((options) => { mapped.target.value = options }))
     }
-    if (kinds.includes('currencies')) {
-      jobs.push(loadMaster('currencies').then((options) => { currencies.value = options }))
-    }
-    if (kinds.includes('units')) {
-      jobs.push(loadMaster('units').then((options) => { units.value = options }))
-    }
-    if (kinds.includes('hole-sections')) {
-      jobs.push(loadMaster('hole-sections').then((options) => { holeSections.value = options }))
-    }
-    if (kinds.includes('services')) {
-      jobs.push(loadMaster('services').then((options) => { services.value = options }))
-    }
-    if (kinds.includes('item-categories')) {
-      jobs.push(loadMaster('item-categories').then((options) => { itemCategories.value = options }))
-    }
-    if (kinds.includes('primary-categories')) {
-      jobs.push(loadMaster('primary-categories').then((options) => { primaryCategories.value = options }))
-    }
-    if (kinds.includes('secondary-categories')) {
-      jobs.push(loadMaster('secondary-categories').then((options) => { secondaryCategories.value = options }))
-    }
-    if (kinds.includes('tertiary-categories')) {
-      jobs.push(loadMaster('tertiary-categories').then((options) => { tertiaryCategories.value = options }))
-    }
-    if (kinds.includes('activities')) {
-      jobs.push(loadMaster('activities').then((options) => { activities.value = options }))
-    }
-    if (kinds.includes('phases')) {
-      jobs.push(loadMaster('phases').then((options) => { phases.value = options }))
-    }
-    if (kinds.includes('cost-categories')) {
-      jobs.push(loadMaster('cost-categories').then((options) => { costCategories.value = options }))
-    }
-    if (kinds.includes('cost-codes')) {
-      jobs.push(loadMaster('cost-codes').then((options) => { costCodes.value = options }))
-    }
+
     if (kinds.includes('service-orders')) {
       jobs.push(
         procurement.serviceOrders
@@ -114,14 +138,7 @@ export function useReferenceOptions() {
     }
     if (kinds.includes('catalogue')) {
       jobs.push(
-        Promise.all([
-          loadMaster('tangibles'),
-          loadMaster('mud-chemicals'),
-          loadMaster('cement-additives'),
-          loadMaster('materials'),
-        ]).then(([tangibles, mud, cement, materials]) => {
-          catalogueItems.value = [...tangibles, ...mud, ...cement, ...materials]
-        }),
+        loadMaster('catalog-items').then((options) => { catalogueItems.value = options }),
       )
     }
 
@@ -132,9 +149,7 @@ export function useReferenceOptions() {
     vendors,
     currencies,
     units,
-    services,
     holeSections,
-    itemCategories,
     primaryCategories,
     secondaryCategories,
     tertiaryCategories,
@@ -146,5 +161,7 @@ export function useReferenceOptions() {
     purchaseOrders,
     catalogueItems,
     load,
+    slot,
+    cascade,
   }
 }

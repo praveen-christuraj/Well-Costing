@@ -10,13 +10,12 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.categories import PrimaryCategory, SecondaryCategory, TertiaryCategory
 from app.models.master_data import (
     CatalogItem,
     CostCategory,
     CostCode,
     Currency,
-    ItemCategory,
-    ItemSubCategory,
     PurchaseOrder,
     ServiceOrder,
     Unit,
@@ -179,10 +178,20 @@ class ExcelValidator:
     def _resolve_master_references(self, entity: str, values: dict[str, Any]) -> None:
         mappings: list[tuple[str, str, type[Any]]] = []
         if entity == "cost-categories":
-            mappings.append(("parent_code", "parent_id", CostCategory))
+            mappings.extend(
+                [
+                    ("primary_category_code", "primary_category_id", PrimaryCategory),
+                    ("secondary_category_code", "secondary_category_id", SecondaryCategory),
+                ]
+            )
+        if entity == "secondary-categories":
+            mappings.append(("primary_category_code", "primary_category_id", PrimaryCategory))
+        if entity == "tertiary-categories":
+            mappings.append(("secondary_category_code", "secondary_category_id", SecondaryCategory))
         if entity == "cost-codes":
             mappings.append(("cost_category_code", "cost_category_id", CostCategory))
         if entity in {
+            "catalog-items",
             "services",
             "tangibles",
             "materials",
@@ -195,8 +204,9 @@ class ExcelValidator:
                     ("cost_category_code", "cost_category_id", CostCategory),
                     ("cost_code", "cost_code_id", CostCode),
                     ("default_unit_code", "default_unit_id", Unit),
-                    ("item_category_code", "item_category_id", ItemCategory),
-                    ("sub_category_code", "sub_category_id", ItemSubCategory),
+                    ("primary_category_code", "primary_category_id", PrimaryCategory),
+                    ("secondary_category_code", "secondary_category_id", SecondaryCategory),
+                    ("tertiary_category_code", "tertiary_category_id", TertiaryCategory),
                 ]
             )
         if entity == "services":

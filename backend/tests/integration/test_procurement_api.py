@@ -46,10 +46,26 @@ def reference_data(client: TestClient) -> dict[str, Any]:
         {"code": "INH", "name": "In-house Operations", "vendor_type": "inhouse"},
         headers,
     )
+    tangibles_primary = post(
+        client,
+        "/api/v1/master-data/primary-categories",
+        {"code": "TANGIBLES", "name": "Tangibles"},
+        headers,
+    )
     bits = post(
         client,
-        "/api/v1/master-data/item-categories",
-        {"code": "BITS", "name": "Drill Bits", "applies_to": "tangible"},
+        "/api/v1/master-data/secondary-categories",
+        {
+            "code": "BITS",
+            "name": "Drill Bits",
+            "primary_category_id": tangibles_primary["id"],
+        },
+        headers,
+    )
+    pdc = post(
+        client,
+        "/api/v1/master-data/tertiary-categories",
+        {"code": "PDC", "name": "PDC Bits", "secondary_category_id": bits["id"]},
         headers,
     )
     service = post(
@@ -64,7 +80,8 @@ def reference_data(client: TestClient) -> dict[str, Any]:
         {
             "code": "BIT-1225",
             "name": '12-1/4" PDC Bit',
-            "item_category_id": bits["id"],
+            "secondary_category_id": bits["id"],
+            "tertiary_category_id": pdc["id"],
             "material_number": "MAT-00912",
         },
         headers,
@@ -76,7 +93,9 @@ def reference_data(client: TestClient) -> dict[str, Any]:
         "sack": sack,
         "vendor": third_party,
         "inhouse": inhouse,
+        "primary": tangibles_primary,
         "bits": bits,
+        "pdc": pdc,
         "service": service,
         "tangible": tangible,
     }
@@ -143,18 +162,74 @@ def test_catalogue_search_matches_material_number(
     assert response.json()["total"] == 1
 
 
-def test_tangibles_filter_by_item_category(
+def test_tangibles_filter_by_secondary_category(
     client: TestClient, reference_data: dict[str, Any]
 ) -> None:
+    """A tangible's category is the secondary category of the classification."""
+
     category_id = reference_data["bits"]["id"]
 
     response = client.get(
-        f"/api/v1/master-data/tangibles?item_category_id={category_id}",
+        f"/api/v1/master-data/tangibles?secondary_category_id={category_id}",
         headers=reference_data["headers"],
     )
 
-    assert response.json()["total"] == 1
-    assert response.json()["items"][0]["item_category_code"] == "BITS"
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["secondary_category_code"] == "BITS"
+    assert body["items"][0]["tertiary_category_code"] == "PDC"
+
+
+def test_tangible_classification_fills_in_its_parents(
+    client: TestClient, reference_data: dict[str, Any]
+) -> None:
+    """Choosing a tertiary category is enough — the parents are derived."""
+
+    created = post(
+        client,
+        "/api/v1/master-data/tangibles",
+        {
+            "code": "BIT-8500",
+            "name": '8-1/2" PDC Bit',
+            "tertiary_category_id": reference_data["pdc"]["id"],
+        },
+        reference_data["headers"],
+    )
+
+    assert created["secondary_category_id"] == reference_data["bits"]["id"]
+    assert created["primary_category_id"] == reference_data["primary"]["id"]
+    assert created["primary_category_code"] == "TANGIBLES"
+
+
+def test_mismatched_classification_is_rejected(
+    client: TestClient, reference_data: dict[str, Any]
+) -> None:
+    """A tertiary category cannot be claimed under an unrelated secondary."""
+
+    other_secondary = post(
+        client,
+        "/api/v1/master-data/secondary-categories",
+        {
+            "code": "CASING",
+            "name": "Casing",
+            "primary_category_id": reference_data["primary"]["id"],
+        },
+        reference_data["headers"],
+    )
+
+    response = client.post(
+        "/api/v1/master-data/tangibles",
+        json={
+            "code": "BIT-6000",
+            "name": '6" PDC Bit',
+            "secondary_category_id": other_secondary["id"],
+            "tertiary_category_id": reference_data["pdc"]["id"],
+        },
+        headers=reference_data["headers"],
+    )
+
+    assert response.status_code == 422
+    assert "secondary category" in response.json()["error"]["message"]
 
 
 def test_master_rates_reject_services(client: TestClient, reference_data: dict[str, Any]) -> None:

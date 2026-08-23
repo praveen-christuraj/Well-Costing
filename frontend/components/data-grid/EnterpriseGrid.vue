@@ -7,6 +7,7 @@
  * a printable view, and feedback messages rendered beneath the action bar.
  */
 <script setup lang="ts">
+import { isDeleteCancelled } from '~/utils/deleteCancelled'
 import { computed, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
@@ -265,7 +266,12 @@ async function removeRow(row: EditableRow): Promise<void> {
       await props.removeRecord(String(row.id), true)
       success.value = `The ${props.singular} was deleted.`
     }
-    catch {
+    catch (caught: unknown) {
+      // A cancelled confirmation must leave the record exactly as it was.
+      if (isDeleteCancelled(caught)) {
+        success.value = `The ${props.singular} was left unchanged.`
+        return
+      }
       // Referenced records cannot be removed; fall back to deactivation.
       await props.removeRecord(String(row.id), false)
       success.value = `The ${props.singular} is referenced elsewhere, so it was deactivated instead of deleted.`
@@ -324,11 +330,16 @@ function confirmHardDelete(row: EditableRow): void {
 async function hardDeleteRow(row: EditableRow): Promise<void> {
   loading.value = true
   try {
-    const entity = props.importEntity || props.exportEntity || props.title.toLowerCase().replace(/\s+/g, '-')
-    await masterData.hardDelete(entity, String(row.id))
+    // Routed through removeRecord so the page's own confirmation — for example
+    // the rate-history cascade on catalogue items — still applies here.
+    await props.removeRecord(String(row.id), true)
     success.value = `The ${props.singular} was permanently deleted.`
     await load()
   } catch (caught: unknown) {
+    if (isDeleteCancelled(caught)) {
+      success.value = `The ${props.singular} was left unchanged.`
+      return
+    }
     error.value = caught instanceof Error ? caught.message : 'The record could not be permanently deleted.'
   } finally {
     loading.value = false

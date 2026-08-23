@@ -20,7 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
-    from app.models.categories import SecondaryCategory, TertiaryCategory
+    from app.models.categories import PrimaryCategory, SecondaryCategory, TertiaryCategory
 
 from app.db.base import AuditMixin, Base, TimestampMixin
 from app.domain.afe.rate_basis import CONSUMABLE_RATE_BASES, SERVICE_RATE_BASES
@@ -62,15 +62,31 @@ class HoleSection(MasterDataMixin, Base):
 
 
 class CostCategory(MasterDataMixin, Base):
+    """Cost category, classified by the shared Primary → Secondary hierarchy.
+
+    The parent of a cost category is a :class:`~app.models.categories.PrimaryCategory`
+    and its second level is a :class:`~app.models.categories.SecondaryCategory`;
+    both come from the single classification master data. ``parent_id`` is the
+    legacy self-reference, retained only so historical rows stay readable — it is
+    no longer offered anywhere in the UI.
+    """
+
     __tablename__ = "cost_categories"
 
     parent_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("cost_categories.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    primary_category_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("primary_categories.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     secondary_category_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("secondary_categories.id", ondelete="RESTRICT"), nullable=True, index=True
     )
-    secondary_category: Mapped["SecondaryCategory | None"] = relationship(lazy="joined")
+    # ``selectin`` rather than ``joined``: catalogue and costing rows are read in
+    # wide result sets and eager joins to the classification multiply the join
+    # count past SQLite's 64-table ceiling.
+    primary_category: Mapped["PrimaryCategory | None"] = relationship(lazy="selectin")
+    secondary_category: Mapped["SecondaryCategory | None"] = relationship(lazy="selectin")
     parent: Mapped["CostCategory | None"] = relationship(remote_side="CostCategory.id")
 
 
@@ -101,47 +117,14 @@ class Vendor(MasterDataMixin, Base):
     country: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
 
-class ItemCategory(MasterDataMixin, Base):
-    """Sub-classification for catalogue items (bits, casings, shoes and collars, wellheads)."""
-
-    __tablename__ = "item_categories"
-    __table_args__ = (
-        CheckConstraint(
-            "applies_to IN ('service','tangible','mud_chemical','cement_additive')",
-            name="valid_item_category_scope",
-        ),
-    )
-
-    applies_to: Mapped[str] = mapped_column(
-        String(30), default="tangible", server_default="tangible", index=True
-    )
-
-
-class ItemSubCategory(MasterDataMixin, Base):
-    """User-configurable second-level classification for catalogue items.
-
-    A tangible such as a bit belongs to a category (``item_categories``) and a
-    sub category (this table) — e.g. Bits > PDC bits, Casing > Surface casing.
-    Sub categories are fully configurable, mirroring item categories, and are
-    scoped with ``applies_to`` so the picker on each catalogue page only offers
-    the values that make sense for it.
-    """
-
-    __tablename__ = "item_subcategories"
-    __table_args__ = (
-        CheckConstraint(
-            "applies_to IN ('service','tangible','mud_chemical','cement_additive')",
-            name="valid_item_subcategory_scope",
-        ),
-    )
-
-    applies_to: Mapped[str] = mapped_column(
-        String(30), default="tangible", server_default="tangible", index=True
-    )
-
-
 class CatalogItem(TimestampMixin, AuditMixin, Base):
-    """Shared identity for rate-bearing services, tangibles, materials, and equipment."""
+    """Shared identity for rate-bearing services, tangibles, materials, and equipment.
+
+    Every catalogue item is classified with the single Primary → Secondary →
+    Tertiary hierarchy held in ``app.models.categories``. The former
+    ``item_categories`` / ``item_subcategories`` tables are gone: Secondary
+    Category is the item's category, Tertiary Category its sub category.
+    """
 
     __tablename__ = "catalog_items"
     __table_args__ = (
@@ -170,16 +153,18 @@ class CatalogItem(TimestampMixin, AuditMixin, Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", index=True
     )
-    item_category_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("item_categories.id", ondelete="RESTRICT"), nullable=True, index=True
+    primary_category_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("primary_categories.id", ondelete="RESTRICT"), nullable=True, index=True
     )
-    sub_category_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("item_subcategories.id", ondelete="RESTRICT"), nullable=True, index=True
+    secondary_category_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("secondary_categories.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     tertiary_category_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("tertiary_categories.id", ondelete="RESTRICT"), nullable=True, index=True
     )
-    tertiary_category: Mapped["TertiaryCategory | None"] = relationship(lazy="joined")
+    primary_category: Mapped["PrimaryCategory | None"] = relationship(lazy="selectin")
+    secondary_category: Mapped["SecondaryCategory | None"] = relationship(lazy="selectin")
+    tertiary_category: Mapped["TertiaryCategory | None"] = relationship(lazy="selectin")
     material_number: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     specification: Mapped[str | None] = mapped_column(String(255), nullable=True)
     manufacturer: Mapped[str | None] = mapped_column(String(150), nullable=True)
@@ -187,8 +172,6 @@ class CatalogItem(TimestampMixin, AuditMixin, Base):
     cost_category: Mapped[CostCategory | None] = relationship(lazy="joined")
     cost_code: Mapped[CostCode | None] = relationship(lazy="joined")
     default_unit: Mapped[Unit | None] = relationship(lazy="joined")
-    item_category: Mapped[ItemCategory | None] = relationship(lazy="joined")
-    sub_category: Mapped[ItemSubCategory | None] = relationship(lazy="joined")
 
     __mapper_args__: dict[str, object] = {  # noqa: RUF012
         "polymorphic_on": item_type,

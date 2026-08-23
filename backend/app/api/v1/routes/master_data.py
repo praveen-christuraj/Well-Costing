@@ -12,6 +12,7 @@ from app.schemas.master_data import (
     BulkCreateRequest,
     BulkUpdateRequest,
     BulkValidationResult,
+    DeleteImpact,
     MasterDataCreate,
     MasterDataRead,
     MasterDataUpdate,
@@ -35,13 +36,14 @@ def list_records(
     page_size: Annotated[int, Query(ge=1, le=500)] = 50,
     search: str | None = None,
     is_active: bool | None = None,
-    item_category_id: UUID | None = None,
-    sub_category_id: UUID | None = None,
+    primary_category_id: UUID | None = None,
+    secondary_category_id: UUID | None = None,
+    tertiary_category_id: UUID | None = None,
     cost_category_id: UUID | None = None,
     cost_code_id: UUID | None = None,
     default_unit_id: UUID | None = None,
     vendor_type: str | None = None,
-    applies_to: str | None = None,
+    item_type: str | None = None,
     sort_by: str = "code",
     sort_order: str = "asc",
 ) -> PageResponse:
@@ -53,13 +55,14 @@ def list_records(
         sort_by=sort_by,
         sort_order=sort_order,
         filters={
-            "item_category_id": item_category_id,
-            "sub_category_id": sub_category_id,
+            "primary_category_id": primary_category_id,
+            "secondary_category_id": secondary_category_id,
+            "tertiary_category_id": tertiary_category_id,
             "cost_category_id": cost_category_id,
             "cost_code_id": cost_code_id,
             "default_unit_id": default_unit_id,
             "vendor_type": vendor_type,
-            "applies_to": applies_to,
+            "item_type": item_type,
         },
     )
 
@@ -139,15 +142,33 @@ def deactivate_record(
     current_user: CurrentUser,
     session: Annotated[Session, Depends(get_db)],
     hard: bool = False,
+    cascade: bool = False,
 ) -> Response:
-    """Deactivate a record, or permanently delete it when ``hard`` is requested."""
+    """Deactivate a record, or permanently delete it when ``hard`` is requested.
+
+    ``cascade`` also removes the rate history a catalogue item owns. Callers
+    should read ``GET /{entity}/{id}/delete-impact`` first and confirm with the
+    user before passing it.
+    """
 
     service = _service(session, entity, current_user)
     if hard:
-        service.delete(item_id)
+        service.delete(item_id, cascade=cascade)
     else:
         service.deactivate(item_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{entity}/{item_id}/delete-impact", response_model=DeleteImpact)
+def get_delete_impact(
+    entity: str,
+    item_id: UUID,
+    current_user: CurrentUser,
+    session: Annotated[Session, Depends(get_db)],
+) -> DeleteImpact:
+    """Report what a permanent delete would remove alongside this record."""
+
+    return _service(session, entity, current_user).delete_impact(item_id)
 
 
 @router.post("/{entity}/{item_id}/recover", response_model=MasterDataRead)
@@ -167,7 +188,8 @@ def hard_delete_record(
     item_id: UUID,
     current_user: CurrentUser,
     session: Annotated[Session, Depends(get_db)],
+    cascade: bool = False,
 ) -> Response:
-    """Permanently delete a soft-deleted record."""
-    _service(session, entity, current_user).hard_delete(item_id)
+    """Permanently delete a soft-deleted record, optionally with its rate history."""
+    _service(session, entity, current_user).hard_delete(item_id, cascade=cascade)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

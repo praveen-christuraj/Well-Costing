@@ -11,17 +11,16 @@ definePageMeta({ middleware: 'auth' })
   <div class="library-page">
     <PageHeader
       title="Tangibles"
-      description="Maintain drilling tangibles — bits, casings, centralisers, float shoes and collars, top and bottom plugs, wellheads, pup joints, pip tags, and threads — with their category, sub category, unit, and material numbers."
+      description="Maintain drilling tangibles — bits, casings, centralisers, float shoes and collars, top and bottom plugs, wellheads, pup joints, pip tags, and threads. A tangible's category is its Secondary Category and its sub category its Tertiary Category, both taken from the classification in master data."
     />
     <MasterDataNav active="tangibles" />
     <CatalogueGrid
       entity="tangibles"
       title="Tangibles"
       singular="tangible"
-      category-scope="tangible"
+      primary-category-code="TANGIBLES"
       identifier-label="Material number"
       show-equipment-detail
-      show-sub-category
     />
   </div>
 </template>

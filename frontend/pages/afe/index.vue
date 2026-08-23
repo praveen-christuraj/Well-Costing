@@ -5,6 +5,10 @@
  * AFE is the financial and technical backbone for costing.
  * Projects and wells are registered first. On the AFEs tab, the user establishes
  * the AFE header, budget amount, hole sections, phases, planned days, and depths.
+ * Phases are read from master data; they are not configured inside the AFE.
+ *
+ * AFE lines are built strictly from the classification: Primary Category →
+ * Secondary Category → catalogue item.
  *
  * Submitted AFEs can be reopened for revision with mandatory audit remarks,
  * allowing edits scoped strictly to that well before resubmission.
@@ -43,7 +47,9 @@ import type {
   RateBasis,
   WellRecord,
 } from '~/types/afe'
+import type { GridSelectOption } from '~/types/grid'
 import type { MasterDataRecord } from '~/types/masterData'
+import { SLOT } from '~/types/reference'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -56,6 +62,17 @@ const afes = ref<AfeRecord[]>([])
 const phases = ref<DrillingPhaseRecord[]>([])
 
 const catalogueItems = ref<MasterDataRecord[]>([])
+
+/**
+ * AFE lines are built from the classification and nothing else: the Primary
+ * Category narrows the Secondary Categories, and the Secondary Category
+ * narrows the catalogue items a line may reference. The options come from the
+ * dropdown registry, so a super administrator can repoint them without a code
+ * change.
+ */
+const references = useReferenceOptions()
+const primaryCategoryOptions = ref<GridSelectOption[]>([])
+const secondaryOptionsByPrimary = ref<Record<string, GridSelectOption[]>>({})
 const costCodes = ref<MasterDataRecord[]>([])
 const units = ref<MasterDataRecord[]>([])
 const holeSections = ref<MasterDataRecord[]>([])
@@ -280,8 +297,6 @@ const auditHistoryDialog = ref(false)
 const auditHistoryList = ref<AfeAuditLogRecord[]>([])
 const auditTargetAfeTitle = ref('')
 
-const phasesDialog = ref(false)
-const newPhaseForm = ref({ code: '', name: '', description: '', sequence: 1 })
 
 const deletedAfes = ref<AfeRecord[]>([])
 const loadingDeleted = ref(false)
@@ -495,25 +510,6 @@ async function hardDeleteAfe(record: AfeRecord): Promise<void> {
   await loadDeletedAfes()
 }
 
-/* ------------------------------------------------- Drilling Phases ----------- */
-async function createCustomPhase(): Promise<void> {
-  if (!newPhaseForm.value.code.trim() || !newPhaseForm.value.name.trim()) return
-  try {
-    await api.createDrillingPhase({
-      code: newPhaseForm.value.code.trim().toUpperCase(),
-      name: newPhaseForm.value.name.trim(),
-      description: newPhaseForm.value.description.trim() || null,
-      sequence: Number(newPhaseForm.value.sequence) || (phases.value.length + 1),
-    })
-    phases.value = await api.listDrillingPhases()
-    newPhaseForm.value = { code: '', name: '', description: '', sequence: phases.value.length + 1 }
-    success.value = 'Drilling phase added.'
-  }
-  catch (caught: unknown) {
-    error.value = caught instanceof Error ? caught.message : 'Could not save phase.'
-  }
-}
-
 /* ------------------------------------------------- AFE lines ----------------- */
 const pasteVisible = ref(false)
 const pasteText = ref('')
@@ -528,6 +524,43 @@ const pasteColumns = [
 
 function catalogueItemFor(line: EditableAfeLine): MasterDataRecord | undefined {
   return catalogueItems.value.find(record => record.id === line.catalog_item_id)
+}
+
+/** Secondary categories under a primary, fetched once and reused. */
+async function ensureSecondaryOptions(primaryId: string): Promise<void> {
+  if (!primaryId || secondaryOptionsByPrimary.value[primaryId]) return
+  secondaryOptionsByPrimary.value = {
+    ...secondaryOptionsByPrimary.value,
+    [primaryId]: await references.cascade(SLOT.afeLineSecondary, primaryId),
+  }
+}
+
+function secondaryOptionsFor(line: EditableAfeLine): GridSelectOption[] {
+  return secondaryOptionsByPrimary.value[line.primary_category_id] ?? []
+}
+
+/** Catalogue items allowed on a line, narrowed by its classification. */
+function itemOptionsFor(line: EditableAfeLine): MasterDataRecord[] {
+  if (line.secondary_category_id) {
+    return catalogueItems.value.filter(item => item.secondary_category_id === line.secondary_category_id)
+  }
+  if (line.primary_category_id) {
+    return catalogueItems.value.filter(item => item.primary_category_id === line.primary_category_id)
+  }
+  return []
+}
+
+/** Choosing a primary category invalidates everything below it. */
+function onPrimaryCategoryChange(line: EditableAfeLine): void {
+  line.secondary_category_id = ''
+  line.catalog_item_id = ''
+  void ensureSecondaryOptions(line.primary_category_id)
+  markDirty(line)
+}
+
+function onSecondaryCategoryChange(line: EditableAfeLine): void {
+  line.catalog_item_id = ''
+  markDirty(line)
 }
 
 function basisOptionsFor(line: EditableAfeLine): { label: string, value: RateBasis }[] {
@@ -580,6 +613,10 @@ function syncComputedQuantity(line: EditableAfeLine): void {
 
 function onItemChange(line: EditableAfeLine): void {
   const item = catalogueItemFor(line)
+  if (item) {
+    line.primary_category_id = item.primary_category_id ?? line.primary_category_id
+    line.secondary_category_id = item.secondary_category_id ?? line.secondary_category_id
+  }
   line.rate_basis = defaultRateBasisFor(item?.item_type, item?.rate_basis ?? null)
   if (item?.default_unit_id && !line.unit_id) line.unit_id = item.default_unit_id
   if (item?.cost_code_id && !line.cost_code_id) line.cost_code_id = item.cost_code_id
@@ -628,9 +665,13 @@ function toPayload(line: EditableAfeLine) {
 }
 
 function toEditable(record: AfeLineRecord): EditableAfeLine {
+  const item = catalogueItems.value.find(candidate => candidate.id === record.catalog_item_id)
+  void ensureSecondaryOptions(item?.primary_category_id ?? '')
   return {
     id: record.id,
     line_number: record.line_number,
+    primary_category_id: item?.primary_category_id ?? '',
+    secondary_category_id: item?.secondary_category_id ?? '',
     catalog_item_id: record.catalog_item_id,
     cost_code_id: record.cost_code_id,
     quantity: String(record.quantity),
@@ -652,6 +693,8 @@ function toEditable(record: AfeLineRecord): EditableAfeLine {
 
 const blankLine = (): EditableAfeLine => ({
   line_number: lines.value.reduce((max, line) => Math.max(max, line.line_number), 0) + 1,
+  primary_category_id: '',
+  secondary_category_id: '',
   catalog_item_id: '',
   cost_code_id: '',
   quantity: '0',
@@ -754,6 +797,8 @@ function applyPaste(): void {
         lines.value.reduce((max, row) => Math.max(max, row.line_number), 0),
         created.reduce((max, row) => Math.max(max, row.line_number), 0),
       ) + 1,
+      primary_category_id: item.primary_category_id ?? '',
+      secondary_category_id: item.secondary_category_id ?? '',
       catalog_item_id: item.id,
       cost_code_id: costCode.id,
       quantity: values.quantity || '0',
@@ -930,14 +975,7 @@ async function loadAll(): Promise<void> {
       api.listAfes(undefined, undefined, true),
       api.listDeletedAfes(),
       api.listDrillingPhases(),
-      Promise.all([
-        master.list('services'),
-        master.list('tangibles'),
-        master.list('materials'),
-        master.list('equipment'),
-        master.list('mud-chemicals'),
-        master.list('cement-additives'),
-      ]),
+      master.list('catalog-items'),
       master.list('cost-codes'),
       master.list('units'),
       master.list('hole-sections'),
@@ -947,10 +985,12 @@ async function loadAll(): Promise<void> {
     afes.value = afePage.items
     deletedAfes.value = deletedPage.items
     phases.value = phaseList
-    catalogueItems.value = catalogue.flatMap(page => page.items)
+    catalogueItems.value = catalogue.items
     costCodes.value = codePage.items
     units.value = unitPage.items
     holeSections.value = sectionPage.items.filter(section => section.is_active)
+    primaryCategoryOptions.value = (await references.slot(SLOT.afeLinePrimary))
+      .map(option => ({ label: option.label, value: option.value }))
   }
   catch (caught: unknown) {
     error.value = caught instanceof Error ? caught.message : 'The AFE workspace could not be loaded.'
@@ -967,10 +1007,9 @@ onMounted(() => void loadAll())
   <div class="library-page">
     <PageHeader
       title="AFE & Well Scope"
-      description="Register projects and wells, configure AFE budgets, hole sections, phases, planned days and depths on the AFEs tab. Build detailed scope lines on the AFE Lines tab. Submitted AFEs can be reopened with audited remarks for well-scoped revisions."
+      description="Register projects and wells, configure AFE budgets, hole sections, planned days and depths on the AFEs tab. Phases come from master data. Build detailed scope lines on the AFE Lines tab, where each line is classified with the Primary and Secondary Categories before an item is chosen. Submitted AFEs can be reopened with audited remarks for well-scoped revisions."
     >
       <template #actions>
-        <Button label="Configure Phases" icon="pi pi-sliders-h" outlined @click="phasesDialog = true" />
         <Button label="New AFE" icon="pi pi-plus" @click="openAfeDialog()" />
       </template>
     </PageHeader>
@@ -1250,21 +1289,59 @@ onMounted(() => void loadAll())
               class="afe-lines"
             >
               <Column field="line_number" header="#" :style="{ width: '60px' }" />
+              <Column header="Primary Category" :style="{ minWidth: '180px' }">
+                <template #body="{ data }">
+                  <Select
+                    v-model="data.primary_category_id"
+                    :options="primaryCategoryOptions"
+                    option-label="label"
+                    option-value="value"
+                    filter
+                    show-clear
+                    fluid
+                    placeholder="Classification"
+                    :disabled="!isDraft"
+                    data-testid="line-primary-category"
+                    @change="onPrimaryCategoryChange(data)"
+                  />
+                </template>
+              </Column>
+              <Column header="Secondary Category" :style="{ minWidth: '190px' }">
+                <template #body="{ data }">
+                  <Select
+                    v-model="data.secondary_category_id"
+                    :options="secondaryOptionsFor(data)"
+                    option-label="label"
+                    option-value="value"
+                    filter
+                    show-clear
+                    fluid
+                    :disabled="!isDraft || !data.primary_category_id"
+                    :placeholder="data.primary_category_id ? 'Select category' : 'Pick a primary first'"
+                    data-testid="line-secondary-category"
+                    @change="onSecondaryCategoryChange(data)"
+                  />
+                </template>
+              </Column>
               <Column header="Item" :style="{ minWidth: '240px' }">
                 <template #body="{ data }">
                   <Select
                     v-model="data.catalog_item_id"
-                    :options="catalogueItems"
+                    :options="itemOptionsFor(data)"
                     option-label="name"
                     option-value="id"
                     filter
                     show-clear
                     fluid
-                    :disabled="!isDraft"
+                    :disabled="!isDraft || !data.primary_category_id"
+                    :placeholder="data.primary_category_id ? 'Select item' : 'Classify the line first'"
                     @change="onItemChange(data)"
                   >
-                    <template #option="{ option }">{{ option.item_type }} · {{ option.code }} — {{ option.name }}</template>
+                    <template #option="{ option }">{{ option.code }} — {{ option.name }}</template>
                   </Select>
+                  <small v-if="data.primary_category_id && !itemOptionsFor(data).length" class="afe-hint afe-hint--warn">
+                    No catalogue items are classified here yet.
+                  </small>
                 </template>
               </Column>
               <Column header="Cost code" :style="{ width: '150px' }">
@@ -1465,9 +1542,11 @@ onMounted(() => void loadAll())
                     :options="phases"
                     option-label="name"
                     option-value="name"
-                    placeholder="Select phase"
+                    :placeholder="phases.length ? 'Select phase' : 'No phases configured'"
+                    :disabled="!phases.length"
                     fluid
                     size="small"
+                    data-testid="section-phase"
                   />
                 </td>
                 <td>
@@ -1566,30 +1645,6 @@ onMounted(() => void loadAll())
       </DataTable>
       <template #footer>
         <Button label="Close" severity="secondary" text @click="auditHistoryDialog = false" />
-      </template>
-    </Dialog>
-
-    <!-- Configurable Phases Dialog -->
-    <Dialog v-model:visible="phasesDialog" modal header="Configurable Drilling & Completion Phases" :style="{ width: '640px' }">
-      <div class="form-stack">
-        <p class="phase-dialog-desc">Phases classify operational stages (e.g. Drilling, Logging, Casing & Cementing) used across AFE section planning and Daily Cost tracking.</p>
-
-        <div class="add-phase-bar">
-          <InputText v-model="newPhaseForm.code" placeholder="Code (e.g. STIM)" style="width: 110px" />
-          <InputText v-model="newPhaseForm.name" placeholder="Phase Name (e.g. Stimulation)" style="flex: 1" />
-          <InputNumber v-model="newPhaseForm.sequence" :min="1" placeholder="Seq" style="width: 70px" />
-          <Button label="Add Phase" icon="pi pi-plus" size="small" :disabled="!newPhaseForm.code.trim() || !newPhaseForm.name.trim()" @click="createCustomPhase" />
-        </div>
-
-        <DataTable :value="phases" data-key="id" striped-rows show-gridlines size="small" scrollable scroll-height="260px">
-          <Column field="sequence" header="Seq" style="width: 60px" />
-          <Column field="code" header="Code" style="width: 110px" />
-          <Column field="name" header="Name" />
-          <Column field="description" header="Description" />
-        </DataTable>
-      </div>
-      <template #footer>
-        <Button label="Done" icon="pi pi-check" @click="phasesDialog = false" />
       </template>
     </Dialog>
 
@@ -1708,19 +1763,6 @@ onMounted(() => void loadAll())
 .section-planning-table tfoot td {
   background: #f8fafc;
   padding: 8px;
-}
-
-.add-phase-bar {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  margin-bottom: 0.75rem;
-}
-
-.phase-dialog-desc {
-  font-size: 0.85rem;
-  color: var(--text-color-secondary, #64748b);
-  margin-bottom: 0.5rem;
 }
 
 .afe-hint {
