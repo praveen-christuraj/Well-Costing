@@ -6,7 +6,7 @@ The saved rates are the single source of unit rates for daily cost entry
 (where a per-line override is still available and recorded).
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from io import BytesIO
 from typing import Any
@@ -14,6 +14,7 @@ from uuid import UUID
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -110,7 +111,7 @@ class AfeEstimateService:
 
         sheet["A1"] = "AFE COST ESTIMATE"
         sheet["A1"].font = TITLE_FONT
-        sheet["A2"] = f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC"
+        sheet["A2"] = f"Generated {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')} UTC"
 
         header_pairs = [
             ("Project", f"{estimate.project_code or ''} — {estimate.project_name or ''}"),
@@ -180,7 +181,7 @@ class AfeEstimateService:
         if estimate.lines:
             sheet.freeze_panes = sheet.cell(first_data_row, 1).coordinate
         for column, width in enumerate([6, 16, 34, 14, 12, 14, 12, 12, 8, 14, 16, 20, 24], start=1):
-            sheet.column_dimensions[sheet.cell(1, column).column_letter].width = width
+            sheet.column_dimensions[get_column_letter(column)].width = width
 
         summary = workbook.create_sheet("Summaries")
         self._write_summary_block(summary, 1, "By hole section", estimate.totals_by_section)

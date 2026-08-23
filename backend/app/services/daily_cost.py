@@ -1,6 +1,6 @@
 """Daily cost entry processing, rate calculations, and AFE comparative analytics."""
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from io import BytesIO
 from typing import Any
@@ -361,7 +361,7 @@ class DailyCostService:
         unpriced = 0
 
         for line in afe.items:
-            if not line.is_active or line.catalog_item is None:
+            if not line.is_active:
                 continue
             rate_row = rate_rows.get(line.id)
             unit_rate = Decimal(rate_row.unit_rate) if rate_row else Decimal("0")
@@ -920,7 +920,7 @@ class DailyCostService:
         register.title = "Daily register"
         register["A1"] = f"DAILY COST REGISTER — {well.code} {well.name}"
         register["A1"].font = REPORT_TITLE_FONT
-        register["A2"] = f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC"
+        register["A2"] = f"Generated {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')} UTC"
         self._write_table(
             register,
             4,

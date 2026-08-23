@@ -21,7 +21,9 @@ class AfeCostEstimateRateInput(BaseModel):
 class AfeCostEstimateSaveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    rates: list[AfeCostEstimateRateInput] = Field(default_factory=list)
+    rates: list[AfeCostEstimateRateInput] = Field(
+        default_factory=lambda: list[AfeCostEstimateRateInput]()
+    )
 
 
 class AfeCostEstimateLineRead(BaseModel):
@@ -85,8 +87,18 @@ class AfeCostEstimateRead(BaseModel):
     services_total: Decimal = Decimal("0")
     consumables_total: Decimal = Decimal("0")
     variance_to_budget: Decimal = Decimal("0")
-    lines: list[AfeCostEstimateLineRead] = Field(default_factory=list)
-    totals_by_section: list[AfeCostEstimateGroupTotal] = Field(default_factory=list)
-    totals_by_item_type: list[AfeCostEstimateGroupTotal] = Field(default_factory=list)
-    totals_by_cost_code: list[AfeCostEstimateGroupTotal] = Field(default_factory=list)
-    totals_by_rate_basis: list[AfeCostEstimateGroupTotal] = Field(default_factory=list)
+    lines: list[AfeCostEstimateLineRead] = Field(
+        default_factory=lambda: list[AfeCostEstimateLineRead]()
+    )
+    totals_by_section: list[AfeCostEstimateGroupTotal] = Field(
+        default_factory=lambda: list[AfeCostEstimateGroupTotal]()
+    )
+    totals_by_item_type: list[AfeCostEstimateGroupTotal] = Field(
+        default_factory=lambda: list[AfeCostEstimateGroupTotal]()
+    )
+    totals_by_cost_code: list[AfeCostEstimateGroupTotal] = Field(
+        default_factory=lambda: list[AfeCostEstimateGroupTotal]()
+    )
+    totals_by_rate_basis: list[AfeCostEstimateGroupTotal] = Field(
+        default_factory=lambda: list[AfeCostEstimateGroupTotal]()
+    )
