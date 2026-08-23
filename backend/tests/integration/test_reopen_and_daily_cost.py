@@ -229,6 +229,21 @@ def test_daily_cost_entry_and_analytics(client: TestClient) -> None:
     assert afe_res.status_code == 201
     afe_id = afe_res.json()["id"]
 
+    # Configure the well's activity types (Planned / NPT / UPA) — mandatory
+    # before daily cost entry so spend is accounted properly.
+    activity = post(
+        client,
+        "/api/v1/master-data/activities",
+        {"code": "PLANNED", "name": "Planned"},
+        auth,
+    )
+    sub_activity = post(
+        client,
+        "/api/v1/well-activities",
+        {"well_id": well_id, "activity_id": activity["id"], "name": "Planned"},
+        auth,
+    )
+
     # Add line and submit AFE
     client.post(
         f"/api/v1/afes/{afe_id}/lines",
@@ -257,6 +272,7 @@ def test_daily_cost_entry_and_analytics(client: TestClient) -> None:
         "afe_id": afe_id,
         "entry_date": "2026-08-01",
         "phase": "Drilling",
+        "sub_activity_id": sub_activity["id"],
         "current_depth": "250.0",
         "daily_progress": "250.0",
         "operational_summary": "Spudded well. Drilled 250m.",
@@ -296,6 +312,7 @@ def test_daily_cost_entry_and_analytics(client: TestClient) -> None:
         "afe_id": afe_id,
         "entry_date": "2026-08-02",
         "phase": "Drilling",
+        "sub_activity_id": sub_activity["id"],
         "current_depth": "600.0",
         "daily_progress": "350.0",
         "operational_summary": "Drilled to 600m.",

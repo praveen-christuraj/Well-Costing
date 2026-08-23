@@ -306,6 +306,18 @@ def test_daily_cost_entry_delete_is_soft_and_recoverable(client: TestClient) -> 
     auth = headers(client)
     refs = setup_project_well_afe(client, auth)
     well_id = refs[1]["id"]
+    activity = post(
+        client,
+        "/api/v1/master-data/activities",
+        {"code": "PLANNED", "name": "Planned"},
+        auth,
+    )
+    sub_activity = post(
+        client,
+        "/api/v1/well-activities",
+        {"well_id": well_id, "activity_id": activity["id"], "name": "Planned"},
+        auth,
+    )
 
     entry = post(
         client,
@@ -314,6 +326,7 @@ def test_daily_cost_entry_delete_is_soft_and_recoverable(client: TestClient) -> 
             "well_id": well_id,
             "entry_date": "2026-08-01",
             "phase": "Drilling",
+            "sub_activity_id": sub_activity["id"],
             "services": [],
             "consumables": [],
         },

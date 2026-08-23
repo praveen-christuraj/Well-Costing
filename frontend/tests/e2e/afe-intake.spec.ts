@@ -40,7 +40,7 @@ test('creates an AFE and bulk-pastes a validated line', async ({ page, request }
   const projectDialog = page.getByRole('dialog', { name: 'Add project' })
   await projectDialog.getByLabel('Code').fill(`PRJ-${suffix}`)
   await projectDialog.getByLabel('Name').fill('Phase 3 project')
-  await projectDialog.getByRole('button', { name: 'Create project' }).click()
+  await projectDialog.getByRole('button', { name: 'Save project' }).click()
   await expect(projectDialog).toBeHidden()
   // The well dialog defaults its project from the reloaded list, so wait for it.
   await expect(page.getByRole('cell', { name: `PRJ-${suffix}`, exact: true })).toBeVisible()
@@ -50,7 +50,7 @@ test('creates an AFE and bulk-pastes a validated line', async ({ page, request }
   const wellDialog = page.getByRole('dialog', { name: 'Add well' })
   await wellDialog.getByLabel('Code').fill(`WELL-${suffix}`)
   await wellDialog.getByLabel('Name').fill('Phase 3 well')
-  await wellDialog.getByRole('button', { name: 'Create well' }).click()
+  await wellDialog.getByRole('button', { name: 'Save well' }).click()
   await expect(wellDialog).toBeHidden()
   await expect(page.getByRole('cell', { name: `WELL-${suffix}`, exact: true })).toBeVisible()
 
@@ -58,7 +58,7 @@ test('creates an AFE and bulk-pastes a validated line', async ({ page, request }
   const afeDialog = page.getByRole('dialog', { name: 'New AFE' })
   await afeDialog.getByLabel('AFE code').fill(`AFE-${suffix}`)
   await afeDialog.getByLabel('Title').fill('Phase 3 AFE')
-  await afeDialog.getByRole('button', { name: 'Create and open' }).click()
+  await afeDialog.getByRole('button', { name: 'Save AFE & Sections' }).click()
   await expect(afeDialog).toBeHidden()
 
   await page.getByRole('button', { name: 'Paste' }).click()
@@ -69,46 +69,39 @@ test('creates an AFE and bulk-pastes a validated line', async ({ page, request }
   await page.getByRole('button', { name: /Save 1/ }).click()
   await expect(page.getByText('1 rows saved.')).toBeVisible()
   await page.getByRole('button', { name: 'Submit' }).click()
-  await expect(page.getByText('submitted', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('AFE submitted successfully')).toBeVisible()
 
   const afeResponse = await request.get('/api/v1/afes?page=1&page_size=500&status=submitted', { headers })
   const afePage = await afeResponse.json() as { items: { id: string, code: string }[] }
   const afe = afePage.items.find(item => item.code === `AFE-${suffix}`)
   expect(afe).toBeTruthy()
+
+  // Price the AFE lines on the AFE Cost Estimates page (well-scoped unit rates).
+  const afeDetail = await request.get(`/api/v1/afes/${afe?.id}`, { headers })
+  const afeLines = (await afeDetail.json() as { items: { id: string }[] }).items
+  const firstLineId = afeLines[0]?.id
+  expect(firstLineId).toBeTruthy()
+  const priced = await request.put(`/api/v1/afes/${afe?.id}/cost-estimate/rates`, {
+    data: { rates: [{ afe_line_id: firstLineId, unit_rate: '1200.00' }] },
+    headers,
+  })
+  expect(priced.ok(), await priced.text()).toBe(true)
+  await page.goto('/afe-cost-estimates')
+  await expect(page.getByRole('heading', { name: 'AFE Cost Estimates' })).toBeVisible()
+
+  // The legacy bulk-build chain stays API-guarded until its rules are confirmed.
   const estimate = await create('/api/v1/estimates/from-afe', {
     afe_id: afe?.id,
     code: `EST-${suffix}`,
     title: 'Phase 5 blocked calculation',
     currency_id: currency.id,
   })
-  await page.goto(`/cost-builder/${estimate.id}`)
-  await expect(page.getByText('No calculated breakdown')).toBeVisible()
-  await page.getByRole('button', { name: 'Recalculate' }).click()
-  await expect(page.getByText('Estimate calculation is blocked pending confirmed business rules')).toBeVisible()
-  await expect(page.getByText('blocked', { exact: true }).first()).toBeVisible()
-  await expect(page.getByText('Pending business rules (7)')).toBeVisible()
-  await expect(page.getByText('Workflow profile pending')).toBeVisible()
-  await expect(page.getByText('Pending workflow policy (6)')).toBeVisible()
-
   const blockedTransition = await request.post(`/api/v1/estimates/${estimate.id}/workflow/transitions`, {
     data: { version_id: estimate.versions[0].id, action_key: 'submit_for_review' },
     headers,
   })
   expect(blockedTransition.status()).toBe(422)
   expect((await blockedTransition.json()).error.code).toBe('workflow_profile_pending')
-  await page.reload()
-  await expect(page.getByText('submit_for_review')).toBeVisible()
-
-  await page.getByRole('textbox', { name: 'Add review note' }).fill('Phase 6 review trace from the full-stack regression.')
-  await page.getByRole('button', { name: 'Add review note' }).click()
-  await expect(page.getByText('Phase 6 review trace from the full-stack regression.')).toBeVisible()
-
-  await expect(page.getByText('AFE policy pending')).toBeVisible()
-  await expect(page.getByText('No AFE issued')).toBeVisible()
-  await expect(page.getByText('Pending AFE policy (6)')).toBeVisible()
-  await page.getByRole('button', { name: 'Create baseline AFE snapshot' }).click()
-  await expect(page.getByText('Baseline AFE creation is blocked pending an approved eligibility and snapshot policy')).toBeVisible()
-  await expect(page.getByText('Explicit baseline request')).toBeVisible()
 
   const staged = await request.post('/api/v1/cost-control/batches/validate', {
     data: {

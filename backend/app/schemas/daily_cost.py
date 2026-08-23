@@ -219,3 +219,61 @@ class ReferenceConsumableRate(BaseModel):
     unit_id: UUID | None = None
     unit_code: str
     unit_rate: Decimal
+
+
+class ComparisonBucket(BaseModel):
+    """One row of a planned-versus-actual grouping (section, activity, phase, …)."""
+
+    key: str
+    label: str
+    entry_count: int = 0
+    services_cost: Decimal = Decimal("0")
+    consumables_cost: Decimal = Decimal("0")
+    total_cost: Decimal = Decimal("0")
+    planned_cost: Decimal | None = None
+    variance: Decimal | None = None
+    planned_days: Decimal | None = None
+    actual_days: Decimal | None = None
+    activity_code: str | None = None
+    activity_name: str | None = None
+    responsible_party: str | None = None
+
+
+class DateComparisonPoint(BaseModel):
+    entry_date: date
+    day_number: int
+    phase: str | None = None
+    hole_section_code: str | None = None
+    activity_name: str | None = None
+    services_cost: Decimal = Decimal("0")
+    consumables_cost: Decimal = Decimal("0")
+    daily_cost: Decimal = Decimal("0")
+    cumulative_cost: Decimal = Decimal("0")
+    planned_cumulative: Decimal | None = None
+    current_depth: Decimal | None = None
+    daily_progress: Decimal | None = None
+
+
+class DailyCostComparisonRead(BaseModel):
+    """Well-scoped cost comparison across every reporting dimension."""
+
+    well_id: UUID
+    well_code: str | None = None
+    well_name: str | None = None
+    afe_id: UUID | None = None
+    afe_code: str | None = None
+    afe_title: str | None = None
+    afe_budget: Decimal = Decimal("0")
+    estimate_total: Decimal = Decimal("0")
+    cumulative_actual_cost: Decimal = Decimal("0")
+    variance_to_budget: Decimal = Decimal("0")
+    variance_to_estimate: Decimal = Decimal("0")
+    total_planned_days: Decimal = Decimal("0")
+    days_elapsed: int = 0
+    by_date: list[DateComparisonPoint] = Field(default_factory=lambda: [])
+    by_week: list[ComparisonBucket] = Field(default_factory=lambda: [])
+    by_month: list[ComparisonBucket] = Field(default_factory=lambda: [])
+    by_section: list[ComparisonBucket] = Field(default_factory=lambda: [])
+    by_phase: list[ComparisonBucket] = Field(default_factory=lambda: [])
+    by_activity: list[ComparisonBucket] = Field(default_factory=lambda: [])
+    by_sub_activity: list[ComparisonBucket] = Field(default_factory=lambda: [])

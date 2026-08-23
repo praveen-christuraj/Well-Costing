@@ -197,6 +197,69 @@ export interface ReferenceConsumableRate {
 }
 
 export interface ReferenceRatesData {
+  /** The governing AFE whose cost estimate supplies every unit rate. */
+  afe_id?: string | null
+  afe_code?: string | null
+  afe_title?: string | null
+  rates_source?: string
+  priced_line_count?: number
+  unpriced_line_count?: number
   services: ReferenceServiceRate[]
   consumables: ReferenceConsumableRate[]
+}
+
+/** One row of a planned-versus-actual grouping (section, activity, phase, …). */
+export interface ComparisonBucket {
+  key: string
+  label: string
+  entry_count: number
+  services_cost: string | number
+  consumables_cost: string | number
+  total_cost: string | number
+  planned_cost: string | number | null
+  variance: string | number | null
+  planned_days: string | number | null
+  actual_days: string | number | null
+  activity_code: string | null
+  activity_name: string | null
+  responsible_party: string | null
+}
+
+export interface DateComparisonPoint {
+  entry_date: string
+  day_number: number
+  phase: string | null
+  hole_section_code: string | null
+  activity_name: string | null
+  services_cost: string | number
+  consumables_cost: string | number
+  daily_cost: string | number
+  cumulative_cost: string | number
+  planned_cumulative: string | number | null
+  current_depth: string | number | null
+  daily_progress: string | number | null
+}
+
+/** Well-scoped cost comparison across every reporting dimension. */
+export interface DailyCostComparison {
+  well_id: string
+  well_code: string | null
+  well_name: string | null
+  afe_id: string | null
+  afe_code: string | null
+  afe_title: string | null
+  afe_budget: string | number
+  estimate_total: string | number
+  cumulative_actual_cost: string | number
+  variance_to_budget: string | number
+  variance_to_estimate: string | number
+  total_planned_days: string | number
+  days_elapsed: number
+  by_date: DateComparisonPoint[]
+  by_week: ComparisonBucket[]
+  by_month: ComparisonBucket[]
+  by_section: ComparisonBucket[]
+  by_phase: ComparisonBucket[]
+  by_activity: ComparisonBucket[]
+  by_sub_activity: ComparisonBucket[]
 }

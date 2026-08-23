@@ -9,6 +9,7 @@ from app.models.afe import (
     Project,
     Well,
 )
+from app.models.afe_estimates import AfeCostEstimateLine
 from app.models.afe_snapshots import AfeSnapshot, AfeSnapshotAttempt, AfeSnapshotLine
 from app.models.audit import AuditLog
 from app.models.calculations import EstimateCalculation
@@ -89,6 +90,7 @@ __all__ = [
     "Activity",
     "Afe",
     "AfeAuditLog",
+    "AfeCostEstimateLine",
     "AfeLine",
     "AfeSection",
     "AfeSnapshot",
