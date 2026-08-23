@@ -2,6 +2,61 @@
 
 All notable project changes are documented here.
 
+## 2026-08-23 — AFE Cost Estimates, mandatory activity accounting, and cost analytics
+
+The cost builder is replaced by **AFE Cost Estimates** — the pricing side of the
+AFE backbone. The AFE defines *what* the well plans (services, chemicals,
+additives, tangibles, sections, phases, quantities); the AFE Cost Estimates page
+prices *each AFE line* with a well-scoped unit rate. Daily cost entry reads its
+unit rates from the AFE Cost Estimates only (per-line override still available
+and recorded), must carry the day's activity type (Planned / NPT / UPA
+sub-activity from the Well Activities page), and everything rolls up into a
+well-scoped planned-versus-actual comparison.
+
+### Added
+
+- **AFE Cost Estimates** (`/afe-cost-estimates`, `afe_cost_estimate_lines`
+  table, `/api/v1/afes/{afe_id}/cost-estimate` endpoints). Grabs the AFE lines
+  exactly as entered on the AFE page and stores one well-scoped unit rate per
+  line, with optional vendor and remarks. Live totals by hole section, item
+  type, cost code, and rate basis; variance to the AFE budget; Excel export and
+  a record-quality print layout with a signature block.
+- **AFE print.** The AFE page now prints a well-scoped AFE record (header,
+  sections & phases, lines) alongside the existing Excel export.
+- **Daily cost reports.** Per-day printable report and Excel day report
+  (`GET …/daily-cost/report?entry_date=`), plus a full daily cost register
+  export (`GET …/daily-cost/export`) with entry, service-line, and
+  consumable-line sheets.
+- **Cost Analytics** (`/daily-cost/comparison`,
+  `GET …/daily-cost/comparison[/export]`). Well-scoped planned-versus-actual
+  comparison — section-wise (planned from the estimate vs actual), activity-wise
+  (Planned / NPT / UPA and sub-activities with responsible parties), phase-wise
+  (planned vs actual days), date-wise with planned cumulative, cumulative,
+  week-wise, and month-wise — as charts, tables, and a multi-sheet Excel export.
+- **Services register.** `master-data/services` page joins Tangibles, Mud
+  Chemicals, and Cement Additives in the Catalogue group.
+
+### Changed
+
+- **Daily cost unit rates** now come from the AFE Cost Estimates of the well's
+  governing AFE — not from catalogue or well rate books. The reference-rates
+  endpoint reports the source AFE and how many AFE lines are still unpriced.
+- **Daily cost entry requires the day's activity type.** Saving without a
+  well-scoped sub-activity (configured on the Well Activities page) is refused,
+  so Planned / NPT / UPA accounting can never be skipped; line-level activities
+  must belong to the same well.
+- **Navigation.** "Cost Builder" is replaced by "AFE Cost Estimates" under
+  Planning; "Cost Analytics" joins Execution.
+
+### Removed
+
+- **All Catalogue Items page.** The unified register duplicated what the
+  Primary → Secondary → Tertiary classification pages already provide; the
+  catalogue group now lists Services, Tangibles, Mud Chemicals, and Cement
+  Additives directly.
+- **Cost builder pages.** The versioned bulk cost-build API remains for the
+  workflow/cost-control chain, but its UI is superseded by AFE Cost Estimates.
+
 ## 2026-08-23 — One classification, and a configurable dropdown registry
 
 Item categories and item sub categories were a second classification of the same

@@ -80,6 +80,7 @@ CRITICAL_SCHEMA: dict[str, tuple[str, ...]] = {
     "tertiary_categories": ("code", "name", "secondary_category_id", "is_active"),
     "activities": ("code", "name", "sequence", "is_active"),
     "well_activities": ("well_id", "activity_id", "name", "is_active"),
+    "afe_cost_estimate_lines": ("afe_id", "afe_line_id", "unit_rate", "is_active"),
     "cost_estimates": ("afe_id", "code", "title", "currency_id"),
 }
 

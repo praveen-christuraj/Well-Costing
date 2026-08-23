@@ -35,6 +35,7 @@ import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
 import PageHeader from '~/components/design-system/PageHeader.vue'
 import { defaultRateBasisFor, rateBasesFor } from '~/types/afe'
+import { escapeHtml, printDocument } from '~/utils/printDocument'
 import { parseTsv } from '~/utils/tsv'
 import type {
   AfeAuditLogRecord,
@@ -872,7 +873,7 @@ async function submitAfe(): Promise<void> {
   try {
     selectedAfe.value = await api.submit(selectedAfeId.value)
     lines.value = selectedAfe.value.items.map(toEditable)
-    success.value = 'AFE submitted successfully. It feeds the Cost Builder and Daily Cost comparisons.'
+    success.value = 'AFE submitted successfully. It feeds the AFE Cost Estimates and Daily Cost comparisons.'
     await loadAfes()
   }
   catch (caught: unknown) {
@@ -890,6 +891,68 @@ async function download(kind: 'export' | 'template'): Promise<void> {
   anchor.download = `afe-${kind}.xlsx`
   anchor.click()
   URL.revokeObjectURL(url)
+}
+
+/** Print a record-quality, well-scoped copy of the selected AFE. */
+function printAfe(): void {
+  const afe = selectedAfe.value
+  if (!afe) return
+  const well = wells.value.find(candidate => candidate.id === afe.well_id)
+  const project = projects.value.find(candidate => candidate.id === well?.project_id)
+  const meta = [
+    ['Project', `${project?.code ?? ''} — ${project?.name ?? ''}`],
+    ['Well', `${well?.code ?? ''} — ${well?.name ?? ''}`],
+    ['Rig', well?.rig_name ?? '—'],
+    ['AFE', `${afe.code} (rev ${afe.revision_number})`],
+    ['Title', afe.title],
+    ['Status', afe.status],
+    ['Budget amount', Number(afe.budget_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })],
+    ['Planned days', Number(afe.total_planned_days || 0).toFixed(1)],
+    ['Planned TD', `${Number(afe.total_planned_depth || 0).toFixed(0)} ${afe.depth_unit_code ?? ''}`],
+    ['Submitted', afe.submitted_at ? new Date(afe.submitted_at).toLocaleString() : '—'],
+  ]
+  const metaHtml = meta
+    .map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+    .join('')
+  const sectionRows = (afe.sections ?? []).map(section => `
+    <tr>
+      <td class="num">${section.sequence}</td>
+      <td>${escapeHtml(section.hole_section_code ?? '—')}</td>
+      <td>${escapeHtml(section.phase)}</td>
+      <td class="num">${Number(section.planned_days || 0)}</td>
+      <td class="num">${section.planned_depth_from != null ? Number(section.planned_depth_from) : '—'}</td>
+      <td class="num">${section.planned_depth_to != null ? Number(section.planned_depth_to) : '—'}</td>
+      <td>${escapeHtml(section.notes ?? '')}</td>
+    </tr>`).join('')
+  const lineRows = (afe.items ?? []).map(item => `
+    <tr>
+      <td class="num">${item.line_number}</td>
+      <td>${escapeHtml(item.catalog_item_code)}<br><small>${escapeHtml(item.catalog_item_name)}</small></td>
+      <td>${escapeHtml((item.item_type ?? '').replace(/_/g, ' '))}</td>
+      <td>${escapeHtml(item.cost_code ?? '')}</td>
+      <td>${escapeHtml(item.hole_section_code ?? '—')}</td>
+      <td>${escapeHtml(item.rate_basis.replace(/_/g, ' '))}</td>
+      <td class="num">${Number(item.quantity)}</td>
+      <td>${escapeHtml(item.unit_code ?? '')}</td>
+      <td>${escapeHtml(item.notes ?? '')}</td>
+    </tr>`).join('')
+  printDocument(`AFE ${afe.code}`, `
+    <h1>AUTHORISATION FOR EXPENDITURE</h1>
+    <p class="doc-subtitle">Well-scoped AFE record — scope, sections, phases, and planned quantities.</p>
+    <div class="meta-grid">${metaHtml}</div>
+    <h2>Sections &amp; phases</h2>
+    <table>
+      <thead><tr><th class="num">Seq</th><th>Hole section</th><th>Phase</th><th class="num">Planned days</th><th class="num">Depth from</th><th class="num">Depth to</th><th>Notes</th></tr></thead>
+      <tbody>${sectionRows || '<tr><td colspan="7">No sections configured.</td></tr>'}</tbody>
+    </table>
+    <h2>AFE lines</h2>
+    <table>
+      <thead><tr><th class="num">#</th><th>Item</th><th>Type</th><th>Cost code</th><th>Section</th><th>Rate basis</th><th class="num">Qty</th><th>Unit</th><th>Notes</th></tr></thead>
+      <tbody>${lineRows || '<tr><td colspan="9">No AFE lines yet.</td></tr>'}</tbody>
+    </table>
+    <div class="signatures"><div>Prepared by</div><div>Reviewed by</div><div>Approved by</div></div>
+    <p class="print-footer">Printed ${new Date().toLocaleString()} — unit rates are maintained on the AFE Cost Estimates page.</p>
+  `)
 }
 
 /* --------------------------------------------------------------- loading ---- */
@@ -1260,6 +1323,7 @@ onMounted(() => void loadAll())
                 <Button label="Paste" icon="pi pi-clipboard" text :disabled="!isDraft" @click="pasteVisible = true" />
                 <Button label="Template" icon="pi pi-file-excel" text :disabled="!isDraft" @click="download('template')" />
                 <Button label="Export" icon="pi pi-download" text :disabled="!selectedAfeId" @click="download('export')" />
+                <Button label="Print" icon="pi pi-print" text :disabled="!selectedAfe" @click="printAfe" />
                 <Button :label="pendingCount ? `Save ${pendingCount}` : 'Save'" icon="pi pi-save" :disabled="!isDraft || !pendingCount" :loading="saving" @click="saveLines" />
                 <Button :label="selectedAfe?.reopened_at ? 'Resubmit' : 'Submit'" icon="pi pi-send" severity="secondary" :disabled="!isDraft || !lines.length" :loading="submitting" @click="submitAfe" />
               </div>

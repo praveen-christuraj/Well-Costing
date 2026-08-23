@@ -49,7 +49,7 @@ const groups: NavGroup[] = [
   {
     label: 'Catalogue',
     items: [
-      { key: 'catalogue-items', label: 'All Catalogue Items', to: '/master-data/catalogue-items' },
+      { key: 'services', label: 'Services', to: '/master-data/services' },
       { key: 'tangibles', label: 'Tangibles', to: '/master-data/tangibles' },
       { key: 'mud-chemicals', label: 'Mud Chemicals', to: '/master-data/mud-chemicals' },
       { key: 'cement-additives', label: 'Cement Additives', to: '/master-data/cement-additives' },

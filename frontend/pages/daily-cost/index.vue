@@ -32,6 +32,7 @@ import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
 import PageHeader from '~/components/design-system/PageHeader.vue'
+import { escapeHtml, formatMoneyCell, printDocument } from '~/utils/printDocument'
 import type { AfeRecord, DrillingPhaseRecord, WellRecord } from '~/types/afe'
 import type {
   DailyCostAnalytics,
@@ -68,9 +69,14 @@ const trendRange = ref<'5' | '7' | 'all'>('7')
 // Daily Header Info
 const entryHoleSectionId = ref<string | null>(null)
 const entryPhase = ref<string>('Drilling')
+const entrySubActivityId = ref<string | null>(null)
 const currentDepth = ref<number | null>(null)
 const dailyProgress = ref<number | null>(null)
 const operationalSummary = ref<string>('')
+
+// The AFE Cost Estimate that supplies the unit rates (single source of rates).
+const ratesAfeCode = ref<string | null>(null)
+const ratesUnpricedCount = ref<number>(0)
 
 // Lines
 const serviceLines = ref<DailyCostServiceLine[]>([])
@@ -333,6 +339,12 @@ function quickLoadAfeItems(): void {
 /* ------------------------------- Save & Load ------------------------------ */
 async function saveDailyCost(): Promise<void> {
   if (!selectedWellId.value) return
+  if (!entrySubActivityId.value) {
+    error.value = wellActivities.value.length
+      ? 'Select the day\u2019s activity type (Planned, NPT-1, UPA-1, …) before saving.'
+      : 'No activity types are configured for this well yet. Configure the Well Activities page first so Planned, NPT, and UPA costs are accounted properly.'
+    return
+  }
   saving.value = true
   error.value = null
   success.value = null
@@ -346,6 +358,7 @@ async function saveDailyCost(): Promise<void> {
       entry_date: formattedDate.value,
       hole_section_id: entryHoleSectionId.value || null,
       phase: entryPhase.value || null,
+      sub_activity_id: entrySubActivityId.value,
       current_depth: currentDepth.value !== null ? Number(currentDepth.value) : null,
       daily_progress: dailyProgress.value !== null ? Number(dailyProgress.value) : null,
       operational_summary: operationalSummary.value || null,
@@ -354,18 +367,23 @@ async function saveDailyCost(): Promise<void> {
         cost_code_id: s.cost_code_id,
         vendor_id: s.vendor_id || null,
         hole_section_id: s.hole_section_id || entryHoleSectionId.value || null,
+        sub_activity_id: s.sub_activity_id || entrySubActivityId.value || null,
+        service_type: s.service_type || 'operation',
         service_hours: Number(s.service_hours) || 0,
         rate_basis: s.rate_basis,
         unit_rate: Number(s.unit_rate) || 0,
+        override_rate: s.override_rate != null && Number(s.override_rate) > 0 ? Number(s.override_rate) : null,
         remarks: s.remarks || null,
       })),
       consumables: consumableLines.value.map(c => ({
         consumable_id: c.consumable_id,
         cost_code_id: c.cost_code_id,
         vendor_id: c.vendor_id || null,
+        sub_activity_id: c.sub_activity_id || entrySubActivityId.value || null,
         quantity: Number(c.quantity) || 0,
         unit_id: c.unit_id,
         unit_rate: Number(c.unit_rate) || 0,
+        override_rate: c.override_rate != null && Number(c.override_rate) > 0 ? Number(c.override_rate) : null,
         remarks: c.remarks || null,
       })),
     }
@@ -381,6 +399,105 @@ async function saveDailyCost(): Promise<void> {
   finally { saving.value = false }
 }
 
+/* ------------------------------ Daily reports ----------------------------- */
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+async function exportDayReport(): Promise<void> {
+  if (!selectedWellId.value) return
+  try {
+    downloadBlob(
+      await api.exportDayReport(selectedWellId.value, formattedDate.value),
+      `daily-cost-report-${formattedDate.value}.xlsx`,
+    )
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The day report export failed. Save the day log first.'
+  }
+}
+
+async function exportRegister(): Promise<void> {
+  if (!selectedWellId.value) return
+  try {
+    downloadBlob(await api.exportRegister(selectedWellId.value), 'daily-cost-register.xlsx')
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The register export failed.'
+  }
+}
+
+/** Print a record-quality daily cost report for the selected day. */
+function printDayReport(): void {
+  const well = wells.value.find(candidate => candidate.id === selectedWellId.value)
+  const activityName = wellActivities.value.find(item => item.id === entrySubActivityId.value)?.name ?? '—'
+  const meta = [
+    ['Well', `${well?.code ?? ''} — ${well?.name ?? ''}`],
+    ['Rig', well?.rig_name ?? '—'],
+    ['AFE', activeAfe.value ? `${activeAfe.value.code} — ${activeAfe.value.title}` : '—'],
+    ['Report date', formattedDate.value],
+    ['Phase', entryPhase.value || '—'],
+    ['Hole section', holeSections.value.find(section => section.id === entryHoleSectionId.value)?.code ?? '—'],
+    ['Activity type', activityName],
+    ['Current depth', currentDepth.value != null ? String(currentDepth.value) : '—'],
+    ['24h progress', dailyProgress.value != null ? String(dailyProgress.value) : '—'],
+  ]
+  const metaHtml = meta
+    .map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+    .join('')
+  const serviceRows = serviceLines.value.map(line => `
+    <tr>
+      <td>${escapeHtml(line.service_code)}<br><small>${escapeHtml(line.service_name)}</small></td>
+      <td>${escapeHtml(line.service_type || 'operation')}</td>
+      <td class="num">${Number(line.service_hours) || 0}</td>
+      <td class="num">${Number(line.operating_days) || 0}</td>
+      <td>${escapeHtml(line.rate_basis)}</td>
+      <td class="num">${formatMoneyCell(line.unit_rate)}</td>
+      <td class="num">${line.override_rate != null && Number(line.override_rate) > 0 ? formatMoneyCell(line.override_rate) : '—'}</td>
+      <td class="num">${formatMoneyCell(line.amount)}</td>
+      <td>${escapeHtml(line.remarks ?? '')}</td>
+    </tr>`).join('')
+  const consumableRows = consumableLines.value.map(line => `
+    <tr>
+      <td>${escapeHtml(line.consumable_code)}<br><small>${escapeHtml(line.consumable_name)}</small></td>
+      <td class="num">${Number(line.quantity) || 0}</td>
+      <td>${escapeHtml(line.unit_code ?? '')}</td>
+      <td class="num">${formatMoneyCell(line.unit_rate)}</td>
+      <td class="num">${line.override_rate != null && Number(line.override_rate) > 0 ? formatMoneyCell(line.override_rate) : '—'}</td>
+      <td class="num">${formatMoneyCell(line.amount)}</td>
+      <td>${escapeHtml(line.remarks ?? '')}</td>
+    </tr>`).join('')
+  printDocument(`Daily Cost Report ${formattedDate.value}`, `
+    <h1>DAILY COST REPORT</h1>
+    <p class="doc-subtitle">Unit rates are read from the AFE Cost Estimates${ratesAfeCode.value ? ` of AFE ${escapeHtml(ratesAfeCode.value)}` : ''}; overrides are shown where applied.</p>
+    <div class="meta-grid">${metaHtml}</div>
+    <h2>Services utilised</h2>
+    <table>
+      <thead><tr><th>Service</th><th>Type</th><th class="num">Hours</th><th class="num">Days</th><th>Rate basis</th><th class="num">Unit rate</th><th class="num">Override</th><th class="num">Amount</th><th>Remarks</th></tr></thead>
+      <tbody>${serviceRows || '<tr><td colspan="9">No services recorded.</td></tr>'}
+        <tr class="total-row"><td colspan="7">Total services</td><td class="num">${formatMoneyCell(totalDailyServices.value)}</td><td></td></tr>
+      </tbody>
+    </table>
+    <h2>Chemicals &amp; consumables</h2>
+    <table>
+      <thead><tr><th>Consumable</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit rate</th><th class="num">Override</th><th class="num">Amount</th><th>Remarks</th></tr></thead>
+      <tbody>${consumableRows || '<tr><td colspan="7">No consumables recorded.</td></tr>'}
+        <tr class="total-row"><td colspan="5">Total consumables</td><td class="num">${formatMoneyCell(totalDailyConsumables.value)}</td><td></td></tr>
+        <tr class="total-row"><td colspan="5">Total daily cost</td><td class="num">${formatMoneyCell(totalDailyCost.value)}</td><td></td></tr>
+      </tbody>
+    </table>
+    <h2>Operational summary</h2>
+    <p>${escapeHtml(operationalSummary.value || '—')}</p>
+    <div class="signatures"><div>Prepared by</div><div>Day supervisor</div><div>Company representative</div></div>
+    <p class="print-footer">Printed ${new Date().toLocaleString()} — Daily Cost, well scoped.</p>
+  `)
+}
+
 async function loadDayData(): Promise<void> {
   if (!selectedWellId.value) return
   loading.value = true
@@ -389,6 +506,7 @@ async function loadDayData(): Promise<void> {
     if (entry) {
       entryHoleSectionId.value = entry.hole_section_id ?? null
       entryPhase.value = entry.phase ?? (phases.value[0]?.name ?? 'Drilling')
+      entrySubActivityId.value = entry.sub_activity_id ?? null
       currentDepth.value = entry.current_depth !== null ? Number(entry.current_depth) : null
       dailyProgress.value = entry.daily_progress !== null ? Number(entry.daily_progress) : null
       operationalSummary.value = entry.operational_summary ?? ''
@@ -409,6 +527,7 @@ async function loadDayData(): Promise<void> {
     else {
       // Clear or prefill from previous / defaults
       entryPhase.value = phases.value[0]?.name ?? 'Drilling'
+      entrySubActivityId.value = null
       currentDepth.value = null
       dailyProgress.value = null
       operationalSummary.value = ''
@@ -444,6 +563,8 @@ async function onWellChange(): Promise<void> {
     ])
     refServices.value = refRates.services || []
     refConsumables.value = refRates.consumables || []
+    ratesAfeCode.value = refRates.afe_code ?? null
+    ratesUnpricedCount.value = refRates.unpriced_line_count ?? 0
 
     const wellAfes = afesPage.items || []
     activeAfe.value = wellAfes.find(a => a.status === 'submitted') ?? wellAfes[0] ?? null
@@ -620,12 +741,31 @@ onMounted(() => void loadAll())
       description="Track daily operational service hours and chemical usage. Service hours (divided by 24 for operating days) calculate rate amounts according to daily, per-section, per-service, or fixed terms. Quantities multiply by unit prices. Live cumulative spend is compared with AFE budget, balance, burn rate, and end-of-well forecast."
     >
       <template #actions>
+        <Button label="Print Day Report" icon="pi pi-print" text :disabled="!selectedWellId" @click="printDayReport" />
+        <Button label="Day Report (Excel)" icon="pi pi-file-excel" text :disabled="!selectedWellId" @click="exportDayReport" />
+        <Button label="Export Register" icon="pi pi-download" outlined :disabled="!selectedWellId" @click="exportRegister" />
         <Button label="Save Day Log" icon="pi pi-save" :loading="saving" :disabled="!selectedWellId" @click="saveDailyCost" />
       </template>
     </PageHeader>
 
     <Message v-if="success" severity="success" :closable="true" @close="success = null">{{ success }}</Message>
     <Message v-if="error" severity="error" :closable="true" @close="error = null">{{ error }}</Message>
+
+    <Message v-if="selectedWellId && !wellActivities.length" severity="warn" :closable="false">
+      No activity types (Planned, NPT, UPA sub-activities) are configured for this well yet.
+      Daily cost entry requires one — configure the
+      <NuxtLink to="/daily-cost/well-activities">Well Activities page</NuxtLink> first so every cost is
+      accounted to Planned, NPT, or UPA.
+    </Message>
+    <Message v-else-if="selectedWellId && ratesAfeCode" severity="info" :closable="false">
+      Unit rates are read from the <strong>AFE Cost Estimates</strong> of AFE
+      <strong>{{ ratesAfeCode }}</strong>.
+      <template v-if="ratesUnpricedCount > 0">
+        {{ ratesUnpricedCount }} AFE line(s) still have no unit rate — set them on the
+        <NuxtLink to="/afe-cost-estimates">AFE Cost Estimates page</NuxtLink>.
+      </template>
+      A per-line override remains available for exceptional days.
+    </Message>
 
     <!-- Top Controls & Selector Bar -->
     <section class="dc-selector-bar bulk-grid-panel">
@@ -702,6 +842,27 @@ onMounted(() => void loadAll())
     <!-- Operational Context Bar -->
     <section class="dc-op-bar bulk-grid-panel">
       <div class="form-row">
+        <div class="op-field">
+          <label>Activity Type <span class="required-mark">*</span></label>
+          <div class="activity-select-row">
+            <Select
+              v-model="entrySubActivityId"
+              :options="wellActivities"
+              option-label="name"
+              option-value="id"
+              :placeholder="wellActivities.length ? 'Planned / NPT / UPA…' : 'Configure Well Activities first'"
+              :disabled="!wellActivities.length"
+              :invalid="!entrySubActivityId"
+              fluid
+            >
+              <template #option="{ option }">
+                <strong>{{ option.name }}</strong>&nbsp;
+                <small>({{ option.activity_code || option.activity_name }}<template v-if="option.responsible_party"> · {{ option.responsible_party }}</template>)</small>
+              </template>
+            </Select>
+            <Button icon="pi pi-plus" text size="small" title="Configure a sub-activity" @click="openSubActivityDialog" />
+          </div>
+        </div>
         <div class="op-field">
           <label>Phase</label>
           <Select
@@ -1309,6 +1470,20 @@ onMounted(() => void loadAll())
   font-size: 0.75rem;
   font-weight: 600;
   color: #64748b;
+}
+
+.required-mark {
+  color: #dc2626;
+}
+
+.activity-select-row {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.activity-select-row > :first-child {
+  flex: 1;
 }
 
 .dc-tabs {

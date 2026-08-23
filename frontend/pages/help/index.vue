@@ -12,7 +12,7 @@ const sections = [
   { id: 'reopen-afe', label: 'Reopening submitted AFEs & audit' },
   { id: 'deleted-afes', label: 'Deleted AFEs & recovery' },
   { id: 'audit-log', label: 'Audit Log' },
-  { id: 'cost-builder-vs-daily', label: 'Cost Builder vs Daily Cost' },
+  { id: 'cost-builder-vs-daily', label: 'AFE Cost Estimates vs Daily Cost' },
   { id: 'daily-cost', label: 'Daily Cost Entry & analytics' },
   { id: 'cost-control', label: 'Cost Control & postings' },
   { id: 'reports', label: 'Reports & export' },
@@ -25,7 +25,7 @@ const sections = [
   <div class="help-page">
     <PageHeader
       title="Help & User Manual"
-      description="Comprehensive guide explaining module roles, AFE backbone planning, reopening submitted AFEs, Daily Cost tracking, and Cost Builder vs Daily Execution."
+      description="Comprehensive guide explaining module roles, AFE backbone planning, reopening submitted AFEs, AFE Cost Estimates pricing, Daily Cost tracking, and cost analytics."
     />
 
     <div class="help-layout">
@@ -43,7 +43,7 @@ const sections = [
           <ol class="help-flow">
             <li><strong>Master Data</strong> — reference catalogues: services, tangibles, mud chemicals, cement additives, vendors, units, and rates.</li>
             <li><strong>AFE (Authorisation for Expenditure)</strong> — the technical and financial backbone of the well: budget amount, hole sections, phases, planned days, and depths.</li>
-            <li><strong>Cost Builder</strong> — pre-drill financial baseline modeling: assigns vendor contracts, escalation, contingency, and locks the AFE baseline.</li>
+            <li><strong>AFE Cost Estimates</strong> — prices the AFE: every AFE line receives its well-scoped unit rate here, and the saved rates are the single source of rates for daily cost entry. Export and print the priced AFE for records.</li>
             <li><strong>Daily Cost</strong> — operational field tracking: records daily service hours (hours/24 = operating days × rate) and chemical usage (qty × unit rate), comparing live spend against the AFE budget and generating end-of-well forecasts.</li>
             <li><strong>Cost Control</strong> — stages and posts multi-state financial transactions (field estimates, commitments, accruals, actuals, forecasts).</li>
             <li><strong>Reports & Assurance</strong> — multidimensional variance analytics and formal approval governance.</li>
@@ -59,9 +59,10 @@ const sections = [
             <li>Create the <strong>AFE</strong> on the AFEs tab: enter the budget amount and configure the <strong>Well Section & Phase Breakdown</strong> (hole sizes, configurable phases, planned days, and depths).</li>
             <li>On the <strong>AFE Lines</strong> tab, add planned services and chemicals. (Daily consumption chemicals multiply daily usage by the section's planned days).</li>
             <li><strong>Submit</strong> the AFE. If changes are later needed, use <strong>Reopen AFE</strong> with mandatory remarks.</li>
-            <li>Use <strong>Cost Builder</strong> for pre-drill financial baseline modeling and vendor pricing.</li>
-            <li>During drilling/operations, open <strong>Daily Cost</strong> to record daily service hours and chemical usage, tracking burn rate, balance amount, and 5/7-day trends.</li>
-            <li>Review reconciliation and management charts in <strong>Reports</strong>.</li>
+            <li>Open <strong>AFE Cost Estimates</strong> and input the well-scoped unit rate for every AFE line; export or print the priced AFE for records.</li>
+            <li>Configure the <strong>Well Activities</strong> page (Planned, NPT-1, UPA-1, …) — daily cost entry requires the day's activity type so Planned / NPT / UPA spend is accounted properly.</li>
+            <li>During drilling/operations, open <strong>Daily Cost</strong> to record daily service hours and chemical usage. Unit rates come from the AFE Cost Estimates (override available per line), tracking burn rate, balance amount, and 5/7-day trends.</li>
+            <li>Review the planned-versus-actual comparison in <strong>Cost Analytics</strong> — section-wise, activity-wise, phase-wise, date-wise, cumulative, week-wise, and month-wise — plus reconciliation charts in <strong>Reports</strong>.</li>
           </ol>
         </section>
 
@@ -146,20 +147,20 @@ const sections = [
           </ul>
         </section>
 
-        <!-- Cost Builder vs Daily Cost -->
+        <!-- AFE Cost Estimates vs Daily Cost -->
         <section id="cost-builder-vs-daily" class="help-section">
-          <h2>Cost Builder vs Daily Cost Entry</h2>
+          <h2>AFE Cost Estimates vs Daily Cost Entry</h2>
           <div class="help-table-wrap">
             <table class="help-table">
               <thead>
-                <tr><th>Feature</th><th>Cost Builder (Planning)</th><th>Daily Cost Entry (Execution)</th></tr>
+                <tr><th>Feature</th><th>AFE Cost Estimates (Planning)</th><th>Daily Cost Entry (Execution)</th></tr>
               </thead>
               <tbody>
-                <tr><td><strong>Purpose</strong></td><td>Pre-drill financial pricing and baseline budgeting</td><td>Real-time operational daily cost tracking</td></tr>
-                <tr><td><strong>Timing</strong></td><td>Planning phase before spudding the well</td><td>Daily during active drilling & completion</td></tr>
-                <tr><td><strong>Input data</strong></td><td>AFE lines, vendor selection, contingency & escalation %</td><td>Service hours (0-24) and chemical quantities consumed</td></tr>
-                <tr><td><strong>Calculation</strong></td><td>Baseline cost estimates by cost code & vendor</td><td>Hours/24 × rate basis; Qty × unit rate; cumulative spend</td></tr>
-                <tr><td><strong>Key Output</strong></td><td>Approved AFE baseline financial snapshot</td><td>Daily burn rate, remaining AFE balance, end-of-well forecast</td></tr>
+                <tr><td><strong>Purpose</strong></td><td>Prices the AFE: well-scoped unit rates for every AFE line</td><td>Real-time operational daily cost tracking</td></tr>
+                <tr><td><strong>Timing</strong></td><td>Planning phase, after AFE lines are added</td><td>Daily during active drilling &amp; completion</td></tr>
+                <tr><td><strong>Input data</strong></td><td>Unit rate (and optional vendor/remarks) per AFE line</td><td>Service hours (0-24), chemical quantities, activity type (Planned / NPT / UPA)</td></tr>
+                <tr><td><strong>Calculation</strong></td><td>Quantity × unit rate = estimated amount; totals by section, item type, and cost code</td><td>Hours/24 × rate basis; Qty × unit rate; cumulative spend. Rates come from the AFE Cost Estimates with per-line override</td></tr>
+                <tr><td><strong>Key Output</strong></td><td>The priced AFE — exportable and printable for records</td><td>Daily burn rate, remaining AFE balance, end-of-well forecast, daily reports</td></tr>
               </tbody>
             </table>
           </div>
@@ -172,11 +173,14 @@ const sections = [
             The <strong>Daily Cost</strong> module provides live rig-site operational tracking:
           </p>
           <ul class="help-list">
+            <li><strong>Activity Type (mandatory):</strong> Each day log records its activity type — a well-scoped sub-activity (e.g. Planned, NPT-1, UPA-1) configured on the <strong>Well Activities</strong> page. This accounts every cost to Planned, NPT, or UPA and its responsible party.</li>
+            <li><strong>Unit Rates:</strong> Rates are read from the <strong>AFE Cost Estimates</strong> of the well's AFE — the single source of unit rates. A per-line override remains available for exceptional days and is stored with the entry.</li>
             <li><strong>Service Hours Calculation:</strong> User enters the hours a service was active on that date (e.g. 12h, 24h). The system divides by 24 to compute operating days (e.g. 12h = 0.5000 days), and multiplies by the daily rate (or charges fixed / per-section / per-service rate).</li>
             <li><strong>Chemicals & Additives:</strong> User enters the quantity of mud chemicals or cement additives used; the system multiplies by unit rate.</li>
             <li><strong>AFE Balance Comparison:</strong> Live calculation of <code>Balance = AFE Budget - Cumulative Actual Spend</code>.</li>
             <li><strong>Burn Rate & Forecast:</strong> Calculates average daily burn rate (<code>Cumulative / Days Elapsed</code>) and projects total cost at completion (<code>Cumulative + Remaining Planned Days × Burn Rate</code>).</li>
             <li><strong>Trend & Drill-Through Charts:</strong> Toggle between Last 5 Days, Last 7 Days, and Full Drill-Through to analyze service consumption and daily spend trends.</li>
+            <li><strong>Daily Reports:</strong> Every saved day log can be printed or exported as a daily cost report, and the full daily cost register exports to Excel for records.</li>
           </ul>
         </section>
 
@@ -193,7 +197,7 @@ const sections = [
         <section id="reports" class="help-section">
           <h2>Reports</h2>
           <p>
-            Reports join plan dimensions (from AFE and Cost Builder) with actual spend (from Daily Cost and Cost Control) across shared dimensions: project, well, AFE, cost code, vendor, and currency.
+            Reports join plan dimensions (from the AFE and its Cost Estimates) with actual spend (from Daily Cost and Cost Control) across shared dimensions: project, well, AFE, cost code, vendor, and currency.
           </p>
         </section>
 

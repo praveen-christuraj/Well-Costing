@@ -1,35 +1,48 @@
 """Daily cost entry processing, rate calculations, and AFE comparative analytics."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
+from io import BytesIO
 from typing import Any
 from uuid import UUID
 
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
+from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BusinessValidationError, ConflictError, NotFoundError
 from app.models.afe import Afe, Well
+from app.models.afe_estimates import AfeCostEstimateLine
+from app.models.categories import WellActivity
 from app.models.daily_cost import (
     DailyCostConsumableLine,
     DailyCostEntry,
     DailyCostServiceLine,
 )
-from app.models.master_data import CatalogItem
-from app.models.well_costing import WellServiceRate, WellTangibleRate
 from app.schemas.daily_cost import (
+    ComparisonBucket,
     ConsumableBreakdownItem,
     DailyCostAnalyticsRead,
+    DailyCostComparisonRead,
     DailyCostConsumableLineRead,
     DailyCostEntryCreate,
     DailyCostEntryRead,
     DailyCostServiceLineRead,
     DailyTrendPoint,
+    DateComparisonPoint,
     ReferenceConsumableRate,
     ReferenceServiceRate,
     ServiceBreakdownItem,
 )
+from app.services.afe_estimates import AfeEstimateService
 from app.services.audit import log_entity_action
+
+REPORT_HEADER_FILL = PatternFill("solid", fgColor="0F766E")
+REPORT_HEADER_FONT = Font(bold=True, color="FFFFFF")
+REPORT_TITLE_FONT = Font(bold=True, size=14)
+REPORT_LABEL_FONT = Font(bold=True)
 
 
 class DailyCostService:
@@ -61,6 +74,37 @@ class DailyCostService:
         well = self.session.get(Well, well_id)
         if not well or not well.is_active:
             raise NotFoundError("Well not found")
+
+        # The day's activity type (Planned, NPT-1, UPA-1, …) is mandatory so
+        # that every cost is accounted to Planned / NPT / UPA correctly.
+        if payload.sub_activity_id is None:
+            raise BusinessValidationError(
+                "Select the day's activity type (Planned, NPT-1, UPA-1, …) before saving. "
+                "If the list is empty, configure the Well Activities page for this well first."
+            )
+        sub_activity = self.session.get(WellActivity, payload.sub_activity_id)
+        if not sub_activity or sub_activity.well_id != well_id or not sub_activity.is_active:
+            raise BusinessValidationError(
+                "The selected activity type is not configured for this well. "
+                "Configure it on the Well Activities page first."
+            )
+        line_activity_ids = {
+            s.sub_activity_id for s in payload.services if s.sub_activity_id is not None
+        } | {c.sub_activity_id for c in payload.consumables if c.sub_activity_id is not None}
+        if line_activity_ids:
+            valid_ids = set(
+                self.session.scalars(
+                    select(WellActivity.id).where(
+                        WellActivity.well_id == well_id,
+                        WellActivity.id.in_(line_activity_ids),
+                        WellActivity.is_active.is_(True),
+                    )
+                ).all()
+            )
+            if line_activity_ids - valid_ids:
+                raise BusinessValidationError(
+                    "A cost line references an activity type that is not configured for this well."
+                )
 
         afe_id = payload.afe_id
         if not afe_id:
@@ -268,92 +312,107 @@ class DailyCostService:
         self.session.refresh(entry)
         return self._read_entry(entry)
 
-    def get_reference_rates(self, well_id: UUID) -> dict[str, list[Any]]:
+    def _active_afe(self, well_id: UUID) -> Afe | None:
+        """The well's governing AFE: submitted preferred, then latest revision."""
+        return self.session.scalar(
+            select(Afe)
+            .where(Afe.well_id == well_id, Afe.is_active.is_(True))
+            .order_by(Afe.status.desc(), Afe.revision_number.desc())
+        )
+
+    def get_reference_rates(self, well_id: UUID) -> dict[str, Any]:
+        """Unit rates for daily cost entry, sourced from the AFE Cost Estimates only.
+
+        The daily cost picker offers exactly what the AFE planned for the well
+        (services, chemicals, additives, tangibles), each priced with the
+        well-scoped unit rate saved on the AFE Cost Estimates page. Per-line
+        overrides at entry time remain available and are stored on the entry.
+        """
         well = self.session.get(Well, well_id)
         if not well or not well.is_active:
             raise NotFoundError("Well not found")
 
-        # 1. Services with well rates or catalog items
-        well_service_rates = self.session.scalars(
-            select(WellServiceRate).where(
-                WellServiceRate.well_id == well_id, WellServiceRate.is_active.is_(True)
-            )
-        ).all()
-        well_rate_by_svc = {r.service_id: r for r in well_service_rates}
+        afe = self._active_afe(well_id)
+        if afe is None:
+            return {
+                "afe_id": None,
+                "afe_code": None,
+                "afe_title": None,
+                "rates_source": "afe_cost_estimate",
+                "priced_line_count": 0,
+                "unpriced_line_count": 0,
+                "services": [],
+                "consumables": [],
+            }
 
-        services = self.session.scalars(
-            select(CatalogItem)
-            .where(CatalogItem.item_type == "service", CatalogItem.is_active.is_(True))
-            .order_by(CatalogItem.code)
-        ).all()
-
-        ref_services: list[ReferenceServiceRate] = []
-        for s in services:
-            wr = well_rate_by_svc.get(s.id)
-            op_rate = wr.operating_rate if wr else Decimal("0")
-            rate_basis = wr.rate_basis if wr else (getattr(s, "rate_basis", None) or "daily")
-            cost_code_id = s.cost_code_id
-            cost_code = s.cost_code.code if s.cost_code else "UNKNOWN"
-            unit_code = (
-                wr.unit.code
-                if wr and wr.unit
-                else (s.default_unit.code if s.default_unit else "DAY")
-            )
-            ref_services.append(
-                ReferenceServiceRate(
-                    service_id=s.id,
-                    service_code=s.code,
-                    service_name=s.name,
-                    cost_code_id=cost_code_id,
-                    cost_code=cost_code,
-                    vendor_id=wr.vendor_id if wr else None,
-                    vendor_name=wr.vendor.name if wr and wr.vendor else None,
-                    rate_basis=rate_basis,
-                    operating_rate=op_rate,
-                    unit_code=unit_code,
+        rate_rows = {
+            row.afe_line_id: row
+            for row in self.session.scalars(
+                select(AfeCostEstimateLine).where(
+                    AfeCostEstimateLine.afe_id == afe.id,
+                    AfeCostEstimateLine.is_active.is_(True),
                 )
             )
+        }
 
-        # 2. Consumables (mud chemicals, cement additives, materials)
-        consumable_types = {"mud_chemical", "cement_additive", "material", "tangible"}
-        consumables = self.session.scalars(
-            select(CatalogItem)
-            .where(CatalogItem.item_type.in_(consumable_types), CatalogItem.is_active.is_(True))
-            .order_by(CatalogItem.item_type, CatalogItem.code)
-        ).all()
+        ref_services: dict[UUID, ReferenceServiceRate] = {}
+        ref_consumables: dict[UUID, ReferenceConsumableRate] = {}
+        priced = 0
+        unpriced = 0
 
-        well_tangibles = self.session.scalars(
-            select(WellTangibleRate).where(
-                WellTangibleRate.well_id == well_id, WellTangibleRate.is_active.is_(True)
-            )
-        ).all()
-        well_tangible_map = {t.tangible_id: t for t in well_tangibles}
-
-        ref_consumables: list[ReferenceConsumableRate] = []
-        for c in consumables:
-            wt = well_tangible_map.get(c.id)
-            unit_rate = wt.unit_rate if wt else Decimal("0")
-            unit_id = c.default_unit_id
-            unit_code = c.default_unit.code if c.default_unit else "EA"
-            cost_code_id = c.cost_code_id
-            cost_code = c.cost_code.code if c.cost_code else "UNKNOWN"
-            ref_consumables.append(
-                ReferenceConsumableRate(
-                    consumable_id=c.id,
-                    consumable_code=c.code,
-                    consumable_name=c.name,
-                    item_type=c.item_type,
-                    cost_code_id=cost_code_id,
-                    cost_code=cost_code,
-                    unit_id=unit_id,
-                    unit_code=unit_code,
+        for line in afe.items:
+            if not line.is_active or line.catalog_item is None:
+                continue
+            rate_row = rate_rows.get(line.id)
+            unit_rate = Decimal(rate_row.unit_rate) if rate_row else Decimal("0")
+            if unit_rate > 0:
+                priced += 1
+            else:
+                unpriced += 1
+            item = line.catalog_item
+            if item.item_type == "service":
+                existing = ref_services.get(item.id)
+                # A service can appear on several AFE lines (per section);
+                # keep the first priced line's rate for the day-entry default.
+                if existing is not None and existing.operating_rate > 0:
+                    continue
+                ref_services[item.id] = ReferenceServiceRate(
+                    service_id=item.id,
+                    service_code=item.code,
+                    service_name=item.name,
+                    cost_code_id=line.cost_code_id,
+                    cost_code=line.cost_code.code if line.cost_code else "UNKNOWN",
+                    vendor_id=rate_row.vendor_id if rate_row else None,
+                    vendor_name=rate_row.vendor.name if rate_row and rate_row.vendor else None,
+                    rate_basis=line.rate_basis,
+                    operating_rate=unit_rate,
+                    unit_code=line.unit.code if line.unit else "DAY",
+                )
+            else:
+                existing_consumable = ref_consumables.get(item.id)
+                if existing_consumable is not None and existing_consumable.unit_rate > 0:
+                    continue
+                ref_consumables[item.id] = ReferenceConsumableRate(
+                    consumable_id=item.id,
+                    consumable_code=item.code,
+                    consumable_name=item.name,
+                    item_type=item.item_type,
+                    cost_code_id=line.cost_code_id,
+                    cost_code=line.cost_code.code if line.cost_code else "UNKNOWN",
+                    unit_id=line.unit_id,
+                    unit_code=line.unit.code if line.unit else "EA",
                     unit_rate=unit_rate,
                 )
-            )
 
         return {
-            "services": [s.model_dump() for s in ref_services],
-            "consumables": [c.model_dump() for c in ref_consumables],
+            "afe_id": str(afe.id),
+            "afe_code": afe.code,
+            "afe_title": afe.title,
+            "rates_source": "afe_cost_estimate",
+            "priced_line_count": priced,
+            "unpriced_line_count": unpriced,
+            "services": [s.model_dump() for s in ref_services.values()],
+            "consumables": [c.model_dump() for c in ref_consumables.values()],
         }
 
     def get_analytics(self, well_id: UUID) -> DailyCostAnalyticsRead:
@@ -485,6 +544,604 @@ class DailyCostService:
             services_breakdown=services_breakdown,
             consumables_breakdown=consumables_breakdown,
         )
+
+    # ------------------------------------------------------------- comparison
+    def get_comparison(self, well_id: UUID) -> DailyCostComparisonRead:
+        """Well-scoped planned-versus-actual comparison across every dimension.
+
+        Planned figures come from the AFE (budget, planned days, section/phase
+        plan) and the AFE Cost Estimates (priced AFE lines). Actual figures
+        come from the saved daily cost entries.
+        """
+        well = self.session.get(Well, well_id)
+        if not well or not well.is_active:
+            raise NotFoundError("Well not found")
+
+        afe = self._active_afe(well_id)
+
+        estimate_total = Decimal("0")
+        planned_by_section: dict[str, Decimal] = {}
+        planned_days_by_section: dict[str, Decimal] = {}
+        planned_days_by_phase: dict[str, Decimal] = {}
+        afe_budget = Decimal("0")
+        planned_days = Decimal("0")
+
+        if afe:
+            afe_budget = Decimal(afe.budget_amount or 0)
+            planned_days = Decimal(afe.total_planned_days or 0)
+            rate_rows = {
+                row.afe_line_id: row
+                for row in self.session.scalars(
+                    select(AfeCostEstimateLine).where(
+                        AfeCostEstimateLine.afe_id == afe.id,
+                        AfeCostEstimateLine.is_active.is_(True),
+                    )
+                )
+            }
+            for line in afe.items:
+                if not line.is_active:
+                    continue
+                rate_row = rate_rows.get(line.id)
+                amount = AfeEstimateService.effective_quantity(line) * (
+                    Decimal(rate_row.unit_rate) if rate_row else Decimal("0")
+                )
+                estimate_total += amount
+                section_key = line.hole_section.code if line.hole_section else "Unassigned"
+                planned_by_section[section_key] = (
+                    planned_by_section.get(section_key, Decimal("0")) + amount
+                )
+            for section in afe.sections:
+                if not section.is_active:
+                    continue
+                section_key = section.hole_section.code if section.hole_section else "Unassigned"
+                planned_days_by_section[section_key] = planned_days_by_section.get(
+                    section_key, Decimal("0")
+                ) + Decimal(section.planned_days or 0)
+                phase_key = section.phase or "Unassigned"
+                planned_days_by_phase[phase_key] = planned_days_by_phase.get(
+                    phase_key, Decimal("0")
+                ) + Decimal(section.planned_days or 0)
+
+        entries = self.session.scalars(
+            select(DailyCostEntry)
+            .where(DailyCostEntry.well_id == well_id, DailyCostEntry.is_active.is_(True))
+            .order_by(DailyCostEntry.entry_date.asc())
+        ).all()
+
+        planned_daily = (afe_budget / planned_days) if planned_days > 0 and afe_budget > 0 else None
+
+        by_date: list[DateComparisonPoint] = []
+        weeks: dict[str, ComparisonBucket] = {}
+        months: dict[str, ComparisonBucket] = {}
+        sections: dict[str, ComparisonBucket] = {}
+        phases: dict[str, ComparisonBucket] = {}
+        activities: dict[str, ComparisonBucket] = {}
+        sub_activities: dict[str, ComparisonBucket] = {}
+
+        def bucket(store: dict[str, ComparisonBucket], key: str, label: str) -> ComparisonBucket:
+            item = store.get(key)
+            if item is None:
+                item = ComparisonBucket(key=key, label=label)
+                store[key] = item
+            return item
+
+        def add_amount(item: ComparisonBucket, services: Decimal, consumables: Decimal) -> None:
+            item.services_cost += services
+            item.consumables_cost += consumables
+            item.total_cost += services + consumables
+
+        cumulative = Decimal("0")
+        for day_number, entry in enumerate(entries, start=1):
+            cumulative += entry.total_daily_cost
+            by_date.append(
+                DateComparisonPoint(
+                    entry_date=entry.entry_date,
+                    day_number=day_number,
+                    phase=entry.phase,
+                    hole_section_code=(entry.hole_section.code if entry.hole_section else None),
+                    activity_name=(entry.sub_activity.name if entry.sub_activity else None),
+                    services_cost=entry.total_services_cost,
+                    consumables_cost=entry.total_consumables_cost,
+                    daily_cost=entry.total_daily_cost,
+                    cumulative_cost=cumulative,
+                    planned_cumulative=(
+                        planned_daily * day_number if planned_daily is not None else None
+                    ),
+                    current_depth=entry.current_depth,
+                    daily_progress=entry.daily_progress,
+                )
+            )
+
+            iso = entry.entry_date.isocalendar()
+            week_key = f"{iso[0]}-W{iso[1]:02d}"
+            week = bucket(weeks, week_key, f"Week {iso[1]:02d}, {iso[0]}")
+            week.entry_count += 1
+            add_amount(week, entry.total_services_cost, entry.total_consumables_cost)
+
+            month_key = entry.entry_date.strftime("%Y-%m")
+            month = bucket(months, month_key, entry.entry_date.strftime("%B %Y"))
+            month.entry_count += 1
+            add_amount(month, entry.total_services_cost, entry.total_consumables_cost)
+
+            phase_key = entry.phase or "Unassigned"
+            phase = bucket(phases, phase_key, phase_key)
+            phase.entry_count += 1
+            phase.actual_days = (phase.actual_days or Decimal("0")) + Decimal("1")
+            add_amount(phase, entry.total_services_cost, entry.total_consumables_cost)
+
+            entry_section_key = entry.hole_section.code if entry.hole_section else "Unassigned"
+            entry_sub = entry.sub_activity
+
+            for line in entry.services or []:
+                line_section_key = (
+                    line.hole_section.code if line.hole_section else entry_section_key
+                )
+                section = bucket(sections, line_section_key, line_section_key)
+                add_amount(section, Decimal(line.amount), Decimal("0"))
+                self._attribute_activity(
+                    activities,
+                    sub_activities,
+                    line.sub_activity or entry_sub,
+                    Decimal(line.amount),
+                    Decimal("0"),
+                    bucket,
+                    add_amount,
+                )
+            for line in entry.consumables or []:
+                section = bucket(sections, entry_section_key, entry_section_key)
+                add_amount(section, Decimal("0"), Decimal(line.amount))
+                self._attribute_activity(
+                    activities,
+                    sub_activities,
+                    line.sub_activity or entry_sub,
+                    Decimal("0"),
+                    Decimal(line.amount),
+                    bucket,
+                    add_amount,
+                )
+
+        # Sections planned but not yet spent still appear in the comparison.
+        for section_key in set(planned_by_section) | set(planned_days_by_section):
+            bucket(sections, section_key, section_key)
+        for section_key, item in sections.items():
+            planned = planned_by_section.get(section_key)
+            item.planned_cost = planned
+            item.planned_days = planned_days_by_section.get(section_key)
+            if planned is not None:
+                item.variance = planned - item.total_cost
+
+        for phase_key in planned_days_by_phase:
+            bucket(phases, phase_key, phase_key)
+        for phase_key, item in phases.items():
+            item.planned_days = planned_days_by_phase.get(phase_key)
+
+        return DailyCostComparisonRead(
+            well_id=well_id,
+            well_code=well.code,
+            well_name=well.name,
+            afe_id=afe.id if afe else None,
+            afe_code=afe.code if afe else None,
+            afe_title=afe.title if afe else None,
+            afe_budget=afe_budget,
+            estimate_total=estimate_total,
+            cumulative_actual_cost=cumulative,
+            variance_to_budget=afe_budget - cumulative,
+            variance_to_estimate=estimate_total - cumulative,
+            total_planned_days=planned_days,
+            days_elapsed=len(entries),
+            by_date=by_date,
+            by_week=[weeks[key] for key in sorted(weeks)],
+            by_month=[months[key] for key in sorted(months)],
+            by_section=sorted(sections.values(), key=lambda b: b.total_cost, reverse=True),
+            by_phase=sorted(phases.values(), key=lambda b: b.total_cost, reverse=True),
+            by_activity=sorted(activities.values(), key=lambda b: b.total_cost, reverse=True),
+            by_sub_activity=sorted(
+                sub_activities.values(), key=lambda b: b.total_cost, reverse=True
+            ),
+        )
+
+    @staticmethod
+    def _attribute_activity(
+        activities: dict[str, ComparisonBucket],
+        sub_activities: dict[str, ComparisonBucket],
+        sub_activity: WellActivity | None,
+        services: Decimal,
+        consumables: Decimal,
+        bucket: Any,
+        add_amount: Any,
+    ) -> None:
+        if sub_activity is None:
+            unassigned = bucket(activities, "UNASSIGNED", "Unassigned")
+            add_amount(unassigned, services, consumables)
+            return
+        activity = sub_activity.activity
+        activity_key = activity.code if activity else "UNASSIGNED"
+        activity_bucket = bucket(
+            activities, activity_key, activity.name if activity else "Unassigned"
+        )
+        activity_bucket.activity_code = activity_key
+        activity_bucket.activity_name = activity.name if activity else None
+        add_amount(activity_bucket, services, consumables)
+
+        sub_bucket = bucket(sub_activities, sub_activity.name, sub_activity.name)
+        sub_bucket.activity_code = activity_key
+        sub_bucket.activity_name = activity.name if activity else None
+        sub_bucket.responsible_party = sub_activity.responsible_party
+        add_amount(sub_bucket, services, consumables)
+
+    # ---------------------------------------------------------------- reports
+    def export_day_report(self, well_id: UUID, entry_date: date) -> bytes:
+        """Printable daily cost report for one operational day."""
+        well = self.session.get(Well, well_id)
+        if not well or not well.is_active:
+            raise NotFoundError("Well not found")
+        entry = self.session.scalar(
+            select(DailyCostEntry).where(
+                DailyCostEntry.well_id == well_id,
+                DailyCostEntry.entry_date == entry_date,
+                DailyCostEntry.is_active.is_(True),
+            )
+        )
+        if entry is None:
+            raise NotFoundError(f"No daily cost entry exists for {entry_date}")
+
+        workbook = Workbook()
+        sheet = workbook.active
+        assert sheet is not None
+        sheet.title = "Daily Cost Report"
+
+        sheet["A1"] = "DAILY COST REPORT"
+        sheet["A1"].font = REPORT_TITLE_FONT
+
+        header_pairs = [
+            ("Project", well.project.code if well.project else ""),
+            ("Well", f"{well.code} — {well.name}"),
+            ("Rig", well.rig_name or ""),
+            ("AFE", entry.afe.code if entry.afe else ""),
+            ("Report date", str(entry.entry_date)),
+            ("Phase", entry.phase or ""),
+            ("Hole section", entry.hole_section.code if entry.hole_section else ""),
+            ("Activity type", entry.sub_activity.name if entry.sub_activity else ""),
+            (
+                "Current depth",
+                float(entry.current_depth) if entry.current_depth is not None else "",
+            ),
+            (
+                "Daily progress",
+                float(entry.daily_progress) if entry.daily_progress is not None else "",
+            ),
+            ("Operational summary", entry.operational_summary or ""),
+        ]
+        row_index = 3
+        for label, value in header_pairs:
+            sheet.cell(row_index, 1, label).font = REPORT_LABEL_FONT
+            sheet.cell(row_index, 2, value)
+            row_index += 1
+
+        row_index += 1
+        sheet.cell(row_index, 1, "Services utilised").font = REPORT_TITLE_FONT
+        row_index = self._write_table(
+            sheet,
+            row_index + 1,
+            [
+                "Service",
+                "Type",
+                "Hours",
+                "Days",
+                "Rate basis",
+                "Unit rate",
+                "Override",
+                "Amount",
+                "Section",
+                "Activity",
+                "Remarks",
+            ],
+            [
+                [
+                    f"{s.service.code} — {s.service.name}" if s.service else "",
+                    s.service_type,
+                    float(s.service_hours),
+                    float(s.operating_days),
+                    s.rate_basis,
+                    float(s.unit_rate),
+                    float(s.override_rate) if s.override_rate is not None else "",
+                    float(s.amount),
+                    s.hole_section.code if s.hole_section else "",
+                    s.sub_activity.name if s.sub_activity else "",
+                    s.remarks or "",
+                ]
+                for s in entry.services or []
+            ],
+        )
+
+        row_index += 1
+        sheet.cell(row_index, 1, "Chemicals & consumables").font = REPORT_TITLE_FONT
+        row_index = self._write_table(
+            sheet,
+            row_index + 1,
+            [
+                "Consumable",
+                "Quantity",
+                "Unit",
+                "Unit rate",
+                "Override",
+                "Amount",
+                "Activity",
+                "Remarks",
+            ],
+            [
+                [
+                    f"{c.consumable.code} — {c.consumable.name}" if c.consumable else "",
+                    float(c.quantity),
+                    c.unit.code if c.unit else "",
+                    float(c.unit_rate),
+                    float(c.override_rate) if c.override_rate is not None else "",
+                    float(c.amount),
+                    c.sub_activity.name if c.sub_activity else "",
+                    c.remarks or "",
+                ]
+                for c in entry.consumables or []
+            ],
+        )
+
+        row_index += 1
+        for label, value in [
+            ("Total services cost", float(entry.total_services_cost)),
+            ("Total consumables cost", float(entry.total_consumables_cost)),
+            ("Total daily cost", float(entry.total_daily_cost)),
+            ("Cumulative well cost", float(entry.cumulative_cost)),
+        ]:
+            sheet.cell(row_index, 1, label).font = REPORT_LABEL_FONT
+            sheet.cell(row_index, 2, value)
+            row_index += 1
+
+        sheet.column_dimensions["A"].width = 38
+        for letter in ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K"]:
+            sheet.column_dimensions[letter].width = 14
+
+        output = BytesIO()
+        workbook.save(output)
+        return output.getvalue()
+
+    def export_entries_workbook(self, well_id: UUID) -> bytes:
+        """The full daily cost register for a well, for filing and audits."""
+        well = self.session.get(Well, well_id)
+        if not well or not well.is_active:
+            raise NotFoundError("Well not found")
+        entries = self.session.scalars(
+            select(DailyCostEntry)
+            .where(DailyCostEntry.well_id == well_id, DailyCostEntry.is_active.is_(True))
+            .order_by(DailyCostEntry.entry_date.asc())
+        ).all()
+
+        workbook = Workbook()
+        register = workbook.active
+        assert register is not None
+        register.title = "Daily register"
+        register["A1"] = f"DAILY COST REGISTER — {well.code} {well.name}"
+        register["A1"].font = REPORT_TITLE_FONT
+        register["A2"] = f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC"
+        self._write_table(
+            register,
+            4,
+            [
+                "Date",
+                "Phase",
+                "Hole section",
+                "Activity type",
+                "Depth",
+                "Progress",
+                "Services cost",
+                "Consumables cost",
+                "Total daily cost",
+                "Cumulative cost",
+                "Summary",
+            ],
+            [
+                [
+                    str(e.entry_date),
+                    e.phase or "",
+                    e.hole_section.code if e.hole_section else "",
+                    e.sub_activity.name if e.sub_activity else "",
+                    float(e.current_depth) if e.current_depth is not None else "",
+                    float(e.daily_progress) if e.daily_progress is not None else "",
+                    float(e.total_services_cost),
+                    float(e.total_consumables_cost),
+                    float(e.total_daily_cost),
+                    float(e.cumulative_cost),
+                    e.operational_summary or "",
+                ]
+                for e in entries
+            ],
+        )
+
+        services_sheet = workbook.create_sheet("Service lines")
+        self._write_table(
+            services_sheet,
+            1,
+            [
+                "Date",
+                "Service code",
+                "Service name",
+                "Type",
+                "Hours",
+                "Days",
+                "Rate basis",
+                "Unit rate",
+                "Override",
+                "Amount",
+                "Section",
+                "Activity",
+                "Vendor",
+                "Remarks",
+            ],
+            [
+                [
+                    str(e.entry_date),
+                    s.service.code if s.service else "",
+                    s.service.name if s.service else "",
+                    s.service_type,
+                    float(s.service_hours),
+                    float(s.operating_days),
+                    s.rate_basis,
+                    float(s.unit_rate),
+                    float(s.override_rate) if s.override_rate is not None else "",
+                    float(s.amount),
+                    s.hole_section.code if s.hole_section else "",
+                    s.sub_activity.name if s.sub_activity else "",
+                    s.vendor.name if s.vendor else "",
+                    s.remarks or "",
+                ]
+                for e in entries
+                for s in e.services or []
+            ],
+        )
+
+        consumables_sheet = workbook.create_sheet("Consumable lines")
+        self._write_table(
+            consumables_sheet,
+            1,
+            [
+                "Date",
+                "Code",
+                "Name",
+                "Quantity",
+                "Unit",
+                "Unit rate",
+                "Override",
+                "Amount",
+                "Activity",
+                "Vendor",
+                "Remarks",
+            ],
+            [
+                [
+                    str(e.entry_date),
+                    c.consumable.code if c.consumable else "",
+                    c.consumable.name if c.consumable else "",
+                    float(c.quantity),
+                    c.unit.code if c.unit else "",
+                    float(c.unit_rate),
+                    float(c.override_rate) if c.override_rate is not None else "",
+                    float(c.amount),
+                    c.sub_activity.name if c.sub_activity else "",
+                    c.vendor.name if c.vendor else "",
+                    c.remarks or "",
+                ]
+                for e in entries
+                for c in e.consumables or []
+            ],
+        )
+
+        output = BytesIO()
+        workbook.save(output)
+        return output.getvalue()
+
+    def export_comparison_workbook(self, well_id: UUID) -> bytes:
+        """Every comparison dimension exported to one workbook."""
+        comparison = self.get_comparison(well_id)
+        workbook = Workbook()
+
+        date_sheet = workbook.active
+        assert date_sheet is not None
+        date_sheet.title = "By date"
+        self._write_table(
+            date_sheet,
+            1,
+            [
+                "Date",
+                "Day",
+                "Phase",
+                "Section",
+                "Activity",
+                "Services cost",
+                "Consumables cost",
+                "Daily cost",
+                "Cumulative",
+                "Planned cumulative",
+                "Depth",
+                "Progress",
+            ],
+            [
+                [
+                    str(p.entry_date),
+                    p.day_number,
+                    p.phase or "",
+                    p.hole_section_code or "",
+                    p.activity_name or "",
+                    float(p.services_cost),
+                    float(p.consumables_cost),
+                    float(p.daily_cost),
+                    float(p.cumulative_cost),
+                    float(p.planned_cumulative) if p.planned_cumulative is not None else "",
+                    float(p.current_depth) if p.current_depth is not None else "",
+                    float(p.daily_progress) if p.daily_progress is not None else "",
+                ]
+                for p in comparison.by_date
+            ],
+        )
+
+        bucket_sheets: list[tuple[str, list[ComparisonBucket]]] = [
+            ("By week", comparison.by_week),
+            ("By month", comparison.by_month),
+            ("By section", comparison.by_section),
+            ("By phase", comparison.by_phase),
+            ("By activity", comparison.by_activity),
+            ("By sub-activity", comparison.by_sub_activity),
+        ]
+        for title, buckets in bucket_sheets:
+            sheet = workbook.create_sheet(title)
+            self._write_table(
+                sheet,
+                1,
+                [
+                    "Group",
+                    "Activity",
+                    "Responsible party",
+                    "Entries",
+                    "Services cost",
+                    "Consumables cost",
+                    "Total cost",
+                    "Planned cost",
+                    "Variance",
+                    "Planned days",
+                    "Actual days",
+                ],
+                [
+                    [
+                        b.label,
+                        b.activity_name or "",
+                        b.responsible_party or "",
+                        b.entry_count,
+                        float(b.services_cost),
+                        float(b.consumables_cost),
+                        float(b.total_cost),
+                        float(b.planned_cost) if b.planned_cost is not None else "",
+                        float(b.variance) if b.variance is not None else "",
+                        float(b.planned_days) if b.planned_days is not None else "",
+                        float(b.actual_days) if b.actual_days is not None else "",
+                    ]
+                    for b in buckets
+                ],
+            )
+
+        output = BytesIO()
+        workbook.save(output)
+        return output.getvalue()
+
+    @staticmethod
+    def _write_table(
+        sheet: Worksheet, start_row: int, headers: list[str], rows: list[list[Any]]
+    ) -> int:
+        """Write a styled table; returns the last row index used."""
+        for column, header in enumerate(headers, start=1):
+            cell = sheet.cell(start_row, column, header)
+            cell.font = REPORT_HEADER_FONT
+            cell.fill = REPORT_HEADER_FILL
+        for offset, row in enumerate(rows, start=1):
+            for column, value in enumerate(row, start=1):
+                sheet.cell(start_row + offset, column, value)
+        return start_row + len(rows)
 
     def _recompute_cumulative_costs(self, well_id: UUID) -> None:
         entries = self.session.scalars(

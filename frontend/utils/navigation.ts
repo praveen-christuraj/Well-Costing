@@ -22,9 +22,10 @@ export const appNavigation: AppNavigationItem[] = [
   { key: 'dashboard', label: 'Dashboard', icon: 'pi pi-home', to: '/dashboard', enabled: true },
   { key: 'master-data', label: 'Master Data', icon: 'pi pi-book', to: '/master-data/primary-categories', enabled: true },
   { key: 'afe', label: 'AFE', icon: 'pi pi-clipboard', to: '/afe', enabled: true },
-  { key: 'cost-builder', label: 'Cost Builder', icon: 'pi pi-calculator', to: '/cost-builder', enabled: true },
+  { key: 'afe-cost-estimates', label: 'AFE Cost Estimates', icon: 'pi pi-calculator', to: '/afe-cost-estimates', enabled: true },
   { key: 'daily-cost', label: 'Daily Cost', icon: 'pi pi-calendar-plus', to: '/daily-cost', enabled: true },
   { key: 'well-activities', label: 'Well Activities', icon: 'pi pi-list-check', to: '/daily-cost/well-activities', enabled: true },
+  { key: 'cost-analytics', label: 'Cost Analytics', icon: 'pi pi-chart-line', to: '/daily-cost/comparison', enabled: true },
   { key: 'cost-control', label: 'Cost Control', icon: 'pi pi-arrow-right-arrow-left', to: '/cost-control', enabled: true },
   { key: 'reports', label: 'Reports', icon: 'pi pi-chart-bar', to: '/reports', enabled: true },
   { key: 'assurance', label: 'Assurance', icon: 'pi pi-shield', to: '/assurance', enabled: true },
@@ -40,8 +41,8 @@ export const enabledNavigation: AppNavigationItem[] = appNavigation.filter(item 
 const GROUPS: { key: string, label: string, keys: string[] }[] = [
   { key: 'home', label: 'Home', keys: ['dashboard'] },
   { key: 'foundation', label: 'Master Data', keys: ['master-data'] },
-  { key: 'planning', label: 'Planning', keys: ['afe', 'cost-builder'] },
-  { key: 'execution', label: 'Execution', keys: ['daily-cost', 'well-activities', 'cost-control', 'reports', 'assurance', 'audit'] },
+  { key: 'planning', label: 'Planning', keys: ['afe', 'afe-cost-estimates'] },
+  { key: 'execution', label: 'Execution', keys: ['daily-cost', 'well-activities', 'cost-analytics', 'cost-control', 'reports', 'assurance', 'audit'] },
   { key: 'configuration', label: 'Configuration', keys: ['administration', 'dropdown-sources'] },
   { key: 'support', label: 'Support', keys: ['help'] },
 ]
