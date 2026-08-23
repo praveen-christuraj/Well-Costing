@@ -1,4 +1,9 @@
-/** Service order register linking vendors to the contracts that govern service rates. */
+/**
+ * Service order register — a reference list of the contracts each vendor works
+ * under. An order is recorded for traceability and reporting; nothing in the
+ * application requires it to be linked to a service, and services are never
+ * blocked by the absence of one.
+ */
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import EnterpriseGrid from '~/components/data-grid/EnterpriseGrid.vue'
@@ -99,7 +104,7 @@ const blankRow = () => ({
   <div class="library-page">
     <PageHeader
       title="Service Orders"
-      description="Register the service orders and contracts each vendor works under. Service rates reference these orders so every AFE line traces back to a commercial agreement."
+      description="Register the service orders and contracts each vendor works under. These are held for reference only — an order is never required to be linked to a service, and costing does not depend on one existing."
     />
     <MasterDataNav active="service-orders" />
     <EnterpriseGrid

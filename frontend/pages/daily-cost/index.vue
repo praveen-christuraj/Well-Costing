@@ -19,6 +19,7 @@ import Button from 'primevue/button'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
 import DatePicker from 'primevue/datepicker'
+import Dialog from 'primevue/dialog'
 import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
@@ -98,6 +99,48 @@ function toDateString(value: Date | null): string {
 
 const formattedDate = computed(() => toDateString(selectedDate.value))
 const wellActivities = computed(() => wellActApi.wellActivities.value)
+
+/* --------------------------- Sub-activity configuration -------------------
+ * Activities (Planned, NPT, UPA) are master data and never edited here.
+ * Sub-activities are well-scoped and configured exactly where they are needed:
+ * while the day's costs are being entered, without leaving the page.
+ */
+const activities = ref<MasterDataRecord[]>([])
+const subActivityDialog = ref(false)
+const savingSubActivity = ref(false)
+const subActivityForm = ref({ activity_id: '', name: '', responsible_party: '', description: '' })
+
+function openSubActivityDialog(): void {
+  subActivityForm.value = {
+    activity_id: activities.value[0]?.id ?? '',
+    name: '',
+    responsible_party: '',
+    description: '',
+  }
+  subActivityDialog.value = true
+}
+
+async function saveSubActivity(): Promise<void> {
+  if (!selectedWellId.value || !subActivityForm.value.activity_id || !subActivityForm.value.name.trim()) return
+  savingSubActivity.value = true
+  error.value = null
+  try {
+    const created = await wellActApi.createActivity({
+      well_id: selectedWellId.value,
+      activity_id: subActivityForm.value.activity_id,
+      name: subActivityForm.value.name.trim(),
+      responsible_party: subActivityForm.value.responsible_party.trim() || null,
+      description: subActivityForm.value.description.trim() || null,
+    })
+    if (!created) {
+      error.value = wellActApi.error.value ?? 'The sub-activity could not be saved.'
+      return
+    }
+    success.value = `Sub-activity ${created.name} is ready to use.`
+    subActivityDialog.value = false
+  }
+  finally { savingSubActivity.value = false }
+}
 
 /* -------------------------------- Calculations ---------------------------- */
 function computeServiceAmount(line: DailyCostServiceLine): number {
@@ -534,15 +577,18 @@ function renderCharts(): void {
 async function loadAll(): Promise<void> {
   loading.value = true
   try {
-    const [wellsPage, phaseList, sectionPage, codePage, unitPage] = await Promise.all([
+    const [wellsPage, phaseList, sectionPage, codePage, unitPage, activityPage] = await Promise.all([
       afeApi.listWells(),
+      // Phases come straight from master data — there is no per-AFE phase list.
       afeApi.listDrillingPhases(),
       master.list('hole-sections'),
       master.list('cost-codes'),
       master.list('units'),
+      master.list('activities'),
     ])
     wells.value = wellsPage.items || []
     phases.value = phaseList || []
+    activities.value = activityPage.items
     holeSections.value = sectionPage.items.filter(s => s.is_active)
     costCodes.value = codePage.items
     units.value = unitPage.items
@@ -658,7 +704,15 @@ onMounted(() => void loadAll())
       <div class="form-row">
         <div class="op-field">
           <label>Phase</label>
-          <Select v-model="entryPhase" :options="phases" option-label="name" option-value="name" fluid />
+          <Select
+            v-model="entryPhase"
+            :options="phases"
+            option-label="name"
+            option-value="name"
+            :placeholder="phases.length ? 'Select phase' : 'Configure phases in master data'"
+            :disabled="!phases.length"
+            fluid
+          />
         </div>
         <div class="op-field">
           <label>Hole Section</label>
@@ -754,18 +808,30 @@ onMounted(() => void loadAll())
                   <Select v-model="data.hole_section_id" :options="holeSections" option-label="code" option-value="id" placeholder="Section" show-clear fluid size="small" />
                 </template>
               </Column>
-              <Column header="Sub-Activity" style="width: 160px">
+              <Column header="Sub-Activity" style="width: 190px">
                 <template #body="{ data }">
-                  <Select
-                    v-model="data.sub_activity_id"
-                    :options="wellActivities"
-                    option-label="name"
-                    option-value="id"
-                    placeholder="Activity"
-                    show-clear
-                    fluid
-                    size="small"
-                  />
+                  <div class="sub-activity-cell">
+                    <Select
+                      v-model="data.sub_activity_id"
+                      :options="wellActivities"
+                      option-label="name"
+                      option-value="id"
+                      :placeholder="wellActivities.length ? 'Activity' : 'None configured'"
+                      show-clear
+                      fluid
+                      size="small"
+                    />
+                    <Button
+                      icon="pi pi-plus"
+                      text
+                      rounded
+                      size="small"
+                      aria-label="Configure a sub-activity"
+                      title="Configure a sub-activity for this well"
+                      :disabled="!selectedWellId"
+                      @click="openSubActivityDialog"
+                    />
+                  </div>
                 </template>
               </Column>
               <Column header="Hours/Days" style="width: 120px">
@@ -876,18 +942,30 @@ onMounted(() => void loadAll())
                   </Select>
                 </template>
               </Column>
-              <Column header="Sub-Activity" style="width: 150px">
+              <Column header="Sub-Activity" style="width: 190px">
                 <template #body="{ data }">
-                  <Select
-                    v-model="data.sub_activity_id"
-                    :options="wellActivities"
-                    option-label="name"
-                    option-value="id"
-                    placeholder="Activity"
-                    show-clear
-                    fluid
-                    size="small"
-                  />
+                  <div class="sub-activity-cell">
+                    <Select
+                      v-model="data.sub_activity_id"
+                      :options="wellActivities"
+                      option-label="name"
+                      option-value="id"
+                      :placeholder="wellActivities.length ? 'Activity' : 'None configured'"
+                      show-clear
+                      fluid
+                      size="small"
+                    />
+                    <Button
+                      icon="pi pi-plus"
+                      text
+                      rounded
+                      size="small"
+                      aria-label="Configure a sub-activity"
+                      title="Configure a sub-activity for this well"
+                      :disabled="!selectedWellId"
+                      @click="openSubActivityDialog"
+                    />
+                  </div>
                 </template>
               </Column>
               <Column header="Quantity" style="width: 120px">
@@ -1045,10 +1123,82 @@ onMounted(() => void loadAll())
         </TabPanel>
       </TabPanels>
     </Tabs>
+
+    <!--
+      Sub-activity configuration. Activities themselves are master data; the
+      sub-activities beneath them belong to a single well and are set up here,
+      at the moment the day's costs are being recorded.
+    -->
+    <Dialog v-model:visible="subActivityDialog" modal header="Configure a sub-activity" :style="{ width: '520px' }">
+      <p class="dc-dialog-note">
+        Sub-activities are scoped to this well and roll up to a master activity — Planned, NPT, or
+        UPA — so costs posted against them are accounted to the responsible party.
+      </p>
+      <div class="dc-dialog-form">
+        <label>
+          Activity
+          <Select
+            v-model="subActivityForm.activity_id"
+            :options="activities"
+            option-label="name"
+            option-value="id"
+            :placeholder="activities.length ? 'Select activity' : 'Configure activities in master data'"
+            :disabled="!activities.length"
+            fluid
+          />
+        </label>
+        <label>
+          Sub-activity name
+          <InputText v-model="subActivityForm.name" placeholder="e.g. NPT-1 Waiting on weather" fluid />
+        </label>
+        <label>
+          Responsible party
+          <InputText v-model="subActivityForm.responsible_party" placeholder="e.g. Operator, Rig contractor" fluid />
+        </label>
+        <label>
+          Description
+          <Textarea v-model="subActivityForm.description" rows="2" auto-resize fluid />
+        </label>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" text @click="subActivityDialog = false" />
+        <Button
+          label="Add sub-activity"
+          icon="pi pi-check"
+          :loading="savingSubActivity"
+          :disabled="!subActivityForm.activity_id || !subActivityForm.name.trim()"
+          @click="saveSubActivity"
+        />
+      </template>
+    </Dialog>
   </div>
 </template>
 
 <style scoped>
+.sub-activity-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.dc-dialog-note {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-color-secondary, #64748b);
+}
+
+.dc-dialog-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.dc-dialog-form label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 .daily-cost-page {
   display: flex;
   flex-direction: column;

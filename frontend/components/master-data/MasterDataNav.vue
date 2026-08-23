@@ -1,4 +1,11 @@
-/** Grouped navigation across every master-data maintenance page. */
+/**
+ * Grouped navigation across the master-data maintenance pages.
+ *
+ * The classification (Primary → Secondary → Tertiary) leads, because every
+ * other page files its records against it. Item categories, item sub
+ * categories, and the standalone Services register are gone: they were
+ * parallel classifications of the same thing.
+ */
 <script setup lang="ts">
 interface NavItem {
   key: string
@@ -30,8 +37,6 @@ const groups: NavGroup[] = [
       { key: 'hole-sections', label: 'Hole Sections', to: '/master-data/hole-sections' },
       { key: 'phases', label: 'Phases', to: '/master-data/phases' },
       { key: 'activities', label: 'Activities', to: '/master-data/activities' },
-      { key: 'item-categories', label: 'Item Categories', to: '/master-data/item-categories' },
-      { key: 'item-subcategories', label: 'Item Sub Categories', to: '/master-data/item-subcategories' },
     ],
   },
   {
@@ -42,30 +47,20 @@ const groups: NavGroup[] = [
     ],
   },
   {
-    label: 'Partners',
+    label: 'Catalogue',
+    items: [
+      { key: 'catalogue-items', label: 'All Catalogue Items', to: '/master-data/catalogue-items' },
+      { key: 'tangibles', label: 'Tangibles', to: '/master-data/tangibles' },
+      { key: 'mud-chemicals', label: 'Mud Chemicals', to: '/master-data/mud-chemicals' },
+      { key: 'cement-additives', label: 'Cement Additives', to: '/master-data/cement-additives' },
+    ],
+  },
+  {
+    label: 'Partners & References',
     items: [
       { key: 'vendors', label: 'Vendors', to: '/master-data/vendors' },
       { key: 'service-orders', label: 'Service Orders', to: '/master-data/service-orders' },
       { key: 'purchase-orders', label: 'Purchase Orders', to: '/master-data/purchase-orders' },
-    ],
-  },
-  {
-    label: 'Services',
-    items: [
-      { key: 'services', label: 'Services', to: '/master-data/services' },
-    ],
-  },
-  {
-    label: 'Tangibles',
-    items: [
-      { key: 'tangibles', label: 'Tangibles', to: '/master-data/tangibles' },
-    ],
-  },
-  {
-    label: 'Consumables',
-    items: [
-      { key: 'mud-chemicals', label: 'Mud Chemicals', to: '/master-data/mud-chemicals' },
-      { key: 'cement-additives', label: 'Cement Additives', to: '/master-data/cement-additives' },
     ],
   },
   {

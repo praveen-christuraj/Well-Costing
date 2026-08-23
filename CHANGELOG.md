@@ -2,6 +2,63 @@
 
 All notable project changes are documented here.
 
+## 2026-08-23 — One classification, and a configurable dropdown registry
+
+Item categories and item sub categories were a second classification of the same
+data the Primary → Secondary → Tertiary hierarchy already describes, so they are
+gone and the hierarchy is now the only way anything is classified. On top of
+that, which master-data section feeds which dropdown is no longer decided in
+page code: every picker resolves through a registry a super administrator can
+repoint.
+
+### Added
+
+- **Dropdown source registry.** Named *slots* (`afe.line.item`,
+  `daily_cost.sub_activity`, …) and registered *sources* are declared in
+  `app/domain/reference/`; the `dropdown_bindings` table holds the super-admin
+  overrides on top. Slots carry a default source in code, so a database with no
+  bindings behaves correctly, and each slot restricts which sources it accepts —
+  the AFE line classification pickers can only ever read the classification.
+  Structural slots (well-scoped sub-activities, the classification cascade) are
+  locked. New endpoints under `/api/v1/reference`, and a console at
+  **Administration › Dropdown Sources**. See
+  [the registry documentation](docs/master-data/dropdown-source-registry.md).
+- **Unified catalogue register.** `master-data/catalog-items` maintains every
+  rate-bearing item in one place, with `item_type` naming the kind of item.
+- **Delete impact preview.** `GET /master-data/{entity}/{id}/delete-impact`
+  reports what a permanent delete would take with it. Deleting a tangible now
+  removes its master rates and rate revisions — after a prompt stating the exact
+  counts — and is refused outright while that history exists unless the cascade
+  was confirmed.
+- **Inline sub-activity configuration.** Sub-activities are created from the
+  Daily Cost page, where they are needed, instead of only on a separate screen.
+
+### Changed
+
+- **Catalogue classification.** `catalog_items` gains `primary_category_id` and
+  `secondary_category_id` alongside the existing `tertiary_category_id`. An
+  item's category is its Secondary Category and its sub category its Tertiary
+  Category. Supplying the deepest level is enough: the API derives the parents
+  and rejects a combination the hierarchy does not contain.
+- **Cost categories** take their parent from a Primary Category and their second
+  level from a Secondary Category. The self-referencing parent is no longer
+  offered anywhere in the UI.
+- **AFE lines** are built strictly from the classification: Primary Category →
+  Secondary Category → item, with the item list narrowed by the selection.
+- **Phases inside the AFE.** The "Configure Phases" dialog is removed; AFE
+  sections and daily cost entries read the phase list straight from master data.
+- **Service and purchase orders** are documented and presented as reference
+  registers. Nothing requires an order to be linked to a service or an item.
+- **Master Data navigation** drops the Item Categories, Item Sub Categories, and
+  Services tabs and groups the catalogue pages together.
+
+### Removed
+
+- `item_categories` and `item_subcategories` tables, models, routes, Excel
+  mapping profiles, and pages. Migration `20260823_0023` converts existing item
+  categories into secondary categories and the sub categories actually in use
+  into tertiary categories, so no classification a user entered is lost.
+
 ## 2026-08-21 — Schema-drift self-healing, actionable 503s, and SQLite migrations
 
 The 500s on `/afes`, `/wells`, `/projects`, and `/estimates` had two roots and

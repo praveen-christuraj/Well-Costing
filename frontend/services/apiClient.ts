@@ -52,8 +52,17 @@ export class ApiClient {
     return this.request<T>(path, { method: 'PATCH', body })
   }
 
+  put<T>(path: string, body: Record<string, unknown>): Promise<T> {
+    return this.request<T>(path, { method: 'PUT', body })
+  }
+
   delete(path: string): Promise<undefined> {
     return this.request<undefined>(path, { method: 'DELETE' })
+  }
+
+  /** DELETE that returns a body, e.g. resetting a dropdown binding. */
+  deleteJson<T>(path: string): Promise<T> {
+    return this.request<T>(path, { method: 'DELETE' })
   }
 
   async download(path: string): Promise<Blob> {

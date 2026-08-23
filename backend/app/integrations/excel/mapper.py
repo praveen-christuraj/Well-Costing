@@ -33,11 +33,19 @@ CATALOG_ALIASES = {
     "cost_category_code": frozenset({"cost_category_code", "cost_category", "category_code"}),
     "cost_code": frozenset({"cost_code", "expense_code"}),
     "default_unit_code": frozenset({"default_unit_code", "unit", "uom"}),
-    "item_category_code": frozenset(
-        {"item_category_code", "item_category", "tangible_category", "group"}
+    "primary_category_code": frozenset({"primary_category_code", "primary_category", "primary"}),
+    "secondary_category_code": frozenset(
+        {
+            "secondary_category_code",
+            "secondary_category",
+            "item_category",
+            "category",
+            "tangible_category",
+            "group",
+        }
     ),
-    "sub_category_code": frozenset(
-        {"sub_category_code", "sub_category", "subcategory", "sub_group"}
+    "tertiary_category_code": frozenset(
+        {"tertiary_category_code", "tertiary_category", "sub_category", "subcategory", "sub_group"}
     ),
     "material_number": frozenset(
         {"material_number", "material_no", "unique_number", "sap_number", "part_number"}
@@ -68,9 +76,40 @@ PROFILE_REGISTRY: dict[str, MappingProfile] = {
     ),
     "cost-categories": MappingProfile(
         "cost-categories-default",
-        "1.0",
+        "2.0",
         frozenset({"code", "name"}),
-        {**COMMON_ALIASES, "parent_code": frozenset({"parent_code", "parent_category"})},
+        {
+            **COMMON_ALIASES,
+            "primary_category_code": frozenset(
+                {"primary_category_code", "primary_category", "parent_code", "parent_category"}
+            ),
+            "secondary_category_code": frozenset({"secondary_category_code", "secondary_category"}),
+        },
+    ),
+    "primary-categories": MappingProfile(
+        "primary-categories-default", "1.0", frozenset({"code", "name"}), {**COMMON_ALIASES}
+    ),
+    "secondary-categories": MappingProfile(
+        "secondary-categories-default",
+        "1.0",
+        frozenset({"code", "name", "primary_category_code"}),
+        {
+            **COMMON_ALIASES,
+            "primary_category_code": frozenset(
+                {"primary_category_code", "primary_category", "parent_code"}
+            ),
+        },
+    ),
+    "tertiary-categories": MappingProfile(
+        "tertiary-categories-default",
+        "1.0",
+        frozenset({"code", "name", "secondary_category_code"}),
+        {
+            **COMMON_ALIASES,
+            "secondary_category_code": frozenset(
+                {"secondary_category_code", "secondary_category", "parent_code"}
+            ),
+        },
     ),
     "cost-codes": MappingProfile(
         "cost-codes-default",
@@ -83,24 +122,6 @@ PROFILE_REGISTRY: dict[str, MappingProfile] = {
     ),
     "vendors": MappingProfile(
         "vendors-default", "1.1", frozenset({"code", "name"}), VENDOR_ALIASES
-    ),
-    "item-categories": MappingProfile(
-        "item-categories-default",
-        "1.0",
-        frozenset({"code", "name"}),
-        {
-            **COMMON_ALIASES,
-            "applies_to": frozenset({"applies_to", "scope", "category_scope"}),
-        },
-    ),
-    "item-subcategories": MappingProfile(
-        "item-subcategories-default",
-        "1.0",
-        frozenset({"code", "name"}),
-        {
-            **COMMON_ALIASES,
-            "applies_to": frozenset({"applies_to", "scope", "category_scope"}),
-        },
     ),
     "services": MappingProfile(
         "services-default",

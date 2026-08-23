@@ -19,6 +19,7 @@ from app.api.v1.routes import (
     master_data,
     procurement,
     rates,
+    reference,
     reporting,
     well_activities,
     well_costing,
@@ -38,6 +39,7 @@ api_router.include_router(reporting.router)
 api_router.include_router(estimates.router)
 api_router.include_router(procurement.router)
 api_router.include_router(rates.router)
+api_router.include_router(reference.router)
 api_router.include_router(master_data.router)
 api_router.include_router(imports.router)
 api_router.include_router(afe_imports.router)

@@ -146,10 +146,17 @@ Data, never free text; and a chemical on daily usage has its total computed from
 usage per day times planned days, overridable only with a recorded reason. See
 the [AFE data model](docs/database/afe.md) and the [Phase 3 API](docs/api/phase-3.md).
 
-**Master Data** (`/master-data/vendors`) maintains the raw reference data the AFE is
-built from: vendors classified as third-party or in-house, service orders and
-purchase orders, item categories, services, tangibles, mud chemicals, cement
-additives, and effective-dated tangible rates with a full revision log. Services
+**Master Data** (`/master-data/primary-categories`) maintains the raw reference data
+the AFE is built from. One classification — **Primary → Secondary → Tertiary
+Categories** — files everything: a catalogue item's category is its Secondary
+Category and its sub category its Tertiary Category, and a cost category takes
+its parent and second level from the same hierarchy. The register also holds
+vendors classified as third-party or in-house, service and purchase orders (kept
+purely for reference, never required to link to a service or an item), the
+catalogue items themselves — services, tangibles, mud chemicals, cement
+additives — and effective-dated tangible rates with a full revision log.
+Deleting a tangible removes its rate revisions with it, after a prompt that
+states exactly how many records will go. Services
 carry no master rate: they are priced per well in the well rate book, so a
 central revision never moves a well that is already drilling — see
 [well-scoped rate governance](docs/architecture/well-rate-governance.md). Every page has
@@ -158,6 +165,12 @@ edit and delete actions, an **Export** button that downloads the entity as an Ex
 workbook (re-importable unchanged), and a **Print** button that renders the loaded
 rows as a clean printable sheet. See
 [AFE reference data](docs/master-data/afe-reference-data.md).
+
+Which master-data section feeds which dropdown is itself configurable. Every
+picker in the application resolves through a registry of named slots and
+permitted sources, and a super administrator repoints them under
+**Administration › Dropdown Sources** — see the
+[dropdown source registry](docs/master-data/dropdown-source-registry.md).
 
 The Cost Library supports spreadsheet-style multi-row editing, selection, duplicate, bulk edit/deactivation, TSV paste from Excel, versioned workbook templates, validation previews, all-or-nothing commits, exports, and import history. The Cost Builder supports versioned estimate grids, Excel round trips, audited recalculation attempts, pending-rule status, nullable total cards, future category/line breakdown views, immutable review notes, and blocked transition traces.
 

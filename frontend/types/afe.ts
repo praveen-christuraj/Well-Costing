@@ -179,6 +179,13 @@ export interface AfeRecord {
 export interface EditableAfeLine {
   id?: string
   line_number: number
+  /**
+   * Classification of the line, driving which items may be picked. Held on the
+   * client only: the stored line references the catalogue item, and the item
+   * carries the classification, so the two can never disagree.
+   */
+  primary_category_id: string
+  secondary_category_id: string
   catalog_item_id: string
   cost_code_id: string
   quantity: string

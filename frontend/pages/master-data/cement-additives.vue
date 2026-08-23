@@ -11,14 +11,14 @@ definePageMeta({ middleware: 'auth' })
   <div class="library-page">
     <PageHeader
       title="Cement Additives"
-      description="Maintain cement additives — retarders, accelerators, extenders, and fluid loss control — with their unit of measure and unique material numbers."
+      description="Maintain cement additives — retarders, accelerators, extenders, and fluid loss control — with their unit of measure and unique material numbers. Their category comes from the Secondary Category of the classification."
     />
     <MasterDataNav active="cement-additives" />
     <CatalogueGrid
       entity="cement-additives"
       title="Cement additives"
       singular="cement additive"
-      category-scope="cement_additive"
+      primary-category-code="CEMENT-ADDITIVES"
       identifier-label="Material number"
     />
   </div>

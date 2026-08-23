@@ -98,7 +98,7 @@ const blankRow = () => ({
   <div class="library-page">
     <PageHeader
       title="Purchase Orders"
-      description="Register the purchase orders used to procure tangibles and consumables. Item prices reference these orders so tangible costs on the AFE stay traceable."
+      description="Register the purchase orders used to procure tangibles and consumables. These are held for reference only — a rate may quote an order for traceability, but no catalogue item has to be linked to one."
     />
     <MasterDataNav active="purchase-orders" />
     <EnterpriseGrid

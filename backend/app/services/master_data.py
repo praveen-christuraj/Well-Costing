@@ -5,6 +5,7 @@ from math import ceil
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -31,11 +32,11 @@ from app.models.master_data import (
     Currency,
     Equipment,
     HoleSection,
-    ItemCategory,
-    ItemSubCategory,
+    ItemPrice,
     Material,
     MudChemical,
     Rate,
+    RateRevision,
     Service,
     Tangible,
     Unit,
@@ -45,6 +46,8 @@ from app.repositories.master_data import MasterDataRepository, RateRepository
 from app.schemas.master_data import (
     BulkRowError,
     BulkValidationResult,
+    DeleteCascade,
+    DeleteImpact,
     MasterDataCreate,
     MasterDataRead,
     MasterDataUpdate,
@@ -75,12 +78,25 @@ CATALOG_FIELDS = COMMON_FIELDS | {
     "cost_category_id",
     "cost_code_id",
     "default_unit_id",
-    "item_category_id",
-    "sub_category_id",
+    "primary_category_id",
+    "secondary_category_id",
+    "tertiary_category_id",
     "material_number",
     "specification",
     "manufacturer",
 }
+
+#: Catalogue item types and the concrete model each one persists to. The
+#: unified ``catalog-items`` entity uses this to pick the right subclass.
+ITEM_TYPE_MODELS: dict[str, type[Base]] = {
+    "service": Service,
+    "tangible": Tangible,
+    "material": Material,
+    "equipment": Equipment,
+    "mud_chemical": MudChemical,
+    "cement_additive": CementAdditive,
+}
+
 ENTITY_CONFIGS: dict[str, EntityConfig] = {
     "units": EntityConfig(Unit, COMMON_FIELDS | {"symbol"}),
     "currencies": EntityConfig(Currency, COMMON_FIELDS | {"symbol"}),
@@ -95,12 +111,12 @@ ENTITY_CONFIGS: dict[str, EntityConfig] = {
     ),
     "activities": EntityConfig(Activity, COMMON_FIELDS | {"sequence"}),
     "cost-categories": EntityConfig(
-        CostCategory, COMMON_FIELDS | {"parent_id", "secondary_category_id"}
+        CostCategory,
+        COMMON_FIELDS | {"primary_category_id", "secondary_category_id"},
     ),
     "cost-codes": EntityConfig(CostCode, COMMON_FIELDS | {"cost_category_id"}),
     "vendors": EntityConfig(Vendor, VENDOR_FIELDS),
-    "item-categories": EntityConfig(ItemCategory, COMMON_FIELDS | {"applies_to"}),
-    "item-subcategories": EntityConfig(ItemSubCategory, COMMON_FIELDS | {"applies_to"}),
+    "catalog-items": EntityConfig(CatalogItem, CATALOG_FIELDS | {"rate_basis", "item_type"}, None),
     "services": EntityConfig(Service, CATALOG_FIELDS | {"rate_basis"}, "service"),
     "tangibles": EntityConfig(Tangible, CATALOG_FIELDS, "tangible"),
     "materials": EntityConfig(Material, CATALOG_FIELDS, "material"),
@@ -110,6 +126,37 @@ ENTITY_CONFIGS: dict[str, EntityConfig] = {
         CementAdditive, CATALOG_FIELDS | {"rate_basis"}, "cement_additive"
     ),
 }
+
+#: Entities whose rows are catalogue items and therefore carry rate history.
+CATALOGUE_ENTITIES = frozenset(
+    {
+        "catalog-items",
+        "services",
+        "tangibles",
+        "materials",
+        "equipment",
+        "mud-chemicals",
+        "cement-additives",
+    }
+)
+
+
+def _classification_labels(instance: Any) -> dict[str, Any]:
+    """Readable Primary / Secondary / Tertiary labels for a classified row."""
+
+    primary = getattr(instance, "primary_category", None)
+    secondary = getattr(instance, "secondary_category", None)
+    tertiary = getattr(instance, "tertiary_category", None)
+    if primary is None and secondary is not None:
+        primary = getattr(secondary, "primary_category", None)
+    return {
+        "primary_category_code": primary.code if primary else None,
+        "primary_category_name": primary.name if primary else None,
+        "secondary_category_code": secondary.code if secondary else None,
+        "secondary_category_name": secondary.name if secondary else None,
+        "tertiary_category_code": tertiary.code if tertiary else None,
+        "tertiary_category_name": tertiary.name if tertiary else None,
+    }
 
 
 def get_entity_config(entity: str) -> EntityConfig:
@@ -188,7 +235,7 @@ class MasterDataService:
     def create(self, payload: MasterDataCreate, *, commit: bool = True) -> MasterDataRead:
         values = self._values(payload)
         self._validate_references(values)
-        model = self.config.model
+        model = self._model_for(values)
         instance: Any = model(**values, created_by=self.actor_id, updated_by=self.actor_id)
         try:
             self.repository.add(instance)
@@ -220,6 +267,11 @@ class MasterDataService:
             raise NotFoundError(f"{self.entity} record not found")
         values = self._values(payload)
         self._validate_references(values, current_id=item_id)
+        requested_type = values.pop("item_type", None)
+        if requested_type is not None and requested_type != getattr(instance, "item_type", None):
+            raise BusinessValidationError(
+                "item_type cannot be changed after creation — create a new catalogue item instead"
+            )
         for field, value in values.items():
             setattr(instance, field, value)
         instance.updated_by = self.actor_id
@@ -283,18 +335,25 @@ class MasterDataService:
         self.session.refresh(instance)
         return self._serialize(instance)
 
-    def hard_delete(self, item_id: UUID) -> None:
+    def hard_delete(self, item_id: UUID, *, cascade: bool = False) -> None:
         instance = self.repository.get(item_id)
         if instance is None:
             raise NotFoundError(f"{self.entity} record not found")
         if instance.is_active:
             raise BusinessValidationError("Record must be soft-deleted before permanent deletion")
         code = instance.code
+        removed = self._guard_or_cascade(instance, cascade=cascade)
         try:
             self.repository.delete(instance)
             self.session.flush()
             _audit_master(
-                self.session, self.actor_id, "hard_delete", self.entity, item_id, code, None
+                self.session,
+                self.actor_id,
+                "hard_delete",
+                self.entity,
+                item_id,
+                code,
+                {"cascaded": removed} if removed else None,
             )
             self.session.commit()
         except IntegrityError as exc:
@@ -304,18 +363,31 @@ class MasterDataService:
                 "Deactivate it instead."
             ) from exc
 
-    def delete(self, item_id: UUID) -> None:
-        """Permanently remove a record, refusing when it is still referenced."""
+    def delete(self, item_id: UUID, *, cascade: bool = False) -> None:
+        """Permanently remove a record, refusing when it is still referenced.
+
+        ``cascade`` additionally removes the rate history a catalogue item owns
+        — its master rates and every rate revision recorded against it — which
+        is the only referencing data that has no meaning without the item. The
+        caller is expected to have shown the user :meth:`delete_impact` first.
+        """
 
         instance = self.repository.get(item_id)
         if instance is None:
             raise NotFoundError(f"{self.entity} record not found")
         code = instance.code
+        removed = self._guard_or_cascade(instance, cascade=cascade)
         try:
             self.repository.delete(instance)
             self.session.flush()
             _audit_master(
-                self.session, self.actor_id, "hard_delete", self.entity, item_id, code, None
+                self.session,
+                self.actor_id,
+                "hard_delete",
+                self.entity,
+                item_id,
+                code,
+                {"cascaded": removed} if removed else None,
             )
             self.session.commit()
         except IntegrityError as exc:
@@ -403,6 +475,22 @@ class MasterDataService:
             raise
         return updated
 
+    def _model_for(self, values: dict[str, Any]) -> type[Base]:
+        """Concrete model to persist a new row into.
+
+        Every catalogue entity maps to a single subclass, except the unified
+        ``catalog-items`` register where the row's ``item_type`` decides which
+        one it is. Removing ``item_type`` from the values afterwards keeps the
+        polymorphic discriminator under SQLAlchemy's control.
+        """
+
+        if self.entity != "catalog-items":
+            return self.config.model
+        item_type = values.pop("item_type", None)
+        if not item_type:
+            raise BusinessValidationError("item_type is required for catalogue items")
+        return ITEM_TYPE_MODELS[str(item_type)]
+
     def _values(self, payload: MasterDataCreate | MasterDataUpdate) -> dict[str, Any]:
         supplied = payload.model_dump(exclude_unset=True)
         unsupported = set(supplied) - self.config.fields
@@ -428,19 +516,13 @@ class MasterDataService:
         vendor_type = values.get("vendor_type")
         if vendor_type is not None and vendor_type not in {"third_party", "inhouse"}:
             raise BusinessValidationError("vendor_type must be 'third_party' or 'inhouse'")
-        applies_to = values.get("applies_to")
-        if applies_to is not None and applies_to not in {
-            "service",
-            "tangible",
-            "mud_chemical",
-            "cement_additive",
-        }:
-            raise BusinessValidationError(
-                "applies_to must be one of service, tangible, mud_chemical, cement_additive"
-            )
+        item_type = values.get("item_type")
+        if item_type is not None and item_type not in ITEM_TYPE_MODELS:
+            allowed_types = ", ".join(sorted(ITEM_TYPE_MODELS))
+            raise BusinessValidationError(f"item_type must be one of {allowed_types}")
         rate_basis = values.get("rate_basis")
         if rate_basis is not None:
-            item_type = self.config.item_type or ""
+            item_type = self.config.item_type or str(values.get("item_type") or "")
             try:
                 values["rate_basis"] = validate_rate_basis(item_type, str(rate_basis))
             except RateBasisError as exc:
@@ -453,8 +535,6 @@ class MasterDataService:
             "cost_category_id": CostCategory,
             "cost_code_id": CostCode,
             "default_unit_id": Unit,
-            "item_category_id": ItemCategory,
-            "sub_category_id": ItemSubCategory,
             "primary_category_id": PrimaryCategory,
             "secondary_category_id": SecondaryCategory,
             "tertiary_category_id": TertiaryCategory,
@@ -465,6 +545,135 @@ class MasterDataService:
                 raise BusinessValidationError(f"{field} does not reference an existing record")
         if values.get("parent_id") is not None and values["parent_id"] == current_id:
             raise BusinessValidationError("A cost category cannot be its own parent")
+        self._resolve_classification(values)
+
+    def _resolve_classification(self, values: dict[str, Any]) -> None:
+        """Keep Primary → Secondary → Tertiary consistent and self-completing.
+
+        Choosing a tertiary category is enough: its secondary and primary
+        parents are filled in automatically. When the caller supplies more than
+        one level they must agree, otherwise the row would claim a lineage the
+        classification does not have.
+        """
+
+        model = self.config.model
+        has_secondary = hasattr(model, "secondary_category_id")
+        has_primary = hasattr(model, "primary_category_id")
+
+        tertiary_id = values.get("tertiary_category_id")
+        if tertiary_id is not None and has_secondary:
+            tertiary = self.session.get(TertiaryCategory, tertiary_id)
+            parent_secondary = tertiary.secondary_category_id if tertiary else None
+            supplied = values.get("secondary_category_id")
+            if supplied is not None and supplied != parent_secondary:
+                raise BusinessValidationError(
+                    "tertiary_category_id does not belong to the selected secondary category"
+                )
+            values["secondary_category_id"] = parent_secondary
+
+        secondary_id = values.get("secondary_category_id")
+        if secondary_id is not None and has_primary:
+            secondary = self.session.get(SecondaryCategory, secondary_id)
+            parent_primary = secondary.primary_category_id if secondary else None
+            supplied = values.get("primary_category_id")
+            if supplied is not None and supplied != parent_primary:
+                raise BusinessValidationError(
+                    "secondary_category_id does not belong to the selected primary category"
+                )
+            values["primary_category_id"] = parent_primary
+
+    # -- deletion impact ---------------------------------------------------
+    def delete_impact(self, item_id: UUID) -> DeleteImpact:
+        """Describe what else disappears when this record is deleted.
+
+        Catalogue items own their rate history: a tangible's master rates and
+        every rate revision recorded against it are meaningless once the item
+        itself is gone. The UI reads this before asking the user to confirm, so
+        the caution prompt states real numbers rather than a generic warning.
+        """
+
+        instance: Any = self.repository.get(item_id)
+        if instance is None:
+            raise NotFoundError(f"{self.entity} record not found")
+
+        cascades: list[DeleteCascade] = []
+        blockers: list[str] = []
+        if isinstance(instance, CatalogItem):
+            prices = int(
+                self.session.scalar(
+                    select(func.count()).select_from(ItemPrice).where(ItemPrice.item_id == item_id)
+                )
+                or 0
+            )
+            revisions = int(
+                self.session.scalar(
+                    select(func.count())
+                    .select_from(RateRevision)
+                    .where(RateRevision.item_id == item_id)
+                )
+                or 0
+            )
+            if prices:
+                cascades.append(
+                    DeleteCascade(entity="item-prices", label="Master rates", count=prices)
+                )
+            if revisions:
+                cascades.append(
+                    DeleteCascade(entity="rate-revisions", label="Rate revisions", count=revisions)
+                )
+        return DeleteImpact(
+            entity=self.entity,
+            id=item_id,
+            code=instance.code,
+            name=instance.name,
+            cascades=cascades,
+            blockers=blockers,
+            requires_confirmation=bool(cascades),
+        )
+
+    def _guard_or_cascade(self, instance: Any, *, cascade: bool) -> dict[str, int]:
+        """Remove owned rate history, or refuse the delete when it exists.
+
+        The check is made in the application rather than left to a foreign key
+        so the answer is the same on every dialect and the message can name what
+        is in the way.
+        """
+
+        impact = self.delete_impact(instance.id)
+        if not impact.cascades:
+            return {}
+        if not cascade:
+            listed = ", ".join(f"{item.count} {item.label.lower()}" for item in impact.cascades)
+            raise ConflictError(
+                f"'{instance.code}' still has {listed}. Confirm the cascading delete to "
+                "remove them together with the item."
+            )
+        return self._cascade_catalog_rates(instance)
+
+    def _cascade_catalog_rates(self, instance: Any) -> dict[str, int]:
+        """Delete the rate history owned by a catalogue item being removed."""
+
+        if not isinstance(instance, CatalogItem):
+            return {}
+        revisions = list(
+            self.session.scalars(
+                select(RateRevision).where(RateRevision.item_id == instance.id)
+            ).all()
+        )
+        for revision in revisions:
+            self.session.delete(revision)
+        self.session.flush()
+        prices = list(
+            self.session.scalars(select(ItemPrice).where(ItemPrice.item_id == instance.id)).all()
+        )
+        # Break the supersedes chain first so the rows can go in any order.
+        for price in prices:
+            price.supersedes_id = None
+        self.session.flush()
+        for price in prices:
+            self.session.delete(price)
+        self.session.flush()
+        return {"rate_revisions": len(revisions), "item_prices": len(prices)}
 
     def _serialize(self, instance: Any) -> MasterDataRead:
         values: dict[str, Any] = {
@@ -482,8 +691,6 @@ class MasterDataService:
             "cost_category_id": getattr(instance, "cost_category_id", None),
             "cost_code_id": getattr(instance, "cost_code_id", None),
             "default_unit_id": getattr(instance, "default_unit_id", None),
-            "item_category_id": getattr(instance, "item_category_id", None),
-            "sub_category_id": getattr(instance, "sub_category_id", None),
             "primary_category_id": getattr(instance, "primary_category_id", None),
             "secondary_category_id": getattr(instance, "secondary_category_id", None),
             "tertiary_category_id": getattr(instance, "tertiary_category_id", None),
@@ -502,12 +709,7 @@ class MasterDataService:
         }
         if isinstance(instance, CostCategory):
             values["parent_code"] = instance.parent.code if instance.parent else None
-            values["secondary_category_code"] = (
-                instance.secondary_category.code if instance.secondary_category else None
-            )
-            values["secondary_category_name"] = (
-                instance.secondary_category.name if instance.secondary_category else None
-            )
+            values.update(_classification_labels(instance))
         if isinstance(instance, SecondaryCategory):
             try:
                 values["primary_category_code"] = instance.primary_category.code
@@ -538,20 +740,9 @@ class MasterDataService:
                     "default_unit_code": instance.default_unit.code
                     if instance.default_unit
                     else None,
-                    "item_category_code": instance.item_category.code
-                    if instance.item_category
-                    else None,
-                    "item_category_name": instance.item_category.name
-                    if instance.item_category
-                    else None,
-                    "sub_category_code": instance.sub_category.code
-                    if instance.sub_category
-                    else None,
-                    "sub_category_name": instance.sub_category.name
-                    if instance.sub_category
-                    else None,
                 }
             )
+            values.update(_classification_labels(instance))
         return MasterDataRead.model_validate(values)
 
 
