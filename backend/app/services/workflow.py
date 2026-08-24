@@ -38,6 +38,7 @@ from app.schemas.workflow import (
     WorkflowTransitionRead,
     WorkflowTransitionRequest,
 )
+from app.services.audit import log_entity_action
 
 WORKFLOW_RECORD_TYPE = "estimate_version"
 WORKFLOW_POLICY_VERSION = "pending-estimate-review"
@@ -54,6 +55,23 @@ PENDING_WORKFLOW_REQUIREMENTS = [
 class EstimateWorkflowService:
     def __init__(self, session: Session, actor: User) -> None:
         self.session, self.actor = session, actor
+
+    def _audit(
+        self,
+        action: str,
+        entity_id: UUID | None,
+        entity_code: str | None,
+        details: object = None,
+    ) -> None:
+        log_entity_action(
+            self.session,
+            self.actor.id,
+            action,
+            "estimate_workflow",
+            entity_id=entity_id,
+            entity_code=entity_code,
+            details=details,
+        )
 
     def list_profiles(self) -> list[WorkflowProfileRead]:
         profiles = list(
@@ -156,6 +174,18 @@ class EstimateWorkflowService:
             )
         except NotImplementedError as exc:
             attempt.message = str(exc)
+            self.session.flush()
+            self._audit(
+                "transition_blocked",
+                attempt.id,
+                str(estimate.id),
+                {
+                    "estimate_id": str(estimate.id),
+                    "estimate_version_id": str(version.id),
+                    "requested_action": request.action_key,
+                    "message": attempt.message,
+                },
+            )
             self.session.commit()
             raise WorkflowProfilePendingError(
                 "Estimate workflow transition is blocked pending an approved "
@@ -170,6 +200,20 @@ class EstimateWorkflowService:
         if not evaluation.allowed:
             attempt.status = "denied"
             attempt.message = evaluation.reason_code
+            self.session.flush()
+            self._audit(
+                "transition_denied",
+                attempt.id,
+                str(estimate.id),
+                {
+                    "estimate_id": str(estimate.id),
+                    "estimate_version_id": str(version.id),
+                    "requested_action": request.action_key,
+                    "from_state": current_state,
+                    "to_state": evaluation.to_state_key,
+                    "reason_code": evaluation.reason_code,
+                },
+            )
             self.session.commit()
             if evaluation.reason_code == "role_not_mapped":
                 raise AuthorizationError("The current actor is not mapped to this transition")
@@ -197,6 +241,19 @@ class EstimateWorkflowService:
             instance.updated_by = self.actor.id
         attempt.status = "completed"
         attempt.message = "Configured transition completed"
+        self.session.flush()
+        self._audit(
+            "transition",
+            attempt.id,
+            str(estimate.id),
+            {
+                "estimate_id": str(estimate.id),
+                "estimate_version_id": str(version.id),
+                "requested_action": request.action_key,
+                "from_state": current_state,
+                "to_state": evaluation.to_state_key,
+            },
+        )
         if request.comment:
             self.session.add(
                 EstimateReviewComment(
@@ -223,6 +280,13 @@ class EstimateWorkflowService:
             updated_by=self.actor.id,
         )
         self.session.add(comment)
+        self.session.flush()
+        self._audit(
+            "comment",
+            comment.id,
+            str(estimate_id),
+            {"estimate_id": str(estimate_id), "estimate_version_id": str(version.id)},
+        )
         self.session.commit()
         self.session.refresh(comment)
         return EstimateReviewCommentRead.model_validate(comment)

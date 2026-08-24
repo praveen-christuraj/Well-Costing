@@ -65,6 +65,7 @@ from app.schemas.well_costing import (
     WellUnplannedItemRead,
     WellUnplannedItemUpdate,
 )
+from app.services.audit import log_entity_action
 
 SERVICE_RATE_FIELDS = (
     "rate_basis",
@@ -137,6 +138,25 @@ class _WellScopedService:
         if well is None:
             raise NotFoundError("Well not found")
         return well
+
+    def _audit(
+        self,
+        action: str,
+        entity_type: str,
+        entity_id: UUID | None,
+        entity_code: str | None,
+        details: Any = None,
+    ) -> None:
+        """Write the global audit event alongside the well-scoped history."""
+        log_entity_action(
+            self.session,
+            self.actor_id,
+            action,
+            entity_type,
+            entity_id=entity_id,
+            entity_code=entity_code,
+            details=details,
+        )
 
     def _check_references(self, values: dict[str, Any], references: dict[str, type[Any]]) -> None:
         for field, model in references.items():
@@ -446,6 +466,13 @@ class WellRateBookService(_WellScopedService):
             reason=payload.notes,
             service_rate_id=record.id,
         )
+        self._audit(
+            "create",
+            "well_service_rate",
+            record.id,
+            service.code,
+            {"well_id": str(well.id), "rates": _snapshot(record, SERVICE_RATE_FIELDS)},
+        )
         self.session.commit()
         self.session.refresh(record)
         return self.serialize_service(record)
@@ -508,6 +535,18 @@ class WellRateBookService(_WellScopedService):
             reason=reason,
             service_rate_id=record.id,
         )
+        self._audit(
+            "update",
+            "well_service_rate",
+            record.id,
+            record.service.code,
+            {
+                "well_id": str(well_id),
+                "before": previous,
+                "after": _snapshot(record, SERVICE_RATE_FIELDS),
+                "change_reason": reason,
+            },
+        )
         self.session.commit()
         self.session.refresh(record)
         return self.serialize_service(record)
@@ -522,6 +561,9 @@ class WellRateBookService(_WellScopedService):
                     "Raise an out-of-AFE entry for the well instead."
                 )
             )
+        if not record.is_active:
+            raise BusinessValidationError("This well service rate is already deactivated")
+        previous = _snapshot(record, SERVICE_RATE_FIELDS)
         record.is_active = False
         record.updated_by = self.actor_id
         self._log(
@@ -535,6 +577,13 @@ class WellRateBookService(_WellScopedService):
             new_rates=None,
             reason=reason,
             service_rate_id=record.id,
+        )
+        self._audit(
+            "soft_delete",
+            "well_service_rate",
+            record.id,
+            record.service.code,
+            {"well_id": str(well_id), "before": previous, "reason": reason},
         )
         self.session.commit()
 
@@ -610,6 +659,13 @@ class WellRateBookService(_WellScopedService):
             reason=payload.override_reason or payload.notes,
             tangible_rate_id=record.id,
         )
+        self._audit(
+            "create",
+            "well_tangible_rate",
+            record.id,
+            tangible.code,
+            {"well_id": str(well.id), "rates": _snapshot(record, TANGIBLE_RATE_FIELDS)},
+        )
         self.session.commit()
         self.session.refresh(record)
         return self.serialize_tangible(record)
@@ -651,6 +707,18 @@ class WellRateBookService(_WellScopedService):
             reason=reason,
             tangible_rate_id=record.id,
         )
+        self._audit(
+            "update",
+            "well_tangible_rate",
+            record.id,
+            record.tangible.code,
+            {
+                "well_id": str(well_id),
+                "before": previous,
+                "after": _snapshot(record, TANGIBLE_RATE_FIELDS),
+                "change_reason": reason,
+            },
+        )
         self.session.commit()
         self.session.refresh(record)
         return self.serialize_tangible(record)
@@ -665,6 +733,9 @@ class WellRateBookService(_WellScopedService):
                     "Raise an out-of-AFE entry for the well instead."
                 )
             )
+        if not record.is_active:
+            raise BusinessValidationError("This well tangible rate is already deactivated")
+        previous = _snapshot(record, TANGIBLE_RATE_FIELDS)
         record.is_active = False
         record.updated_by = self.actor_id
         self._log(
@@ -678,6 +749,13 @@ class WellRateBookService(_WellScopedService):
             new_rates=None,
             reason=reason,
             tangible_rate_id=record.id,
+        )
+        self._audit(
+            "soft_delete",
+            "well_tangible_rate",
+            record.id,
+            record.tangible.code,
+            {"well_id": str(well_id), "before": previous, "reason": reason},
         )
         self.session.commit()
 
@@ -742,6 +820,19 @@ class WellRateBookService(_WellScopedService):
         well.rates_locked_at = well.rates_locked_at or locked_at
         well.rate_lock_reference = payload.reference or well.rate_lock_reference
         well.updated_by = self.actor_id
+        self._audit(
+            "lock",
+            "well_rate_book",
+            well.id,
+            well.code,
+            {
+                "well_id": str(well_id),
+                "reference": payload.reference,
+                "reason": payload.reason,
+                "locked_services": len(services),
+                "locked_tangibles": len(tangibles),
+            },
+        )
         self.session.commit()
         return RateBookLockResult(
             well_id=well_id,
@@ -901,6 +992,20 @@ class WellUnplannedItemService(_WellScopedService):
         )
         self.session.add(record)
         try:
+            self.session.flush()
+            self._audit(
+                "create",
+                "well_unplanned_item",
+                record.id,
+                record.reference,
+                {
+                    "well_id": str(well_id),
+                    "item_kind": record.item_kind,
+                    "amount": str(record.amount),
+                    "reason_code": record.reason_code,
+                    "incurred_on": record.incurred_on.isoformat(),
+                },
+            )
             self.session.commit()
         except IntegrityError as exc:
             self.session.rollback()
@@ -919,6 +1024,14 @@ class WellUnplannedItemService(_WellScopedService):
                 f"An out-of-AFE entry in '{record.status}' can no longer be edited."
             )
         values = payload.model_dump(exclude_unset=True)
+        previous = {
+            "item_kind": record.item_kind,
+            "item_description": record.item_description,
+            "quantity": str(record.quantity),
+            "unit_rate": str(record.unit_rate),
+            "amount": str(record.amount),
+            "status": record.status,
+        }
         self._check_references(
             values,
             {
@@ -934,16 +1047,48 @@ class WellUnplannedItemService(_WellScopedService):
             setattr(record, field, value)
         record.amount = Decimal(record.quantity) * Decimal(record.unit_rate)
         record.updated_by = self.actor_id
+        self.session.flush()
+        self._audit(
+            "update",
+            "well_unplanned_item",
+            record.id,
+            record.reference,
+            {
+                "well_id": str(well_id),
+                "before": previous,
+                "after": {
+                    "item_kind": record.item_kind,
+                    "item_description": record.item_description,
+                    "quantity": str(record.quantity),
+                    "unit_rate": str(record.unit_rate),
+                    "amount": str(record.amount),
+                    "status": record.status,
+                },
+            },
+        )
         self.session.commit()
         self.session.refresh(record)
         return self.serialize(record)
 
     def submit(self, well_id: UUID, item_id: UUID) -> WellUnplannedItemRead:
         record = self._require(well_id, item_id)
+        previous_status = record.status
         self._transition(record, "submitted")
         record.submitted_at = datetime.now(UTC)
         record.submitted_by = self.actor_id
         record.updated_by = self.actor_id
+        self.session.flush()
+        self._audit(
+            "submit",
+            "well_unplanned_item",
+            record.id,
+            record.reference,
+            {
+                "well_id": str(well_id),
+                "previous_status": previous_status,
+                "new_status": record.status,
+            },
+        )
         self.session.commit()
         self.session.refresh(record)
         return self.serialize(record)
@@ -959,6 +1104,7 @@ class WellUnplannedItemService(_WellScopedService):
         """
 
         record = self._require(well_id, item_id)
+        previous_status = record.status
         self._transition(record, "approved")
         record.decided_at = datetime.now(UTC)
         record.decided_by = self.actor_id
@@ -966,6 +1112,20 @@ class WellUnplannedItemService(_WellScopedService):
         record.updated_by = self.actor_id
         if payload.add_to_rate_book and record.catalog_item_id is not None:
             self._attach_rate_book_entry(record)
+        self.session.flush()
+        self._audit(
+            "approve",
+            "well_unplanned_item",
+            record.id,
+            record.reference,
+            {
+                "well_id": str(well_id),
+                "previous_status": previous_status,
+                "new_status": record.status,
+                "decision_note": record.decision_note,
+                "add_to_rate_book": payload.add_to_rate_book,
+            },
+        )
         self.session.commit()
         self.session.refresh(record)
         return self.serialize(record)
@@ -974,11 +1134,25 @@ class WellUnplannedItemService(_WellScopedService):
         self, well_id: UUID, item_id: UUID, payload: WellUnplannedDecision
     ) -> WellUnplannedItemRead:
         record = self._require(well_id, item_id)
+        previous_status = record.status
         self._transition(record, "rejected")
         record.decided_at = datetime.now(UTC)
         record.decided_by = self.actor_id
         record.decision_note = payload.decision_note
         record.updated_by = self.actor_id
+        self.session.flush()
+        self._audit(
+            "reject",
+            "well_unplanned_item",
+            record.id,
+            record.reference,
+            {
+                "well_id": str(well_id),
+                "previous_status": previous_status,
+                "new_status": record.status,
+                "decision_note": record.decision_note,
+            },
+        )
         self.session.commit()
         self.session.refresh(record)
         return self.serialize(record)
@@ -987,11 +1161,25 @@ class WellUnplannedItemService(_WellScopedService):
         self, well_id: UUID, item_id: UUID, payload: WellUnplannedDecision
     ) -> WellUnplannedItemRead:
         record = self._require(well_id, item_id)
+        previous_status = record.status
         self._transition(record, "cancelled")
         record.decided_at = datetime.now(UTC)
         record.decided_by = self.actor_id
         record.decision_note = payload.decision_note
         record.updated_by = self.actor_id
+        self.session.flush()
+        self._audit(
+            "cancel",
+            "well_unplanned_item",
+            record.id,
+            record.reference,
+            {
+                "well_id": str(well_id),
+                "previous_status": previous_status,
+                "new_status": record.status,
+                "decision_note": record.decision_note,
+            },
+        )
         self.session.commit()
         self.session.refresh(record)
         return self.serialize(record)

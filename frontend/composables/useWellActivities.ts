@@ -11,7 +11,7 @@ export function useWellActivities(api: WellActivitiesApi = new WellActivitiesApi
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  async function loadForWell(wellId: string): Promise<void> {
+  async function loadForWell(wellId: string, includeInactive = false): Promise<void> {
     if (!wellId) {
       wellActivities.value = []
       return
@@ -19,7 +19,9 @@ export function useWellActivities(api: WellActivitiesApi = new WellActivitiesApi
     loading.value = true
     error.value = null
     try {
-      wellActivities.value = await api.listForWell(wellId)
+      wellActivities.value = includeInactive
+        ? await api.listForWell(wellId, true)
+        : await api.listForWell(wellId)
     }
     catch (e: unknown) {
       error.value = e instanceof Error ? e.message : 'Failed to load well activities'
@@ -72,6 +74,21 @@ export function useWellActivities(api: WellActivitiesApi = new WellActivitiesApi
     }
   }
 
+  async function recoverActivity(id: string): Promise<WellActivityRecord | null> {
+    error.value = null
+    try {
+      const record = await api.recover(id)
+      const index = wellActivities.value.findIndex(a => a.id === id)
+      if (index >= 0) wellActivities.value[index] = record
+      else wellActivities.value.push(record)
+      return record
+    }
+    catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : 'Failed to recover well activity'
+      return null
+    }
+  }
+
   return {
     wellActivities,
     loading,
@@ -80,5 +97,6 @@ export function useWellActivities(api: WellActivitiesApi = new WellActivitiesApi
     createActivity,
     updateActivity,
     removeActivity,
+    recoverActivity,
   }
 }

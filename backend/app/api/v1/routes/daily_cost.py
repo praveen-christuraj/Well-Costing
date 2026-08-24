@@ -28,8 +28,11 @@ def list_daily_cost_entries(
     well_id: UUID,
     current_user: CurrentUser,
     session: DbSession,
+    include_deleted: bool = Query(False),
 ) -> list[DailyCostEntryRead]:
-    return DailyCostService(session, current_user.id).list_entries(well_id)
+    return DailyCostService(session, current_user.id).list_entries(
+        well_id, include_deleted=include_deleted
+    )
 
 
 @router.get("/entry", response_model=DailyCostEntryRead | None)

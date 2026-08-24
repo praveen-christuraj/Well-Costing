@@ -14,6 +14,9 @@ describe('WellActivitiesApi', () => {
     expect(get).toHaveBeenCalledWith('/well-activities/well/well-1')
     expect(list).toEqual([{ id: 'wa-1', name: 'Planned' }])
 
+    await api.listForWell('well-1', true)
+    expect(get).toHaveBeenCalledWith('/well-activities/well/well-1?include_inactive=true')
+
     const created = await api.create({
       well_id: 'well-1',
       activity_id: 'act-1',
@@ -42,5 +45,8 @@ describe('WellActivitiesApi', () => {
 
     await api.remove('wa-2')
     expect(del).toHaveBeenCalledWith('/well-activities/wa-2')
+
+    await api.recover('wa-2')
+    expect(post).toHaveBeenLastCalledWith('/well-activities/wa-2/recover', {})
   })
 })

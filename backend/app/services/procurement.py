@@ -176,6 +176,8 @@ class _BaseService(Generic[ModelT, ReadT]):  # noqa: UP046
 
     def deactivate(self, record_id: UUID) -> None:
         record = self._require(record_id)
+        if not record.is_active:  # type: ignore[attr-defined]
+            raise BusinessValidationError(f"This {self.label.lower()} is already deactivated")
         record.is_active = False  # type: ignore[attr-defined]
         record.updated_by = self.actor_id  # type: ignore[attr-defined]
         self.session.flush()

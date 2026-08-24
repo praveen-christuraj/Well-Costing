@@ -26,6 +26,7 @@ import { useConfirm } from 'primevue/useconfirm'
 import ImportWizard from '~/components/cost-library/ImportWizard.vue'
 import { downloadBlob, exportFilename } from '~/utils/download'
 import { parseTsv } from '~/utils/tsv'
+import { NormalizedApiError } from '~/types/api'
 import type { EditableRow, GridColumn, GridFilterDefinition } from '~/types/grid'
 import type { PageResponse } from '~/types/masterData'
 
@@ -246,7 +247,14 @@ async function saveAll(): Promise<void> {
 function confirmDelete(row: EditableRow): void {
   clearFeedback()
   if (!row.id) {
-    cancelRow(row)
+    confirm.require({
+      message: `Remove this unsaved ${props.singular}? The row will be discarded.`,
+      header: `Remove unsaved ${props.singular}`,
+      icon: 'pi pi-exclamation-triangle',
+      rejectProps: { label: 'Cancel', severity: 'secondary', outlined: true },
+      acceptProps: { label: 'Remove', severity: 'danger' },
+      accept: () => cancelRow(row),
+    })
     return
   }
   confirm.require({
@@ -272,7 +280,10 @@ async function removeRow(row: EditableRow): Promise<void> {
         success.value = `The ${props.singular} was left unchanged.`
         return
       }
-      // Referenced records cannot be removed; fall back to deactivation.
+      // A permanent delete is only downgraded when the API explicitly reports
+      // a reference conflict. Network, authorization, and validation failures
+      // must not silently turn into a different write operation.
+      if (!(caught instanceof NormalizedApiError) || caught.status !== 409) throw caught
       await props.removeRecord(String(row.id), false)
       success.value = `The ${props.singular} is referenced elsewhere, so it was deactivated instead of deleted.`
     }

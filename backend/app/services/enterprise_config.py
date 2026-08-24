@@ -1,5 +1,6 @@
 """Audited enterprise configuration creation and hierarchy validation."""
 
+import re
 from typing import Any, TypeVar
 from uuid import UUID
 
@@ -38,6 +39,7 @@ from app.schemas.enterprise_config import (
     VersionedConfigCreate,
     VersionedConfigRead,
 )
+from app.services.audit import log_entity_action
 
 ModelT = TypeVar("ModelT")
 
@@ -221,7 +223,26 @@ class EnterpriseConfigService:
         return item
 
     def _save(self, item: ModelT) -> ModelT:
+        """Persist one configuration record and emit its global audit event."""
         self.session.add(item)  # type: ignore[arg-type]
+        self.session.flush()
+        identifier = getattr(item, "id", None)
+        code = getattr(item, "code", None) or getattr(item, "name", None)
+        table = getattr(item, "__table__", None)
+        details = {
+            column.name: getattr(item, column.name)
+            for column in table.columns
+            if column.name not in {"id", "created_at", "updated_at"}
+        } if table is not None else None
+        log_entity_action(
+            self.session,
+            self.actor_id,
+            "create",
+            re.sub(r"(?<!^)(?=[A-Z])", "_", type(item).__name__).lower(),
+            entity_id=identifier,
+            entity_code=str(code) if code is not None else None,
+            details=details,
+        )
         self.session.commit()
         self.session.refresh(item)
         return item

@@ -24,6 +24,7 @@ from app.schemas.afe import AfeLineCreate
 from app.schemas.imports import ImportCommitResponse, ImportPreviewResponse
 from app.schemas.master_data import BulkRowError
 from app.services.afe import AfeLineService
+from app.services.audit import log_entity_action
 
 
 class AfeExcelService:
@@ -92,6 +93,23 @@ class AfeExcelService:
                 )
             )
         self.batches.add(batch)
+        self.session.flush()
+        log_entity_action(
+            self.session,
+            self.actor_id,
+            "import_preview",
+            "afe_import_batch",
+            entity_id=batch.id,
+            entity_code=str(afe_id),
+            details={
+                "afe_id": str(afe_id),
+                "filename": batch.filename,
+                "total_rows": batch.total_rows,
+                "valid_rows": batch.valid_rows,
+                "error_rows": batch.error_rows,
+                "status": batch.status,
+            },
+        )
         self.session.commit()
         return ImportPreviewResponse(
             batch_id=batch.id,
@@ -126,6 +144,20 @@ class AfeExcelService:
             batch.status = "committed"
             batch.imported_rows = len(batch.staged_rows)
             batch.updated_by = self.actor_id
+            self.session.flush()
+            log_entity_action(
+                self.session,
+                self.actor_id,
+                "import_commit",
+                "afe_import_batch",
+                entity_id=batch.id,
+                entity_code=str(afe_id),
+                details={
+                    "afe_id": str(afe_id),
+                    "imported_rows": batch.imported_rows,
+                    "status": batch.status,
+                },
+            )
             self.session.commit()
         except Exception:
             self.session.rollback()

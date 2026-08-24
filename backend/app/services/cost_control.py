@@ -47,6 +47,7 @@ from app.schemas.cost_control import (
     CostControlPostAttemptRead,
     CostControlStagedLineRead,
 )
+from app.services.audit import log_entity_action
 
 COST_STATE_POLICY_VERSION = "pending-all-cost-states"
 PENDING_COST_STATE_REQUIREMENTS = [
@@ -77,6 +78,23 @@ TEMPLATE_HEADERS = [
 class CostControlService:
     def __init__(self, session: Session, actor: User) -> None:
         self.session, self.actor = session, actor
+
+    def _audit(
+        self,
+        action: str,
+        entity_id: UUID,
+        entity_code: str | None,
+        details: Any = None,
+    ) -> None:
+        log_entity_action(
+            self.session,
+            self.actor.id,
+            action,
+            "cost_control_batch",
+            entity_id=entity_id,
+            entity_code=entity_code,
+            details=details,
+        )
 
     def stage_manual(self, request: CostControlBatchCreate) -> CostControlBatchRead:
         self._version(request.estimate_version_id)
@@ -147,6 +165,17 @@ class CostControlService:
             batch.status = "blocked"
             batch.updated_by = self.actor.id
             attempt.message = str(exc)
+            self.session.flush()
+            self._audit(
+                "post_blocked",
+                batch.id,
+                str(batch.id),
+                {
+                    "cost_state": batch.cost_state,
+                    "message": attempt.message,
+                    "post_attempt_id": str(attempt.id),
+                },
+            )
             self.session.commit()
             self.session.expire(batch, ["post_attempts"])
             raise CostStatePolicyPendingError(
@@ -164,6 +193,18 @@ class CostControlService:
         batch.status = "committed"
         batch.posted_rows = len(result.entries)
         batch.updated_by = self.actor.id
+        self.session.flush()
+        self._audit(
+            "post",
+            batch.id,
+            str(batch.id),
+            {
+                "cost_state": batch.cost_state,
+                "posted_rows": batch.posted_rows,
+                "status": batch.status,
+                "post_attempt_id": str(attempt.id),
+            },
+        )
         self.session.commit()
         return self._batch_read(batch)
 
@@ -246,6 +287,22 @@ class CostControlService:
         batch.valid_rows = len(rows) - len(invalid_rows)
         batch.error_rows = len(invalid_rows)
         batch.status = "invalid" if invalid_rows else "validated"
+        self.session.flush()
+        self._audit(
+            "create",
+            batch.id,
+            str(batch.id),
+            {
+                "estimate_version_id": str(estimate_version_id),
+                "cost_state": cost_state,
+                "source_type": source_type,
+                "filename": filename,
+                "total_rows": batch.total_rows,
+                "valid_rows": batch.valid_rows,
+                "error_rows": batch.error_rows,
+                "status": batch.status,
+            },
+        )
         self.session.commit()
         self.session.refresh(batch)
         return batch
