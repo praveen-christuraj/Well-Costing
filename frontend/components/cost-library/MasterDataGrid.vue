@@ -185,14 +185,17 @@ async function save(): Promise<void> {
   }
 }
 
-async function deactivateSelected(): Promise<void> {
+async function deleteSelected(): Promise<void> {
   const targets = selected.value.filter(row => row.id)
   if (!targets.length) return
-  if (!window.confirm(`Deactivate ${targets.length} selected ${props.label.toLowerCase()}? They will be hidden from active selectors and retained in the audit history.`)) return
+  if (!window.confirm(`Delete ${targets.length} selected ${props.label.toLowerCase()} permanently? Linked records must be deleted first.`)) return
   loading.value = true
   try {
-    await Promise.all(selected.value.filter(row => row.id).map(row => api.deactivate(props.entity, row.id!)))
+    await Promise.all(targets.map(row => api.remove(props.entity, row.id!)))
     await load()
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'Linked records must be deleted first.'
   }
   finally {
     loading.value = false
@@ -230,7 +233,7 @@ onMounted(() => void load())
         <Button label="Paste" icon="pi pi-clipboard" severity="secondary" outlined @click="pasteVisible = true" />
         <Button label="Duplicate" icon="pi pi-copy" severity="secondary" text :disabled="!selected.length" @click="duplicateSelected" />
         <Button label="Bulk edit" icon="pi pi-pencil" severity="secondary" text :disabled="!selected.length" @click="bulkVisible = true" />
-        <Button label="Deactivate" icon="pi pi-trash" severity="danger" text :disabled="!selected.length" @click="deactivateSelected" />
+        <Button label="Delete" icon="pi pi-trash" severity="danger" text :disabled="!selected.length" @click="deleteSelected" />
         <Button label="Import" icon="pi pi-upload" severity="secondary" outlined @click="importVisible = true" />
         <Button label="Export" icon="pi pi-download" severity="secondary" outlined @click="exportWorkbook" />
         <Button :label="`Save ${dirtyCount || ''}`" icon="pi pi-save" :disabled="!dirtyCount" :loading="saving" @click="save" />
@@ -290,13 +293,13 @@ onMounted(() => void load())
     </DataTable>
   </div>
 
-  <Dialog v-model:visible="pasteVisible" modal header="Paste rows from Excel" :style="{ width: '680px' }">
+  <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="pasteVisible" modal header="Paste rows from Excel" :style="{ width: '680px' }">
     <p>Copy columns in this order: {{ columns.map(item => item.field).join(', ') }}.</p>
     <Textarea v-model="pasteText" rows="12" fluid autofocus placeholder="Paste tab-separated rows here" />
     <template #footer><Button label="Apply rows" icon="pi pi-check" :disabled="!pasteText" @click="applyPaste" /></template>
   </Dialog>
 
-  <Dialog v-model:visible="bulkVisible" modal header="Bulk edit selected rows" :style="{ width: '460px' }">
+  <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="bulkVisible" modal header="Bulk edit selected rows" :style="{ width: '460px' }">
     <div class="form-stack">
       <label>Field<Select v-model="bulkField" :options="[{ label: 'Description', value: 'description' }, { label: 'Active', value: 'is_active' }]" option-label="label" option-value="value" fluid /></label>
       <label>Value<InputText v-model="bulkValue" fluid /></label>

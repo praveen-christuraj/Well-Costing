@@ -1057,6 +1057,31 @@ class AfeService:
         self.session.expire(afe, ["items", "sections", "audit_logs"])
         return self._read(afe, include_items=True)
 
+    def delete(self, afe_id: UUID) -> None:
+        """Permanently delete an AFE, unless a Cost Builder estimate references it.
+
+        The UI no longer uses a soft-deleted holding area for AFEs. Keeping a
+        linked AFE hidden would make the estimate and its source impossible to
+        manage, so the API returns a conflict with the dependency instead.
+        """
+        afe = self.repository.get(afe_id)
+        if afe is None:
+            raise NotFoundError("AFE not found")
+        from app.models.estimates import CostEstimate
+        estimate_count = int(self.session.scalar(
+            select(func.count()).select_from(CostEstimate).where(CostEstimate.afe_id == afe.id)
+        ) or 0)
+        if estimate_count:
+            raise ConflictError(
+                f"AFE '{afe.code}' is linked to {estimate_count} Cost Builder estimate(s). "
+                "Delete those estimates first, then delete the AFE."
+            )
+        code = afe.code
+        self.session.delete(afe)
+        self.session.flush()
+        _audit(self.session, self.actor_id, "delete", "afe", afe.id, code, None)
+        self.session.commit()
+
     def hard_delete(self, afe_id: UUID) -> None:
         """Permanently delete a soft-deleted AFE.
 
@@ -1302,25 +1327,26 @@ class AfeLineService:
             self.session.refresh(item)
         return self.read(item)
 
-    def deactivate(self, item_id: UUID) -> None:
+    def delete(self, item_id: UUID) -> None:
+        """Delete a draft line instead of hiding it in a second inactive state.
+
+        AFE cost-estimate rows use ON DELETE CASCADE, so a removed line cannot
+        leave an inaccessible orphaned estimate row behind. Submitted AFEs are
+        immutable and are rejected by ``_afe``.
+        """
         item = self.repository.get(item_id)
         if item is None:
             raise NotFoundError("AFE item not found")
         self._afe(item.afe_id, must_be_draft=True)
-        if not item.is_active:
-            raise BusinessValidationError("AFE item is already deleted")
-        item.is_active, item.updated_by = False, self.actor_id
+        code = str(item.line_number)
+        self.session.delete(item)
         self.session.flush()
-        _audit(
-            self.session,
-            self.actor_id,
-            "soft_delete",
-            "afe_line",
-            item.id,
-            str(item.line_number),
-            None,
-        )
+        _audit(self.session, self.actor_id, "delete", "afe_line", item.id, code, None)
         self.session.commit()
+
+    def deactivate(self, item_id: UUID) -> None:
+        """Compatibility shim: new writes must use permanent delete."""
+        self.delete(item_id)
 
     def recover(self, item_id: UUID) -> AfeLineRead:
         """Restore a removed (soft-deleted) AFE line on a draft AFE."""

@@ -357,8 +357,8 @@ def update_afe_line(
 
 
 @router.delete("/afe-lines/{line_id}", status_code=status.HTTP_204_NO_CONTENT)
-def deactivate_afe_line(line_id: UUID, current_user: CurrentUser, session: DbSession) -> Response:
-    AfeLineService(session, current_user.id).deactivate(line_id)
+def delete_afe_line(line_id: UUID, current_user: CurrentUser, session: DbSession) -> Response:
+    AfeLineService(session, current_user.id).delete(line_id)
     return Response(status_code=204)
 
 
@@ -392,9 +392,9 @@ def update_afe(
 
 
 @router.delete("/afes/{afe_id}", status_code=status.HTTP_204_NO_CONTENT)
-def deactivate_afe(afe_id: UUID, current_user: CurrentUser, session: DbSession) -> Response:
-    """Soft-delete an AFE (draft or submitted) — moves to Deleted AFEs."""
-    AfeService(session, current_user.id).deactivate(afe_id)
+def delete_afe(afe_id: UUID, current_user: CurrentUser, session: DbSession) -> Response:
+    """Delete an AFE; linked Cost Builder estimates must be deleted first."""
+    AfeService(session, current_user.id).delete(afe_id)
     return Response(status_code=204)
 
 

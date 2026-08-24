@@ -125,8 +125,13 @@ export class AfeApi {
     return this.api.patch('/afe-lines/bulk/update', { rows })
   }
 
-  deactivateLine(id: string): Promise<undefined> {
+  deleteLine(id: string): Promise<undefined> {
     return this.api.delete(`/afe-lines/${id}`)
+  }
+
+  /** @deprecated Use deleteLine; kept for older screens during rollout. */
+  deactivateLine(id: string): Promise<undefined> {
+    return this.deleteLine(id)
   }
 
   recoverLine(id: string): Promise<AfeLineRecord> {

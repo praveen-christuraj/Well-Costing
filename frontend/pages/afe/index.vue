@@ -473,17 +473,14 @@ function showAuditHistory(afe: AfeRecord): void {
 }
 
 async function deactivateAfe(record: AfeRecord): Promise<void> {
-  const isSubmitted = record.status === 'submitted'
-  const confirmMsg = isSubmitted
-    ? `Soft-delete submitted AFE ${record.code}? It will be moved to Deleted AFEs and can be recovered or permanently deleted there.`
-    : `Soft-delete draft AFE ${record.code}? It will be moved to Deleted AFEs and can be recovered or permanently deleted there.`
+  const confirmMsg = `Delete AFE ${record.code} permanently? If it is linked to a Cost Builder estimate, delete that estimate first.`
   if (!window.confirm(confirmMsg)) return
   try { await api.deleteAfe(record.id) }
   catch (caught: unknown) {
     error.value = caught instanceof Error ? caught.message : 'The AFE could not be deleted.'
     return
   }
-  success.value = `AFE ${record.code} moved to Deleted AFEs.`
+  success.value = `AFE ${record.code} deleted permanently.`
   if (selectedAfeId.value === record.id) {
     selectedAfeId.value = ''
     selectedAfe.value = null
@@ -736,7 +733,7 @@ function removeLine(line: EditableAfeLine): void {
     lines.value = lines.value.filter(candidate => candidate !== line)
     return
   }
-  if (!window.confirm('Remove this line from the AFE? Removed lines can be restored with "Removed lines".')) return
+  if (!window.confirm('Delete this AFE line permanently? This cannot be undone. Linked cost-estimate data must be removed first.')) return
   void api.deactivateLine(String(line.id))
     .then(() => Promise.all([loadLines(), loadRemovedLines()]))
     .catch((caught: unknown) => {
@@ -1246,7 +1243,7 @@ onMounted(() => void loadAll())
                   <Button v-if="data.status === 'draft'" icon="pi pi-pencil" size="small" text severity="secondary" aria-label="Edit AFE" title="Edit AFE Header & Sections" @click="openAfeDialog(data)" />
                   <Button v-if="data.status === 'submitted'" icon="pi pi-lock-open" size="small" text severity="warn" aria-label="Reopen AFE" title="Reopen AFE for Revision" @click="promptReopen(data)" />
                   <Button icon="pi pi-history" size="small" text severity="info" aria-label="Audit History" title="View Audit Trail" @click="showAuditHistory(data)" />
-                  <Button icon="pi pi-trash" size="small" text severity="danger" aria-label="Delete AFE" :title="data.status === 'submitted' ? 'Soft-delete Submitted AFE' : 'Soft-delete Draft AFE'" @click="deactivateAfe(data)" />
+                  <Button icon="pi pi-trash" size="small" text severity="danger" aria-label="Delete AFE" :title="data.status === 'submitted' ? 'Delete submitted AFE' : 'Delete draft AFE'" @click="deactivateAfe(data)" />
                 </template>
               </Column>
               <template #empty>No AFEs yet — create one for a well, enter its section planning, then add its lines.</template>
@@ -1523,7 +1520,7 @@ onMounted(() => void loadAll())
     </Tabs>
 
     <!-- Project dialog -->
-    <Dialog v-model:visible="projectDialog" modal :header="projectForm.id ? 'Edit project' : 'Add project'" :style="{ width: '480px' }">
+    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="projectDialog" modal :header="projectForm.id ? 'Edit project' : 'Add project'" :style="{ width: '480px' }">
       <div class="form-stack">
         <label>Code<InputText v-model="projectForm.code" fluid placeholder="e.g. PG-2026-01" /></label>
         <label>Name<InputText v-model="projectForm.name" fluid placeholder="e.g. North Sea Campaign" /></label>
@@ -1536,7 +1533,7 @@ onMounted(() => void loadAll())
     </Dialog>
 
     <!-- Well dialog -->
-    <Dialog v-model:visible="wellDialog" modal :header="wellForm.id ? 'Edit well' : 'Add well'" :style="{ width: '520px' }">
+    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="wellDialog" modal :header="wellForm.id ? 'Edit well' : 'Add well'" :style="{ width: '520px' }">
       <div class="form-stack">
         <label>Project<Select v-model="wellForm.project_id" :options="activeProjectOptions" option-label="code" option-value="id" placeholder="Select project" filter fluid /></label>
         <label>Code<InputText v-model="wellForm.code" fluid placeholder="e.g. W-101" /></label>
@@ -1556,7 +1553,7 @@ onMounted(() => void loadAll())
     </Dialog>
 
     <!-- AFE Dialog with Section & Phase Breakdown -->
-    <Dialog v-model:visible="afeDialog" modal :header="afeForm.id ? 'Edit AFE & Well Sections' : 'New AFE & Well Plan'" :style="{ width: '880px' }">
+    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="afeDialog" modal :header="afeForm.id ? 'Edit AFE & Well Sections' : 'New AFE & Well Plan'" :style="{ width: '880px' }">
       <div class="form-stack">
         <div class="form-row">
           <label>Well<Select v-model="afeForm.well_id" :options="wellOptions" option-label="code" option-value="id" placeholder="Select well" filter fluid /></label>
@@ -1677,7 +1674,7 @@ onMounted(() => void loadAll())
     </Dialog>
 
     <!-- Reopen AFE Dialog -->
-    <Dialog v-model:visible="reopenDialog" modal header="Reopen Submitted AFE" :style="{ width: '540px' }">
+    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="reopenDialog" modal header="Reopen Submitted AFE" :style="{ width: '540px' }">
       <div class="form-stack">
         <Message severity="warn" :closable="false">
           Reopening <strong>{{ reopenTargetAfe?.code }}</strong> will unlock the AFE and allow editing of its section breakdown, items, and well-scoped rates.
@@ -1694,7 +1691,7 @@ onMounted(() => void loadAll())
     </Dialog>
 
     <!-- Audit History Dialog -->
-    <Dialog v-model:visible="auditHistoryDialog" modal :header="`AFE Audit History: ${auditTargetAfeTitle}`" :style="{ width: '680px' }">
+    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="auditHistoryDialog" modal :header="`AFE Audit History: ${auditTargetAfeTitle}`" :style="{ width: '680px' }">
       <DataTable :value="auditHistoryList" data-key="id" striped-rows show-gridlines size="small">
         <Column field="action" header="Action">
           <template #body="{ data }">
@@ -1720,7 +1717,7 @@ onMounted(() => void loadAll())
     </Dialog>
 
     <!-- Removed lines dialog -->
-    <Dialog v-model:visible="removedLinesVisible" modal header="Removed lines" :style="{ width: '640px' }">
+    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="removedLinesVisible" modal header="Removed lines" :style="{ width: '640px' }">
       <p class="afe-paste-hint">
         Lines removed from this draft AFE. Restoring a line brings it back with its original details —
         the action is recorded in the audit trail.
@@ -1745,7 +1742,7 @@ onMounted(() => void loadAll())
     </Dialog>
 
     <!-- Paste dialog -->
-    <Dialog v-model:visible="pasteVisible" modal header="Paste AFE lines" :style="{ width: '720px' }">
+    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="pasteVisible" modal header="Paste AFE lines" :style="{ width: '720px' }">
       <p class="afe-paste-hint">
         Copy cells from your workbook in this column order: item code, item type,
         cost code, quantity, unit code, section code. The section must already exist under Master Data › Hole Sections.

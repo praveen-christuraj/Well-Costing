@@ -53,7 +53,8 @@ const wellActApi = useWellActivities()
 
 const wells = ref<WellRecord[]>([])
 const selectedWellId = ref<string>('')
-const selectedDate = ref<Date>(new Date())
+// Use a stable SSR value; switch to the user's local day after hydration.
+const selectedDate = ref<Date>(new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`))
 const currentEntryId = ref<string | null>(null)
 const deletedEntries = ref<DailyCostEntry[]>([])
 const deletedEntriesVisible = ref(false)
@@ -1394,7 +1395,7 @@ onMounted(() => void loadAll())
       sub-activities beneath them belong to a single well and are set up here,
       at the moment the day's costs are being recorded.
     -->
-    <Dialog v-model:visible="subActivityDialog" modal header="Configure a sub-activity" :style="{ width: '520px' }">
+    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="subActivityDialog" modal header="Configure a sub-activity" :style="{ width: '520px' }">
       <p class="dc-dialog-note">
         Sub-activities are scoped to this well and roll up to a master activity — Planned, NPT, or
         UPA — so costs posted against them are accounted to the responsible party.
