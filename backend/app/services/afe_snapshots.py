@@ -22,6 +22,7 @@ from app.schemas.afe_snapshots import (
     AfeSnapshotRead,
     EstimateAfeStatus,
 )
+from app.services.audit import log_entity_action
 
 AFE_POLICY_VERSION = "pending-baseline-afe"
 PENDING_AFE_REQUIREMENTS = [
@@ -118,6 +119,22 @@ class EstimateAfeService:
             result = create_baseline_afe_snapshot(source)
         except NotImplementedError as exc:
             attempt.message = str(exc)
+            self.session.flush()
+            log_entity_action(
+                self.session,
+                self.actor.id,
+                "create_baseline_blocked",
+                "afe_snapshot",
+                entity_id=attempt.id,
+                entity_code=str(estimate.id),
+                details={
+                    "estimate_id": str(estimate.id),
+                    "estimate_version_id": str(version.id),
+                    "policy_version": AFE_POLICY_VERSION,
+                    "snapshot_attempt_id": str(attempt.id),
+                    "message": attempt.message,
+                },
+            )
             self.session.commit()
             raise AfePolicyPendingError(
                 "Baseline AFE creation is blocked pending an approved eligibility "
@@ -132,6 +149,21 @@ class EstimateAfeService:
         attempt.status = "completed"
         attempt.resulting_snapshot_id = snapshot.id
         attempt.message = "Immutable baseline AFE snapshot created"
+        self.session.flush()
+        log_entity_action(
+            self.session,
+            self.actor.id,
+            "create_baseline",
+            "afe_snapshot",
+            entity_id=snapshot.id,
+            entity_code=str(estimate.id),
+            details={
+                "estimate_id": str(estimate.id),
+                "estimate_version_id": str(version.id),
+                "snapshot_attempt_id": str(attempt.id),
+                "policy_version": AFE_POLICY_VERSION,
+            },
+        )
         self.session.commit()
         return self.status(estimate_id, version.id)
 

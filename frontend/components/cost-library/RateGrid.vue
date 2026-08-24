@@ -83,7 +83,10 @@ async function save(): Promise<void> {
 }
 
 async function deactivate(): Promise<void> {
-  await Promise.all(selected.value.filter(row => row.id).map(row => api.deactivateRate(row.id!)))
+  const targets = selected.value.filter(row => row.id)
+  if (!targets.length) return
+  if (!window.confirm(`Deactivate ${targets.length} selected rate${targets.length === 1 ? '' : 's'}? The rates will be retained in the audit history.`)) return
+  await Promise.all(targets.map(row => api.deactivateRate(row.id!)))
   await load()
 }
 

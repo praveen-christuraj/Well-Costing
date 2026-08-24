@@ -21,6 +21,7 @@ from app.domain.costing.types import (
 from app.models.calculations import EstimateCalculation
 from app.models.estimates import CostEstimate, EstimateVersion
 from app.schemas.calculations import CalculationRunRead, EstimateCalculationResults
+from app.services.audit import log_entity_action
 
 ENGINE_VERSION = "0.1.0"
 RULE_SET_VERSION = "pending-full-chain"
@@ -65,6 +66,22 @@ class EstimateCalculationService:
             run.status = "blocked"
             run.message = str(exc)
             run.updated_by = self.actor_id
+            self.session.flush()
+            log_entity_action(
+                self.session,
+                self.actor_id,
+                "calculate_blocked",
+                "estimate_calculation",
+                entity_id=run.id,
+                entity_code=str(estimate.id),
+                details={
+                    "estimate_id": str(estimate.id),
+                    "estimate_version_id": str(version.id),
+                    "engine_version": ENGINE_VERSION,
+                    "rule_set_version": RULE_SET_VERSION,
+                    "message": run.message,
+                },
+            )
             self.session.commit()
             raise BusinessRulePendingError(
                 "Estimate calculation is blocked pending confirmed business rules",
@@ -76,6 +93,22 @@ class EstimateCalculationService:
                 },
             ) from exc
         self._persist(version, run, result)
+        self.session.flush()
+        log_entity_action(
+            self.session,
+            self.actor_id,
+            "calculate",
+            "estimate_calculation",
+            entity_id=run.id,
+            entity_code=str(estimate.id),
+            details={
+                "estimate_id": str(estimate.id),
+                "estimate_version_id": str(version.id),
+                "engine_version": ENGINE_VERSION,
+                "rule_set_version": RULE_SET_VERSION,
+                "status": run.status,
+            },
+        )
         self.session.commit()
         return self.results(estimate_id, version.id)
 

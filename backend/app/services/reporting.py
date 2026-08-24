@@ -21,6 +21,7 @@ from app.schemas.reporting import (
     ReportingContractView,
     ReportingDimension,
 )
+from app.services.audit import log_entity_action
 
 REPORT_CODE = "shared-cost-overview"
 REPORTING_POLICY_VERSION = "pending-shared-cost-reporting"
@@ -153,6 +154,21 @@ class ReportingService:
             updated_by=self.actor.id,
         )
         self.session.add(attempt)
+        self.session.flush()
+        log_entity_action(
+            self.session,
+            self.actor.id,
+            "export",
+            "cost_report",
+            entity_id=attempt.id,
+            entity_code=REPORT_CODE,
+            details={
+                "policy_version": REPORTING_POLICY_VERSION,
+                "row_count": len(report.drill_through),
+                "file_sha256": attempt.file_sha256,
+                "filters": filters.model_dump(mode="json"),
+            },
+        )
         self.session.commit()
         return content
 

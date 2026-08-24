@@ -21,8 +21,9 @@ export interface WellActivityUpdatePayload {
 export class WellActivitiesApi {
   constructor(private readonly api: ApiClient) {}
 
-  listForWell(wellId: string): Promise<WellActivityRecord[]> {
-    return this.api.get(`/well-activities/well/${wellId}`)
+  listForWell(wellId: string, includeInactive = false): Promise<WellActivityRecord[]> {
+    const suffix = includeInactive ? '?include_inactive=true' : ''
+    return this.api.get(`/well-activities/well/${wellId}${suffix}`)
   }
 
   create(payload: WellActivityCreatePayload): Promise<WellActivityRecord> {
@@ -35,5 +36,9 @@ export class WellActivitiesApi {
 
   remove(id: string): Promise<undefined> {
     return this.api.delete(`/well-activities/${id}`)
+  }
+
+  recover(id: string): Promise<WellActivityRecord> {
+    return this.api.post(`/well-activities/${id}/recover`, {})
   }
 }

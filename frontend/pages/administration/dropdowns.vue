@@ -132,6 +132,7 @@ async function save(): Promise<void> {
 }
 
 async function reset(slot: DropdownSlot): Promise<void> {
+  if (!window.confirm(`Reset ${slot.label} to its default source? The current dropdown binding will be removed and recorded in the audit log.`)) return
   error.value = null
   success.value = null
   try {

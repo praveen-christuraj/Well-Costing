@@ -42,8 +42,11 @@ interface EditableRow {
 }
 
 const rows = ref<EditableRow[]>([])
+const showDeleted = ref(false)
 
 const selectedWell = computed(() => wells.value.find(w => w.id === selectedWellId.value))
+const visibleRows = computed(() => showDeleted.value ? rows.value : rows.value.filter(row => row.is_active))
+const deletedCount = computed(() => rows.value.filter(row => !row.is_active).length)
 const activityOptions = computed(() =>
   activities.value.map(a => ({ label: `${a.code} — ${a.name}`, value: a.id })),
 )
@@ -76,7 +79,9 @@ async function loadWellActivities(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    await wellActApi.loadForWell(selectedWellId.value)
+    // Load inactive rows as well so a deleted configuration can be recovered
+    // without losing its audit/history reference.
+    await wellActApi.loadForWell(selectedWellId.value, true)
     rows.value = wellActApi.wellActivities.value.map(r => ({
       id: r.id,
       activity_id: r.activity_id,
@@ -107,8 +112,63 @@ function addRow(): void {
   })
 }
 
-function removeRow(index: number): void {
-  rows.value.splice(index, 1)
+async function removeRow(row: EditableRow): Promise<void> {
+  const label = row.name.trim() || 'this unsaved sub-activity'
+  const message = row.id
+    ? `Delete sub-activity ${label}? It will be deactivated, removed from daily-cost selectors, and kept in the audit history.`
+    : `Remove ${label}? This unsaved row will be discarded.`
+  if (!window.confirm(message)) return
+
+  error.value = null
+  success.value = null
+  if (!row.id) {
+    rows.value = rows.value.filter(candidate => candidate !== row)
+    success.value = 'The unsaved sub-activity was removed.'
+    return
+  }
+
+  loading.value = true
+  try {
+    const removed = await wellActApi.removeActivity(row.id)
+    if (!removed) {
+      error.value = wellActApi.error.value ?? 'The sub-activity could not be deleted.'
+      return
+    }
+    row.is_active = false
+    row._state = 'clean'
+    success.value = `Sub-activity ${label} was deleted and recorded in the audit log.`
+  }
+  finally {
+    loading.value = false
+  }
+}
+
+async function recoverRow(row: EditableRow): Promise<void> {
+  if (!row.id) return
+  if (!window.confirm(`Recover sub-activity ${row.name}? It will be available for future daily-cost entries again.`)) return
+  error.value = null
+  success.value = null
+  loading.value = true
+  try {
+    const recovered = await wellActApi.recoverActivity(row.id)
+    if (!recovered) {
+      error.value = wellActApi.error.value ?? 'The sub-activity could not be recovered.'
+      return
+    }
+    row.is_active = true
+    row._state = 'clean'
+    success.value = `Sub-activity ${row.name} was recovered and recorded in the audit log.`
+  }
+  finally {
+    loading.value = false
+  }
+}
+
+async function toggleDeleted(): Promise<void> {
+  showDeleted.value = !showDeleted.value
+  // The complete list is cached, but reloading keeps the view authoritative
+  // after recovery or an update made in another tab.
+  await loadWellActivities()
 }
 
 async function saveAll(): Promise<void> {
@@ -120,7 +180,7 @@ async function saveAll(): Promise<void> {
   let saved = 0
   let failed = 0
 
-  for (const row of rows.value) {
+  for (const row of rows.value.filter(candidate => candidate.is_active || candidate._state === 'new')) {
     try {
       if (row._state === 'new') {
         const result = await wellActApi.createActivity({
@@ -223,12 +283,21 @@ watch(selectedWellId, () => {
       <div class="wa-toolbar">
         <strong>Sub-Activities for {{ selectedWell?.name }}</strong>
         <div class="wa-actions">
+          <Button
+            :label="showDeleted ? 'Hide deleted' : `Deleted (${deletedCount})`"
+            icon="pi pi-trash"
+            size="small"
+            text
+            severity="secondary"
+            :disabled="!deletedCount && !showDeleted"
+            @click="toggleDeleted"
+          />
           <Button label="Add Sub-Activity" icon="pi pi-plus" size="small" @click="addRow" />
           <Button label="Save All" icon="pi pi-save" size="small" severity="success" :loading="loading" @click="saveAll" />
         </div>
       </div>
 
-      <DataTable :value="rows" size="small" striped-rows show-gridlines edit-mode="cell" class="mt-2">
+      <DataTable :value="visibleRows" size="small" striped-rows show-gridlines edit-mode="cell" class="mt-2">
         <Column header="#" style="width: 50px">
           <template #body="{ index }">{{ index + 1 }}</template>
         </Column>
@@ -242,28 +311,54 @@ watch(selectedWellId, () => {
               filter
               fluid
               size="small"
+              :disabled="data.is_active === false"
               @change="markDirty(data)"
             />
           </template>
         </Column>
         <Column header="Sub-Activity Name" style="min-width: 200px">
           <template #body="{ data }">
-            <InputText v-model="data.name" fluid size="small" placeholder="e.g. NPT-1, UPA-1" @input="markDirty(data)" />
+            <InputText v-model="data.name" fluid size="small" placeholder="e.g. NPT-1, UPA-1" :disabled="data.is_active === false" @input="markDirty(data)" />
           </template>
         </Column>
         <Column header="Responsible Party" style="min-width: 200px">
           <template #body="{ data }">
-            <InputText v-model="data.responsible_party" fluid size="small" placeholder="Company or 3rd party" @input="markDirty(data)" />
+            <InputText v-model="data.responsible_party" fluid size="small" placeholder="Company or 3rd party" :disabled="data.is_active === false" @input="markDirty(data)" />
           </template>
         </Column>
         <Column header="Remarks / Description" style="min-width: 250px">
           <template #body="{ data }">
-            <InputText v-model="data.description" fluid size="small" placeholder="Optional remarks" @input="markDirty(data)" />
+            <InputText v-model="data.description" fluid size="small" placeholder="Optional remarks" :disabled="data.is_active === false" @input="markDirty(data)" />
           </template>
         </Column>
-        <Column header="" style="width: 50px">
-          <template #body="{ index }">
-            <Button icon="pi pi-trash" size="small" text severity="danger" @click="removeRow(index)" />
+        <Column header="Status" style="width: 130px">
+          <template #body="{ data }">
+            <span v-if="data.is_active === false" class="wa-deleted">Deleted</span>
+            <span v-else>Active</span>
+          </template>
+        </Column>
+        <Column header="Actions" style="width: 100px">
+          <template #body="{ data }">
+            <Button
+              v-if="data.is_active === false"
+              icon="pi pi-undo"
+              size="small"
+              text
+              severity="success"
+              aria-label="Recover sub-activity"
+              title="Recover sub-activity"
+              @click="recoverRow(data)"
+            />
+            <Button
+              v-else
+              icon="pi pi-trash"
+              size="small"
+              text
+              severity="danger"
+              aria-label="Delete sub-activity"
+              title="Delete sub-activity"
+              @click="removeRow(data)"
+            />
           </template>
         </Column>
         <template #empty>
@@ -375,6 +470,11 @@ watch(selectedWellId, () => {
   padding: 2rem;
   color: #64748b;
   font-style: italic;
+}
+
+.wa-deleted {
+  color: #b91c1c;
+  font-weight: 600;
 }
 
 .wa-guide {

@@ -352,6 +352,104 @@ def test_daily_cost_entry_delete_is_soft_and_recoverable(client: TestClient) -> 
     assert "recover" in recorded["daily_cost_entry"]
 
 
+def test_deleted_daily_cost_cannot_be_silently_reactivated(client: TestClient) -> None:
+    auth = headers(client)
+    refs = setup_project_well_afe(client, auth)
+    well_id = refs[1]["id"]
+    activity = post(
+        client,
+        "/api/v1/master-data/activities",
+        {"code": "PLANNED", "name": "Planned"},
+        auth,
+    )
+    sub_activity = post(
+        client,
+        "/api/v1/well-activities",
+        {"well_id": well_id, "activity_id": activity["id"], "name": "Planned"},
+        auth,
+    )
+    payload = {
+        "well_id": well_id,
+        "entry_date": "2026-08-04",
+        "phase": "Drilling",
+        "sub_activity_id": sub_activity["id"],
+        "services": [],
+        "consumables": [],
+    }
+    entry = post(client, f"/api/v1/wells/{well_id}/daily-cost", payload, auth)
+    assert (
+        client.delete(
+            f"/api/v1/wells/{well_id}/daily-cost/{entry['id']}", headers=auth
+        ).status_code
+        == 204
+    )
+
+    # Saving the same date must not undo a deliberate delete; recovery is an
+    # explicit, separately audited operation.
+    rejected = client.post(f"/api/v1/wells/{well_id}/daily-cost", json=payload, headers=auth)
+    assert rejected.status_code == 422
+    assert "Recover" in rejected.json()["error"]["message"]
+
+
+def test_well_activities_use_the_audited_soft_delete_lifecycle(client: TestClient) -> None:
+    auth = headers(client)
+    project = post(client, "/api/v1/projects", {"code": "PRJ-WA", "name": "Activities"}, auth)
+    well = post(
+        client,
+        "/api/v1/wells",
+        {"project_id": project["id"], "code": "WELL-WA", "name": "Activity well"},
+        auth,
+    )
+    activity = post(
+        client,
+        "/api/v1/master-data/activities",
+        {"code": "NPT", "name": "Non productive time"},
+        auth,
+    )
+    created = post(
+        client,
+        "/api/v1/well-activities",
+        {
+            "well_id": well["id"],
+            "activity_id": activity["id"],
+            "name": "NPT-1",
+            "responsible_party": "Rig contractor",
+        },
+        auth,
+    )
+
+    updated = client.patch(
+        f"/api/v1/well-activities/{created['id']}",
+        json={"responsible_party": "Operator"},
+        headers=auth,
+    )
+    assert updated.status_code == 200
+
+    assert (
+        client.delete(f"/api/v1/well-activities/{created['id']}", headers=auth).status_code
+        == 204
+    )
+    active = client.get(f"/api/v1/well-activities/well/{well['id']}", headers=auth).json()
+    assert active == []
+    deleted = client.get(
+        f"/api/v1/well-activities/well/{well['id']}?include_inactive=true", headers=auth
+    ).json()
+    assert deleted[0]["id"] == created["id"]
+    assert deleted[0]["is_active"] is False
+
+    recovered = client.post(
+        f"/api/v1/well-activities/{created['id']}/recover", headers=auth
+    )
+    assert recovered.status_code == 200
+    assert recovered.json()["is_active"] is True
+
+    recorded = audit_actions(client, auth)
+    assert "create" in recorded["well_activity"]
+    assert "update" in recorded["well_activity"]
+    assert "soft_delete" in recorded["well_activity"]
+    assert "recover" in recorded["well_activity"]
+
+
 def test_soft_deleted_well_is_rejected_for_new_afes_but_editable(
     client: TestClient,
 ) -> None:

@@ -49,25 +49,67 @@ class DailyCostService:
     def __init__(self, session: Session, actor_id: UUID) -> None:
         self.session, self.actor_id = session, actor_id
 
-    def list_entries(self, well_id: UUID) -> list[DailyCostEntryRead]:
+    @staticmethod
+    def _entry_snapshot(
+        entry: DailyCostEntry,
+        *,
+        service_line_ids: list[str] | None = None,
+        consumable_line_ids: list[str] | None = None,
+    ) -> dict[str, object]:
+        """Return a serialisable before/after snapshot for the global audit log."""
+        return {
+            "entry_date": str(entry.entry_date),
+            "sub_activity_id": str(entry.sub_activity_id) if entry.sub_activity_id else None,
+            "phase": entry.phase,
+            "hole_section_id": str(entry.hole_section_id) if entry.hole_section_id else None,
+            "current_depth": str(entry.current_depth) if entry.current_depth is not None else None,
+            "daily_progress": (
+                str(entry.daily_progress) if entry.daily_progress is not None else None
+            ),
+            "operational_summary": entry.operational_summary,
+            "total_services_cost": str(entry.total_services_cost),
+            "total_consumables_cost": str(entry.total_consumables_cost),
+            "total_daily_cost": str(entry.total_daily_cost),
+            "service_line_ids": (
+                service_line_ids
+                if service_line_ids is not None
+                else [str(line.id) for line in entry.services]
+            ),
+            "consumable_line_ids": (
+                consumable_line_ids
+                if consumable_line_ids is not None
+                else [str(line.id) for line in entry.consumables]
+            ),
+        }
+
+    def list_entries(
+        self, well_id: UUID, *, include_deleted: bool = False
+    ) -> list[DailyCostEntryRead]:
+        """List active day logs, optionally including deleted logs for recovery."""
         well = self.session.get(Well, well_id)
         if not well or not well.is_active:
             raise NotFoundError("Well not found")
+        statement = select(DailyCostEntry).where(DailyCostEntry.well_id == well_id)
+        if not include_deleted:
+            statement = statement.where(DailyCostEntry.is_active.is_(True))
         entries = self.session.scalars(
-            select(DailyCostEntry)
-            .where(DailyCostEntry.well_id == well_id, DailyCostEntry.is_active.is_(True))
-            .order_by(DailyCostEntry.entry_date.desc())
+            statement.order_by(DailyCostEntry.entry_date.desc(), DailyCostEntry.updated_at.desc())
         ).all()
         return [self._read_entry(e) for e in entries]
 
     def get_entry(self, well_id: UUID, entry_date: date) -> DailyCostEntryRead | None:
-        entry = self.session.scalar(
-            select(DailyCostEntry).where(
+        # A well may have one saved entry per configured sub-activity on a date.
+        # The date editor displays the most recently updated one rather than
+        # failing with MultipleResultsFound when more than one is present.
+        entry = self.session.scalars(
+            select(DailyCostEntry)
+            .where(
                 DailyCostEntry.well_id == well_id,
                 DailyCostEntry.entry_date == entry_date,
                 DailyCostEntry.is_active.is_(True),
             )
-        )
+            .order_by(DailyCostEntry.updated_at.desc())
+        ).first()
         return self._read_entry(entry) if entry else None
 
     def save_entry(self, well_id: UUID, payload: DailyCostEntryCreate) -> DailyCostEntryRead:
@@ -116,13 +158,26 @@ class DailyCostService:
             )
             afe_id = active_afe.id if active_afe else None
 
+        # The database allows one log per well/date/sub-activity. Match on the
+        # activity as well; otherwise saving a second activity for the same day
+        # would overwrite the first one or fail nondeterministically.
         entry = self.session.scalar(
             select(DailyCostEntry).where(
                 DailyCostEntry.well_id == well_id,
                 DailyCostEntry.entry_date == payload.entry_date,
+                DailyCostEntry.sub_activity_id == payload.sub_activity_id,
             )
         )
 
+        if entry is not None and not entry.is_active:
+            raise BusinessValidationError(
+                "This daily cost entry was deleted. Recover it from Deleted Day Logs "
+                "before editing or saving it again."
+            )
+
+        previous_snapshot: dict[str, object] | None = None
+        replaced_service_line_ids: list[str] = []
+        replaced_consumable_line_ids: list[str] = []
         if not entry:
             created = True
             entry = DailyCostEntry(
@@ -142,6 +197,9 @@ class DailyCostService:
             self.session.flush()
         else:
             created = False
+            previous_snapshot = self._entry_snapshot(entry)
+            replaced_service_line_ids = [str(line.id) for line in entry.services]
+            replaced_consumable_line_ids = [str(line.id) for line in entry.consumables]
             entry.afe_id = afe_id
             entry.hole_section_id = payload.hole_section_id
             entry.phase = payload.phase
@@ -149,7 +207,6 @@ class DailyCostService:
             entry.current_depth = payload.current_depth
             entry.daily_progress = payload.daily_progress
             entry.operational_summary = payload.operational_summary
-            entry.is_active = True
             entry.updated_by = self.actor_id
 
             # Clear existing lines for this entry
@@ -239,6 +296,22 @@ class DailyCostService:
         entry.total_consumables_cost = total_consumables
         entry.total_daily_cost = total_services + total_consumables
         self.session.flush()
+        current_service_line_ids = [
+            str(line_id)
+            for line_id in self.session.scalars(
+                select(DailyCostServiceLine.id).where(
+                    DailyCostServiceLine.daily_cost_entry_id == entry.id
+                )
+            ).all()
+        ]
+        current_consumable_line_ids = [
+            str(line_id)
+            for line_id in self.session.scalars(
+                select(DailyCostConsumableLine.id).where(
+                    DailyCostConsumableLine.daily_cost_entry_id == entry.id
+                )
+            ).all()
+        ]
 
         log_entity_action(
             self.session,
@@ -247,7 +320,17 @@ class DailyCostService:
             "daily_cost_entry",
             entity_id=entry.id,
             entity_code=str(entry.entry_date),
-            details={"well_id": str(well_id), "total": str(entry.total_daily_cost)},
+            details={
+                "well_id": str(well_id),
+                "before": previous_snapshot,
+                "after": self._entry_snapshot(
+                    entry,
+                    service_line_ids=current_service_line_ids,
+                    consumable_line_ids=current_consumable_line_ids,
+                ),
+                "replaced_service_line_ids": replaced_service_line_ids,
+                "replaced_consumable_line_ids": replaced_consumable_line_ids,
+            },
         )
         self._recompute_cumulative_costs(well_id)
         self.session.commit()
@@ -261,6 +344,7 @@ class DailyCostService:
             raise NotFoundError("Daily cost entry not found")
         if not entry.is_active:
             raise BusinessValidationError("Daily cost entry is already deleted")
+        snapshot = self._entry_snapshot(entry)
         entry.is_active = False
         entry.updated_by = self.actor_id
         self.session.flush()
@@ -271,7 +355,7 @@ class DailyCostService:
             "daily_cost_entry",
             entity_id=entry.id,
             entity_code=str(entry.entry_date),
-            details={"well_id": str(well_id)},
+            details={"well_id": str(well_id), "before": snapshot},
         )
         self._recompute_cumulative_costs(well_id)
         self.session.commit()
@@ -287,6 +371,7 @@ class DailyCostService:
             select(DailyCostEntry).where(
                 DailyCostEntry.well_id == well_id,
                 DailyCostEntry.entry_date == entry.entry_date,
+                DailyCostEntry.sub_activity_id == entry.sub_activity_id,
                 DailyCostEntry.is_active.is_(True),
                 DailyCostEntry.id != entry.id,
             )
@@ -305,7 +390,7 @@ class DailyCostService:
             "daily_cost_entry",
             entity_id=entry.id,
             entity_code=str(entry.entry_date),
-            details={"well_id": str(well_id)},
+            details={"well_id": str(well_id), "after": self._entry_snapshot(entry)},
         )
         self._recompute_cumulative_costs(well_id)
         self.session.commit()

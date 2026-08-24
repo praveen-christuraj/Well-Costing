@@ -186,6 +186,9 @@ async function save(): Promise<void> {
 }
 
 async function deactivateSelected(): Promise<void> {
+  const targets = selected.value.filter(row => row.id)
+  if (!targets.length) return
+  if (!window.confirm(`Deactivate ${targets.length} selected ${props.label.toLowerCase()}? They will be hidden from active selectors and retained in the audit history.`)) return
   loading.value = true
   try {
     await Promise.all(selected.value.filter(row => row.id).map(row => api.deactivate(props.entity, row.id!)))

@@ -2,6 +2,33 @@
 
 All notable project changes are documented here.
 
+## 2026-08-24 — Confirmed deletion flows and complete audit coverage
+
+### Added
+
+- **Daily Cost deletion flow.** Saved day logs now have an explicit, confirmed
+  soft-delete action. Deleted logs are removed from analytics, remain available
+  under Deleted Day Logs for recovery, and cannot be silently reactivated by a
+  later save.
+- **Well Activity lifecycle.** Sub-activities now use audited create/update,
+  soft-delete, and recover operations. The Well Activities page confirms both
+  unsaved row removal and persisted deletion, hides deleted selectors, and offers
+  recovery.
+- **Audit detail snapshots.** Daily Cost updates record before/after totals and
+  replaced line IDs; AFE section edits record before/after section plans. The
+  global audit log now also receives well-scoped rates, unplanned items,
+  enterprise configuration, imports, reporting exports, calculation attempts,
+  workflow transitions, and cost-control actions.
+
+### Changed
+
+- Every destructive UI action now requires confirmation, including AFE section
+  and unsaved-line removal, daily service/consumable line removal, legacy cost
+  library deactivation controls, dropdown reset, and bulk deactivation.
+- Permanent-delete fallback only deactivates when the API explicitly reports a
+  reference conflict; network or authorization failures are no longer converted
+  into a different write.
+
 ## 2026-08-23 — AFE Cost Estimates, mandatory activity accounting, and cost analytics
 
 The cost builder is replaced by **AFE Cost Estimates** — the pricing side of the

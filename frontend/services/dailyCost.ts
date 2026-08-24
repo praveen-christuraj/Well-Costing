@@ -9,8 +9,9 @@ import type {
 export class DailyCostApi {
   constructor(private readonly api: ApiClient) {}
 
-  listEntries(wellId: string): Promise<DailyCostEntry[]> {
-    return this.api.get(`/wells/${wellId}/daily-cost`)
+  listEntries(wellId: string, includeDeleted = false): Promise<DailyCostEntry[]> {
+    const suffix = includeDeleted ? '?include_deleted=true' : ''
+    return this.api.get(`/wells/${wellId}/daily-cost${suffix}`)
   }
 
   getEntry(wellId: string, entryDate: string): Promise<DailyCostEntry | null> {

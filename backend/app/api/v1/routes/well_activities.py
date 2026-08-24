@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import CurrentUser
@@ -27,8 +27,11 @@ def list_well_activities(
     well_id: UUID,
     current_user: CurrentUser,
     session: Annotated[Session, Depends(get_db)],
+    include_inactive: bool = Query(False),
 ) -> list[WellActivityRead]:
-    return _service(session, current_user).list_for_well(well_id)
+    return _service(session, current_user).list_for_well(
+        well_id, include_inactive=include_inactive
+    )
 
 
 @router.post("", response_model=WellActivityRead, status_code=201)
@@ -56,4 +59,15 @@ def delete_well_activity(
     current_user: CurrentUser,
     session: Annotated[Session, Depends(get_db)],
 ) -> None:
+    """Soft-delete a well activity and preserve its audit/history references."""
     _service(session, current_user).delete(item_id)
+
+
+@router.post("/{item_id}/recover", response_model=WellActivityRead)
+def recover_well_activity(
+    item_id: UUID,
+    current_user: CurrentUser,
+    session: Annotated[Session, Depends(get_db)],
+) -> WellActivityRead:
+    """Recover a previously deleted well activity."""
+    return _service(session, current_user).recover(item_id)

@@ -196,7 +196,7 @@ class ReferenceBindingService:
             log_entity_action(
                 self.session,
                 self.actor_id,
-                "delete",
+                "hard_delete",
                 "dropdown_binding",
                 entity_id=binding.id,
                 entity_code=slot_code,

@@ -174,7 +174,7 @@ class DrillingPhaseService:
                 _audit(
                     self.session,
                     self.actor_id,
-                    "update",
+                    "recover",
                     "drilling_phase",
                     existing.id,
                     existing.code,
@@ -231,6 +231,8 @@ class DrillingPhaseService:
         phase = self.session.get(DrillingPhase, phase_id)
         if not phase:
             raise NotFoundError("Drilling phase not found")
+        if not phase.is_active:
+            raise BusinessValidationError("Drilling phase is already deleted")
         phase.is_active = False
         phase.updated_by = self.actor_id
         self.session.flush()
@@ -338,6 +340,8 @@ class ProjectService:
         project = self.repository.get(project_id)
         if project is None:
             raise NotFoundError("Project not found")
+        if not project.is_active:
+            raise BusinessValidationError("Project is already deleted")
         project.is_active, project.updated_by = False, self.actor_id
         self.session.flush()
         _audit(
@@ -519,6 +523,8 @@ class WellService:
         well = self.repository.get(well_id)
         if well is None:
             raise NotFoundError("Well not found")
+        if not well.is_active:
+            raise BusinessValidationError("Well is already deleted")
         well.is_active, well.updated_by = False, self.actor_id
         self.session.flush()
         _audit(self.session, self.actor_id, "soft_delete", "well", well.id, well.code, None)
@@ -728,7 +734,34 @@ class AfeService:
                 "afe",
                 afe.id,
                 afe.code,
-                {"well_id": str(afe.well_id), "title": afe.title},
+                {
+                    "well_id": str(afe.well_id),
+                    "title": afe.title,
+                    "sections": [
+                        {
+                            "sequence": section.sequence,
+                            "hole_section_id": (
+                                str(section.hole_section_id) if section.hole_section_id else None
+                            ),
+                            "phase": section.phase,
+                            "planned_days": str(section.planned_days),
+                            "planned_depth_from": (
+                                str(section.planned_depth_from)
+                                if section.planned_depth_from is not None
+                                else None
+                            ),
+                            "planned_depth_to": (
+                                str(section.planned_depth_to)
+                                if section.planned_depth_to is not None
+                                else None
+                            ),
+                            "depth_unit_id": (
+                                str(section.depth_unit_id) if section.depth_unit_id else None
+                            ),
+                        }
+                        for section in afe.sections
+                    ],
+                },
             )
 
             if commit:
@@ -752,6 +785,28 @@ class AfeService:
             values["title"] = str(values["title"]).strip()
 
         sections_input = payload.sections
+        sections_before = [
+            {
+                "id": str(section.id),
+                "sequence": section.sequence,
+                "hole_section_id": (
+                    str(section.hole_section_id) if section.hole_section_id else None
+                ),
+                "phase": section.phase,
+                "planned_days": str(section.planned_days),
+                "planned_depth_from": (
+                    str(section.planned_depth_from)
+                    if section.planned_depth_from is not None
+                    else None
+                ),
+                "planned_depth_to": (
+                    str(section.planned_depth_to) if section.planned_depth_to is not None else None
+                ),
+                "depth_unit_id": str(section.depth_unit_id) if section.depth_unit_id else None,
+                "notes": section.notes,
+            }
+            for section in afe.sections
+        ]
         if sections_input is not None:
             # Replace existing sections
             for old_sec in list(afe.sections):
@@ -788,7 +843,33 @@ class AfeService:
             setattr(afe, field, value)
         afe.updated_by = self.actor_id
         self.session.flush()
-        _audit(self.session, self.actor_id, "update", "afe", afe.id, afe.code, values)
+        details: dict[str, Any] = dict(values)
+        if sections_input is not None:
+            details["sections_before"] = sections_before
+            details["sections_after"] = [
+                {
+                    "sequence": section.sequence,
+                    "hole_section_id": (
+                        str(section.hole_section_id) if section.hole_section_id else None
+                    ),
+                    "phase": section.phase,
+                    "planned_days": str(section.planned_days),
+                    "planned_depth_from": (
+                        str(section.planned_depth_from)
+                        if section.planned_depth_from is not None
+                        else None
+                    ),
+                    "planned_depth_to": (
+                        str(section.planned_depth_to)
+                        if section.planned_depth_to is not None
+                        else None
+                    ),
+                    "depth_unit_id": str(section.depth_unit_id) if section.depth_unit_id else None,
+                    "notes": section.notes,
+                }
+                for section in sections_input
+            ]
+        _audit(self.session, self.actor_id, "update", "afe", afe.id, afe.code, details)
         if commit:
             self.session.commit()
             self.session.refresh(afe)
@@ -1226,6 +1307,8 @@ class AfeLineService:
         if item is None:
             raise NotFoundError("AFE item not found")
         self._afe(item.afe_id, must_be_draft=True)
+        if not item.is_active:
+            raise BusinessValidationError("AFE item is already deleted")
         item.is_active, item.updated_by = False, self.actor_id
         self.session.flush()
         _audit(

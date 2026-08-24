@@ -298,6 +298,8 @@ class MasterDataService:
         instance = self.repository.get(item_id)
         if instance is None:
             raise NotFoundError(f"{self.entity} record not found")
+        if not instance.is_active:
+            raise BusinessValidationError(f"{self.entity} record is already deactivated")
         instance.is_active = False
         instance.updated_by = self.actor_id
         self.session.flush()
@@ -818,6 +820,8 @@ class RateService:
         rate = self.repository.get(rate_id)
         if rate is None:
             raise NotFoundError("Rate not found")
+        if not rate.is_active:
+            raise BusinessValidationError("Rate is already deactivated")
         rate.is_active = False
         rate.updated_by = self.actor_id
         self.session.flush()

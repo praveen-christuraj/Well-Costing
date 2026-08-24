@@ -27,6 +27,7 @@ from app.schemas.procurement import (
     PurchaseOrderCreate,
     ServiceOrderCreate,
 )
+from app.services.audit import log_entity_action
 from app.services.master_data import MasterDataService, RateService, get_entity_config
 from app.services.procurement import (
     ItemPriceService,
@@ -94,6 +95,23 @@ class ExcelImportService:
                 )
             )
         self.batches.add(batch)
+        self.session.flush()
+        log_entity_action(
+            self.session,
+            self.actor_id,
+            "import_preview",
+            "import_batch",
+            entity_id=batch.id,
+            entity_code=entity,
+            details={
+                "entity": entity,
+                "filename": batch.filename,
+                "total_rows": batch.total_rows,
+                "valid_rows": batch.valid_rows,
+                "error_rows": batch.error_rows,
+                "status": batch.status,
+            },
+        )
         self.session.commit()
         return ImportPreviewResponse(
             batch_id=batch.id,
@@ -216,6 +234,21 @@ class ExcelImportService:
             batch.status = "committed"
             batch.imported_rows = imported
             batch.updated_by = self.actor_id
+            self.session.flush()
+            log_entity_action(
+                self.session,
+                self.actor_id,
+                "import_commit",
+                "import_batch",
+                entity_id=batch.id,
+                entity_code=entity,
+                details={
+                    "entity": entity,
+                    "imported_rows": imported,
+                    "skipped_rows": skipped,
+                    "status": batch.status,
+                },
+            )
             self.session.commit()
         except Exception:
             self.session.rollback()

@@ -22,6 +22,7 @@ from app.repositories.imports import ImportBatchRepository
 from app.schemas.estimates import EstimateItemUpdate
 from app.schemas.imports import ImportCommitResponse, ImportPreviewResponse
 from app.schemas.master_data import BulkRowError
+from app.services.audit import log_entity_action
 from app.services.estimates import CostEstimateService
 
 
@@ -109,6 +110,23 @@ class EstimateExcelService:
                 )
             )
         self.batches.add(batch)
+        self.session.flush()
+        log_entity_action(
+            self.session,
+            self.actor_id,
+            "import_preview",
+            "estimate_import_batch",
+            entity_id=batch.id,
+            entity_code=str(version_id),
+            details={
+                "estimate_version_id": str(version_id),
+                "filename": batch.filename,
+                "total_rows": batch.total_rows,
+                "valid_rows": batch.valid_rows,
+                "error_rows": batch.error_rows,
+                "status": batch.status,
+            },
+        )
         self.session.commit()
         return ImportPreviewResponse(
             batch_id=batch.id,
@@ -140,6 +158,20 @@ class EstimateExcelService:
         batch.status = "committed"
         batch.imported_rows = len(rows)
         batch.updated_by = self.actor_id
+        self.session.flush()
+        log_entity_action(
+            self.session,
+            self.actor_id,
+            "import_commit",
+            "estimate_import_batch",
+            entity_id=batch.id,
+            entity_code=str(version_id),
+            details={
+                "estimate_version_id": str(version_id),
+                "imported_rows": batch.imported_rows,
+                "status": batch.status,
+            },
+        )
         self.session.commit()
         return ImportCommitResponse(
             batch_id=batch.id, status=batch.status, imported_rows=batch.imported_rows

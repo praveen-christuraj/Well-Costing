@@ -36,6 +36,7 @@ import { escapeHtml, formatMoneyCell, printDocument } from '~/utils/printDocumen
 import type { AfeRecord, DrillingPhaseRecord, WellRecord } from '~/types/afe'
 import type {
   DailyCostAnalytics,
+  DailyCostEntry,
   DailyCostConsumableLine,
   DailyCostServiceLine,
   ReferenceConsumableRate,
@@ -53,6 +54,10 @@ const wellActApi = useWellActivities()
 const wells = ref<WellRecord[]>([])
 const selectedWellId = ref<string>('')
 const selectedDate = ref<Date>(new Date())
+const currentEntryId = ref<string | null>(null)
+const deletedEntries = ref<DailyCostEntry[]>([])
+const deletedEntriesVisible = ref(false)
+const loadingDeletedEntries = ref(false)
 
 const activeAfe = ref<AfeRecord | null>(null)
 const phases = ref<DrillingPhaseRecord[]>([])
@@ -88,6 +93,7 @@ const analytics = ref<DailyCostAnalytics | null>(null)
 // UI State
 const loading = ref(false)
 const saving = ref(false)
+const deleting = ref(false)
 const error = ref<string | null>(null)
 const success = ref<string | null>(null)
 
@@ -244,8 +250,13 @@ function onServiceSelect(line: DailyCostServiceLine): void {
 }
 
 function removeServiceLine(index: number): void {
+  const line = serviceLines.value[index]
+  if (!line) return
+  const label = line.service_name || line.service_code || 'this service line'
+  if (!window.confirm(`Remove ${label} from the ${formattedDate.value} day log? The change is applied when you save the day log.`)) return
   serviceLines.value.splice(index, 1)
 }
+
 
 function addConsumableLine(): void {
   const defaultCon = refConsumables.value[0]
@@ -279,6 +290,10 @@ function onConsumableSelect(line: DailyCostConsumableLine): void {
 }
 
 function removeConsumableLine(index: number): void {
+  const line = consumableLines.value[index]
+  if (!line) return
+  const label = line.consumable_name || line.consumable_code || 'this consumable line'
+  if (!window.confirm(`Remove ${label} from the ${formattedDate.value} day log? The change is applied when you save the day log.`)) return
   consumableLines.value.splice(index, 1)
 }
 
@@ -336,6 +351,70 @@ function quickLoadAfeItems(): void {
   success.value = 'Loaded services and consumables from AFE scope.'
 }
 
+async function loadDeletedEntries(): Promise<void> {
+  if (!selectedWellId.value) {
+    deletedEntries.value = []
+    return
+  }
+  loadingDeletedEntries.value = true
+  try {
+    const entries = await api.listEntries(selectedWellId.value, true)
+    deletedEntries.value = entries.filter(entry => !entry.is_active)
+  }
+  catch (caught: unknown) {
+    // The recovery list is secondary to day entry; keep the editor usable if
+    // it cannot be loaded and surface a useful message to the user.
+    error.value = caught instanceof Error ? caught.message : 'Deleted day logs could not be loaded.'
+    deletedEntries.value = []
+  }
+  finally {
+    loadingDeletedEntries.value = false
+  }
+}
+
+async function deleteDailyCost(): Promise<void> {
+  const entryId = currentEntryId.value
+  if (!entryId || !selectedWellId.value) return
+  if (!window.confirm(`Delete the ${formattedDate.value} daily cost log? It will be removed from analytics and kept in Deleted Day Logs for recovery.`)) return
+
+  deleting.value = true
+  error.value = null
+  success.value = null
+  try {
+    await api.deleteEntry(selectedWellId.value, entryId)
+    currentEntryId.value = null
+    await loadDayData()
+    await Promise.all([loadAnalytics(), loadDeletedEntries()])
+    success.value = `Daily cost log for ${formattedDate.value} was deleted and recorded in the audit log.`
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The daily cost log could not be deleted.'
+  }
+  finally {
+    deleting.value = false
+  }
+}
+
+async function recoverDeletedEntry(entry: DailyCostEntry): Promise<void> {
+  if (!selectedWellId.value) return
+  if (!window.confirm(`Recover the ${entry.entry_date} daily cost log? It will be available for editing again.`)) return
+  loadingDeletedEntries.value = true
+  error.value = null
+  success.value = null
+  try {
+    await api.recoverEntry(selectedWellId.value, entry.id)
+    selectedDate.value = new Date(`${entry.entry_date}T00:00:00`)
+    await Promise.all([loadDayData(), loadAnalytics(), loadDeletedEntries()])
+    success.value = `Daily cost log for ${entry.entry_date} was recovered and recorded in the audit log.`
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The daily cost log could not be recovered.'
+  }
+  finally {
+    loadingDeletedEntries.value = false
+  }
+}
+
 /* ------------------------------- Save & Load ------------------------------ */
 async function saveDailyCost(): Promise<void> {
   if (!selectedWellId.value) return
@@ -388,10 +467,11 @@ async function saveDailyCost(): Promise<void> {
       })),
     }
 
-    await api.saveEntry(selectedWellId.value, payload)
-    success.value = `Daily cost data for ${formattedDate.value} saved successfully.`
+    const savedEntry = await api.saveEntry(selectedWellId.value, payload)
+    currentEntryId.value = savedEntry.id
+    success.value = `Daily cost data for ${formattedDate.value} saved successfully and recorded in the audit log.`
     await loadDayData()
-    await loadAnalytics()
+    await Promise.all([loadAnalytics(), loadDeletedEntries()])
   }
   catch (caught: unknown) {
     error.value = caught instanceof Error ? caught.message : 'Could not save daily cost entry.'
@@ -504,6 +584,7 @@ async function loadDayData(): Promise<void> {
   try {
     const entry = await api.getEntry(selectedWellId.value, formattedDate.value)
     if (entry) {
+      currentEntryId.value = entry.id
       entryHoleSectionId.value = entry.hole_section_id ?? null
       entryPhase.value = entry.phase ?? (phases.value[0]?.name ?? 'Drilling')
       entrySubActivityId.value = entry.sub_activity_id ?? null
@@ -525,7 +606,10 @@ async function loadDayData(): Promise<void> {
       }))
     }
     else {
-      // Clear or prefill from previous / defaults
+      // Clear or prefill from previous / defaults. In particular, do not keep
+      // the previous entry id: a new date must never delete another day's log.
+      currentEntryId.value = null
+      entryHoleSectionId.value = null
       entryPhase.value = phases.value[0]?.name ?? 'Drilling'
       entrySubActivityId.value = null
       currentDepth.value = null
@@ -554,6 +638,9 @@ async function loadAnalytics(): Promise<void> {
 }
 
 async function onWellChange(): Promise<void> {
+  // Prevent a stale entry id from being used while a different well is loading.
+  currentEntryId.value = null
+  deletedEntries.value = []
   if (!selectedWellId.value) return
   try {
     const [refRates, afesPage] = await Promise.all([
@@ -570,7 +657,7 @@ async function onWellChange(): Promise<void> {
     activeAfe.value = wellAfes.find(a => a.status === 'submitted') ?? wellAfes[0] ?? null
 
     await loadDayData()
-    await loadAnalytics()
+    await Promise.all([loadAnalytics(), loadDeletedEntries()])
   }
   catch (caught: unknown) {
     error.value = caught instanceof Error ? caught.message : 'Could not load well references.'
@@ -744,6 +831,23 @@ onMounted(() => void loadAll())
         <Button label="Print Day Report" icon="pi pi-print" text :disabled="!selectedWellId" @click="printDayReport" />
         <Button label="Day Report (Excel)" icon="pi pi-file-excel" text :disabled="!selectedWellId" @click="exportDayReport" />
         <Button label="Export Register" icon="pi pi-download" outlined :disabled="!selectedWellId" @click="exportRegister" />
+        <Button
+          :label="`Deleted Logs${deletedEntries.length ? ` (${deletedEntries.length})` : ''}`"
+          icon="pi pi-trash"
+          text
+          severity="secondary"
+          :disabled="!selectedWellId || !deletedEntries.length"
+          @click="deletedEntriesVisible = true"
+        />
+        <Button
+          label="Delete Day Log"
+          icon="pi pi-trash"
+          severity="danger"
+          text
+          :loading="deleting"
+          :disabled="!currentEntryId"
+          @click="deleteDailyCost"
+        />
         <Button label="Save Day Log" icon="pi pi-save" :loading="saving" :disabled="!selectedWellId" @click="saveDailyCost" />
       </template>
     </PageHeader>
@@ -1330,6 +1434,42 @@ onMounted(() => void loadAll())
           :disabled="!subActivityForm.activity_id || !subActivityForm.name.trim()"
           @click="saveSubActivity"
         />
+      </template>
+    </Dialog>
+
+    <Dialog
+      v-model:visible="deletedEntriesVisible"
+      modal
+      header="Deleted Day Logs"
+      :style="{ width: '720px' }"
+    >
+      <Message severity="info" :closable="false">
+        Deleted day logs are excluded from analytics but retained for audit and recovery.
+      </Message>
+      <DataTable
+        :value="deletedEntries"
+        :loading="loadingDeletedEntries"
+        data-key="id"
+        size="small"
+        striped-rows
+        show-gridlines
+      >
+        <Column field="entry_date" header="Date" />
+        <Column header="Activity">
+          <template #body="{ data }">{{ data.sub_activity_name || '—' }}</template>
+        </Column>
+        <Column header="Total">
+          <template #body="{ data }">${{ Number(data.total_daily_cost || 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) }}</template>
+        </Column>
+        <Column header="Deleted / recovery" style="width: 150px">
+          <template #body="{ data }">
+            <Button label="Recover" icon="pi pi-undo" size="small" severity="success" text @click="recoverDeletedEntry(data)" />
+          </template>
+        </Column>
+        <template #empty>No deleted day logs for this well.</template>
+      </DataTable>
+      <template #footer>
+        <Button label="Close" severity="secondary" text @click="deletedEntriesVisible = false" />
       </template>
     </Dialog>
   </div>

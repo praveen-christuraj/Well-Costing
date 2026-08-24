@@ -12,6 +12,9 @@ describe('DailyCostApi', () => {
     await api.listEntries('well-1')
     expect(get).toHaveBeenCalledWith('/wells/well-1/daily-cost')
 
+    await api.listEntries('well-1', true)
+    expect(get).toHaveBeenCalledWith('/wells/well-1/daily-cost?include_deleted=true')
+
     await api.getEntry('well-1', '2026-08-21')
     expect(get).toHaveBeenCalledWith('/wells/well-1/daily-cost/entry?entry_date=2026-08-21')
 

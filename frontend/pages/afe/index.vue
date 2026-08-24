@@ -382,6 +382,12 @@ function addSectionRow(): void {
 }
 
 function removeSectionRow(index: number): void {
+  const section = afeForm.value.sections[index]
+  if (!section) return
+  const label = section.hole_section_id
+    ? holeSections.value.find(item => item.id === section.hole_section_id)?.code ?? `section ${index + 1}`
+    : `section ${index + 1}`
+  if (!window.confirm(`Remove ${label} from this AFE? The change will be recorded when you save the AFE.`)) return
   afeForm.value.sections.splice(index, 1)
   afeForm.value.sections.forEach((s, idx) => { s.sequence = idx + 1 })
   recalculateSectionTotals()
@@ -726,6 +732,7 @@ function markDirty(line: EditableAfeLine): void {
 function removeLine(line: EditableAfeLine): void {
   error.value = null
   if (line._state === 'new') {
+    if (!window.confirm('Remove this unsaved AFE line? It will be discarded.')) return
     lines.value = lines.value.filter(candidate => candidate !== line)
     return
   }

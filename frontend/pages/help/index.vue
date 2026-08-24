@@ -130,6 +130,7 @@ const sections = [
             <li><strong>Recovery guard:</strong> If any active AFE already exists on the main AFEs tab, recovery is blocked — you must delete the active AFE first. This prevents duplicate active AFEs and keeps the financial backbone unambiguous.</li>
             <li><strong>Permanent delete:</strong> In Deleted AFEs, click <strong>Delete forever</strong> to hard-delete the AFE and its orphaned lines/sections. This action is logged to the global Audit Log.</li>
             <li><strong>Master Data:</strong> Reference records (units, vendors, services, hole sections, etc.) follow the same pattern: soft-delete via the grid, then recover or hard-delete when <strong>Include inactive</strong> is enabled. The grid shows <strong>Recover</strong> and <strong>Permanently delete</strong> for inactive rows, and recovery is blocked if an active record with the same code already exists.</li>
+            <li><strong>Well Activities:</strong> Sub-activities such as Planned, NPT-1, and UPA-1 are edited with <strong>Save All</strong>. Delete always prompts, deactivates the selected sub-activity rather than removing its history, and exposes it under <strong>Deleted</strong> for recovery.</li>
           </ul>
         </section>
 
@@ -140,7 +141,7 @@ const sections = [
             Every user action is recorded to an immutable <strong>Audit Log</strong> for compliance, displayed at <strong>Audit Log</strong> in the sidebar.
           </p>
           <ul class="help-list">
-            <li><strong>Logged from login onward:</strong> login, create, update, submit, reopen, resubmit, soft-delete, recover, hard-delete, and bulk operations across AFE, projects, wells, master data, phases, and rates.</li>
+            <li><strong>Logged from login onward:</strong> login, create, update, submit, reopen, resubmit, soft-delete, recover, hard-delete, import, export, calculation, workflow, and bulk operations across AFE, projects, wells, activities, daily cost, enterprise configuration, master data, phases, and rates.</li>
             <li><strong>What is stored:</strong> actor (email), timestamp, action, entity type, entity code, and a JSON details payload (e.g. previous status, remarks, or changed fields).</li>
             <li><strong>Filtering:</strong> Search by actor, entity, or code; filter by action or entity type; paginate through history. The log is append-only and never edited.</li>
             <li><strong>AFE audit vs global audit:</strong> The AFE detail also shows a per-AFE trail (created, submitted, reopened, soft-deleted, recovered). The global Audit Log aggregates these plus every master-data change for enterprise-wide oversight.</li>
@@ -181,6 +182,7 @@ const sections = [
             <li><strong>Burn Rate & Forecast:</strong> Calculates average daily burn rate (<code>Cumulative / Days Elapsed</code>) and projects total cost at completion (<code>Cumulative + Remaining Planned Days × Burn Rate</code>).</li>
             <li><strong>Trend & Drill-Through Charts:</strong> Toggle between Last 5 Days, Last 7 Days, and Full Drill-Through to analyze service consumption and daily spend trends.</li>
             <li><strong>Daily Reports:</strong> Every saved day log can be printed or exported as a daily cost report, and the full daily cost register exports to Excel for records.</li>
+            <li><strong>Delete and recover:</strong> Use <strong>Delete Day Log</strong> only after confirming the prompt. The log is soft-deleted, removed from analytics, retained in <strong>Deleted Logs</strong>, and every edit/delete/recovery is recorded in the global Audit Log.</li>
           </ul>
         </section>
 
