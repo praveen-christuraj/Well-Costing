@@ -18,6 +18,7 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
+import Checkbox from 'primevue/checkbox'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
 import DatePicker from 'primevue/datepicker'
@@ -35,12 +36,13 @@ import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
 import PageHeader from '~/components/design-system/PageHeader.vue'
 import { defaultRateBasisFor, rateBasesFor } from '~/types/afe'
-import { escapeHtml, printDocument } from '~/utils/printDocument'
+import { escapeHtml, formatMoneyCell, printDocument } from '~/utils/printDocument'
 import { parseTsv } from '~/utils/tsv'
 import type {
   AfeAuditLogRecord,
   AfeLineRecord,
   AfeRecord,
+  AfeSectionRecord,
   DrillingPhaseRecord,
   EditableAfeLine,
   EditableAfeSection,
@@ -55,6 +57,7 @@ import { SLOT } from '~/types/reference'
 definePageMeta({ middleware: 'auth' })
 
 const api = useAfe()
+const estimatesApi = useAfeEstimates()
 const master = useMasterData()
 
 const projects = ref<ProjectRecord[]>([])
@@ -326,6 +329,25 @@ function openAfeDialog(record?: AfeRecord): void {
         planned_depth_from: s.planned_depth_from !== null && s.planned_depth_from !== undefined ? Number(s.planned_depth_from) : null,
         planned_depth_to: s.planned_depth_to !== null && s.planned_depth_to !== undefined ? Number(s.planned_depth_to) : null,
         depth_unit_id: s.depth_unit_id ?? defaultDepthUnitId,
+        phases: (s.phases?.length
+          ? s.phases
+          : [{
+              id: '',
+              afe_section_id: s.id,
+              sequence: 1,
+              phase: s.phase || 'Drilling',
+              planned_days: Number(s.planned_days) || 0,
+              notes: '',
+              is_active: true,
+            }]
+        ).map((ph, phIdx) => ({
+          id: ph.id,
+          sequence: ph.sequence || (phIdx + 1),
+          phase: ph.phase || 'Drilling',
+          planned_days: Number(ph.planned_days) || 0,
+          notes: ph.notes ?? '',
+          is_active: ph.is_active,
+        })),
         notes: s.notes ?? '',
         is_active: s.is_active,
       })),
@@ -351,6 +373,9 @@ function openAfeDialog(record?: AfeRecord): void {
           planned_depth_from: 0,
           planned_depth_to: 1000,
           depth_unit_id: defaultDepthUnitId,
+          phases: [
+            { sequence: 1, phase: phases.value[0]?.name ?? 'Drilling', planned_days: 10, notes: '', is_active: true },
+          ],
           notes: '',
           is_active: true,
         },
@@ -375,9 +400,44 @@ function addSectionRow(): void {
     planned_depth_from: prevTo ?? 0,
     planned_depth_to: prevTo ? Number(prevTo) + 500 : 500,
     depth_unit_id: defaultDepthUnitId,
+    phases: [
+      { sequence: 1, phase: phases.value[0]?.name ?? 'Drilling', planned_days: 5, notes: '', is_active: true },
+    ],
     notes: '',
     is_active: true,
   })
+  recalculateSectionTotals()
+}
+
+function addPhaseRow(sectionIndex: number): void {
+  const section = afeForm.value.sections[sectionIndex]
+  if (!section) return
+  section.phases.push({
+    sequence: section.phases.length + 1,
+    phase: phases.value[0]?.name ?? 'Drilling',
+    planned_days: 1,
+    notes: '',
+    is_active: true,
+  })
+  recalculateSectionTotals()
+}
+
+function removePhaseRow(sectionIndex: number, phaseIndex: number): void {
+  const section = afeForm.value.sections[sectionIndex]
+  const phase = section?.phases?.[phaseIndex]
+  if (!section || !phase) return
+  if (!window.confirm(`Remove the phase "${phase.phase}" from this section? The change will be recorded when you save the AFE.`)) return
+  section.phases.splice(phaseIndex, 1)
+  if (!section.phases.length) {
+    section.phases.push({
+      sequence: 1,
+      phase: phases.value[0]?.name ?? 'Drilling',
+      planned_days: 0,
+      notes: '',
+      is_active: true,
+    })
+  }
+  section.phases.forEach((ph, idx) => { ph.sequence = idx + 1 })
   recalculateSectionTotals()
 }
 
@@ -404,7 +464,15 @@ function nullableNumber(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null
 }
 
+function sectionPlannedDays(section: EditableAfeSection): number {
+  const phases = section.phases?.length ? section.phases : []
+  return phases.reduce((sum, ph) => sum + safeNumber(ph.planned_days), 0)
+}
+
 function recalculateSectionTotals(): void {
+  for (const section of afeForm.value.sections) {
+    section.planned_days = sectionPlannedDays(section)
+  }
   const totalDays = afeForm.value.sections.reduce((sum, s) => sum + safeNumber(s.planned_days), 0)
   const maxDepth = afeForm.value.sections.reduce((max, s) => Math.max(max, safeNumber(s.planned_depth_to)), 0)
   afeForm.value.total_planned_days = totalDays
@@ -431,6 +499,13 @@ async function saveAfe(): Promise<void> {
         hole_section_id: s.hole_section_id || null,
         phase: s.phase,
         planned_days: safeNumber(s.planned_days),
+        phases: (s.phases?.length ? s.phases : []).map((ph, phIdx) => ({
+          sequence: phIdx + 1,
+          phase: ph.phase || 'Drilling',
+          planned_days: safeNumber(ph.planned_days),
+          notes: ph.notes || null,
+          is_active: true,
+        })),
         planned_depth_from: nullableNumber(s.planned_depth_from),
         planned_depth_to: nullableNumber(s.planned_depth_to),
         depth_unit_id: s.depth_unit_id || afeForm.value.depth_unit_id || null,
@@ -587,7 +662,12 @@ function isConsumptionLine(line: EditableAfeLine): boolean {
 }
 
 function needsSection(line: EditableAfeLine): boolean {
-  return line.rate_basis === 'per_section'
+  return line.rate_basis === 'per_section' && !line.applies_to_all_sections
+}
+
+function onAllSectionsChange(line: EditableAfeLine): void {
+  if (line.applies_to_all_sections) line.hole_section_id = ''
+  markDirty(line)
 }
 
 /** Planned days from the AFE section associated with the line, or total planned days of the AFE. */
@@ -666,7 +746,8 @@ function toPayload(line: EditableAfeLine) {
     cost_code_id: line.cost_code_id,
     quantity: nullableValue(line.quantity === '' ? '' : String(line.quantity)),
     unit_id: line.unit_id,
-    hole_section_id: nullableValue(line.hole_section_id),
+    hole_section_id: line.applies_to_all_sections ? null : nullableValue(line.hole_section_id),
+    applies_to_all_sections: line.applies_to_all_sections,
     rate_basis: line.rate_basis,
     daily_consumption: nullableValue(line.daily_consumption),
     quantity_override_reason: nullableValue(line.quantity_override_reason.trim()),
@@ -692,6 +773,7 @@ function toEditable(record: AfeLineRecord): EditableAfeLine {
     quantity: String(record.quantity),
     unit_id: record.unit_id,
     hole_section_id: record.hole_section_id ?? '',
+    applies_to_all_sections: record.applies_to_all_sections,
     rate_basis: record.rate_basis,
     daily_consumption: record.daily_consumption ?? '',
     computed_quantity: record.computed_quantity ?? '',
@@ -715,6 +797,7 @@ const blankLine = (): EditableAfeLine => ({
   quantity: '0',
   unit_id: '',
   hole_section_id: '',
+  applies_to_all_sections: false,
   rate_basis: 'daily',
   daily_consumption: '',
   computed_quantity: '',
@@ -909,64 +992,150 @@ async function download(kind: 'export' | 'template'): Promise<void> {
 }
 
 /** Print a record-quality, well-scoped copy of the selected AFE. */
-function printAfe(): void {
+function money(value: string | number | null | undefined): string {
+  return formatMoneyCell(value)
+}
+
+function sectionPhasesFor(section: AfeSectionRecord): { phase: string, planned_days: number | string, sequence: number, is_active: boolean }[] {
+  const phases = section.phases?.length
+    ? section.phases
+    : [{ phase: section.phase, planned_days: section.planned_days, sequence: 1, is_active: true }]
+  return phases.filter(ph => ph.is_active)
+}
+
+function lineRowsHtml(
+  items: AfeLineRecord[],
+  rateMap: Map<string, { unit_rate: number, estimated_amount: number }>,
+  title: 'Service' | 'Item',
+): string {
+  if (!items.length) return `<tr><td colspan="9">No ${title.toLowerCase()} lines configured.</td></tr>`
+  return items.map((item) => {
+    const rate = rateMap.get(item.id)
+    const unitRate = rate?.unit_rate ?? 0
+    const estimated = rate?.estimated_amount ?? (Number(item.quantity) * unitRate)
+    const sectionLabel = item.applies_to_all_sections
+      ? 'All sections'
+      : (item.hole_section_code ?? '—')
+    return `
+    <tr>
+      <td class="num">${item.line_number}</td>
+      <td>${escapeHtml(item.catalog_item_code)}<br><small>${escapeHtml(item.catalog_item_name)}</small></td>
+      <td>${escapeHtml(item.cost_code ?? '')}</td>
+      <td>${escapeHtml(item.rate_basis.replace(/_/g, ' '))}</td>
+      <td>${escapeHtml(sectionLabel)}</td>
+      <td class="num">${Number(item.quantity)}</td>
+      <td>${escapeHtml(item.unit_code ?? '')}</td>
+      <td class="num">${money(unitRate)}</td>
+      <td class="num">${money(estimated)}</td>
+    </tr>`
+  }).join('')
+}
+
+async function printAfe(): Promise<void> {
   const afe = selectedAfe.value
   if (!afe) return
   const well = wells.value.find(candidate => candidate.id === afe.well_id)
   const project = projects.value.find(candidate => candidate.id === well?.project_id)
+
+  // Pull well-scoped unit rates and totals from the AFE Cost Estimates so the
+  // printout can show unit/fixed rates and estimated costs next to the scope.
+  let rateMap = new Map<string, { unit_rate: number, estimated_amount: number }>()
+  let servicesTotal = 0
+  let tangiblesTotal = 0
+  let estimatedTotal = 0
+  let pricedFootnote = ''
+  try {
+    const estimate = await estimatesApi.get(afe.id)
+    servicesTotal = Number(estimate.services_total) || 0
+    tangiblesTotal = Number(estimate.consumables_total) || 0
+    estimatedTotal = Number(estimate.estimated_total) || 0
+    rateMap = new Map(estimate.lines.map(line => [
+      line.afe_line_id,
+      { unit_rate: Number(line.unit_rate) || 0, estimated_amount: Number(line.estimated_amount) || 0 },
+    ]))
+    pricedFootnote = 'Unit/fixed rates and estimated costs come from the AFE Cost Estimates page.'
+  }
+  catch {
+    pricedFootnote = 'Unit rates have not been priced yet — enter them on the AFE Cost Estimates page.'
+  }
+
   const meta = [
-    ['Project', `${project?.code ?? ''} — ${project?.name ?? ''}`],
-    ['Well', `${well?.code ?? ''} — ${well?.name ?? ''}`],
-    ['Rig', well?.rig_name ?? '—'],
-    ['AFE', `${afe.code} (rev ${afe.revision_number})`],
+    ['AFE Number', `${afe.code} (rev ${afe.revision_number})`],
+    ['Well Name', `${well?.code ?? ''} — ${well?.name ?? ''}`],
+    ['Rig Name', well?.rig_name ?? '—'],
+    ['Project Name', `${project?.code ?? ''} — ${project?.name ?? ''}`],
     ['Title', afe.title],
     ['Status', afe.status],
-    ['Budget amount', Number(afe.budget_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })],
-    ['Planned days', Number(afe.total_planned_days || 0).toFixed(1)],
-    ['Planned TD', `${Number(afe.total_planned_depth || 0).toFixed(0)} ${afe.depth_unit_code ?? ''}`],
+    ['AFE Budget', money(afe.budget_amount)],
+    ['Total Planned Days', `${Number(afe.total_planned_days || 0).toFixed(1)} days`],
+    ['Total Planned Depth', `${Number(afe.total_planned_depth || 0).toFixed(0)} ${afe.depth_unit_code ?? ''}`],
     ['Submitted', afe.submitted_at ? new Date(afe.submitted_at).toLocaleString() : '—'],
   ]
   const metaHtml = meta
     .map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
     .join('')
-  const sectionRows = (afe.sections ?? []).map(section => `
+
+  const sectionRows = (afe.sections ?? []).map((section) => {
+    const phaseRows = sectionPhasesFor(section)
+    const span = phaseRows.length || 1
+    return phaseRows.map((ph, i) => `
     <tr>
-      <td class="num">${section.sequence}</td>
-      <td>${escapeHtml(section.hole_section_code ?? '—')}</td>
-      <td>${escapeHtml(section.phase)}</td>
-      <td class="num">${Number(section.planned_days || 0)}</td>
-      <td class="num">${section.planned_depth_from != null ? Number(section.planned_depth_from) : '—'}</td>
-      <td class="num">${section.planned_depth_to != null ? Number(section.planned_depth_to) : '—'}</td>
-      <td>${escapeHtml(section.notes ?? '')}</td>
+      ${i === 0 ? `<td rowspan="${span}">${escapeHtml(section.hole_section_code ?? '—')}</td>` : ''}
+      ${i === 0 ? `<td class="num" rowspan="${span}">${section.planned_depth_from != null ? Number(section.planned_depth_from) : '—'}</td>` : ''}
+      ${i === 0 ? `<td class="num" rowspan="${span}">${section.planned_depth_to != null ? Number(section.planned_depth_to) : '—'}</td>` : ''}
+      <td>${escapeHtml(ph.phase)}</td>
+      <td class="num">${Number(ph.planned_days)}</td>
+      ${i === phaseRows.length - 1 ? `<td class="num" rowspan="${span}"><strong>${Number(section.planned_days || 0).toFixed(1)}</strong></td>` : ''}
     </tr>`).join('')
-  const lineRows = (afe.items ?? []).map(item => `
-    <tr>
-      <td class="num">${item.line_number}</td>
-      <td>${escapeHtml(item.catalog_item_code)}<br><small>${escapeHtml(item.catalog_item_name)}</small></td>
-      <td>${escapeHtml((item.item_type ?? '').replace(/_/g, ' '))}</td>
-      <td>${escapeHtml(item.cost_code ?? '')}</td>
-      <td>${escapeHtml(item.hole_section_code ?? '—')}</td>
-      <td>${escapeHtml(item.rate_basis.replace(/_/g, ' '))}</td>
-      <td class="num">${Number(item.quantity)}</td>
-      <td>${escapeHtml(item.unit_code ?? '')}</td>
-      <td>${escapeHtml(item.notes ?? '')}</td>
-    </tr>`).join('')
+  }).join('')
+
+  const serviceItems = (afe.items ?? []).filter(item => item.item_type === 'service')
+  const tangibleItems = (afe.items ?? []).filter(item => item.item_type !== 'service')
+  const serviceRows = lineRowsHtml(serviceItems, rateMap, 'Service')
+  const tangibleRows = lineRowsHtml(tangibleItems, rateMap, 'Item')
+
   printDocument(`AFE ${afe.code}`, `
     <h1>AUTHORISATION FOR EXPENDITURE</h1>
-    <p class="doc-subtitle">Well-scoped AFE record — scope, sections, phases, and planned quantities.</p>
+    <p class="doc-subtitle">Well-scoped AFE record — sections, phases, services, tangibles, and estimated costs.</p>
     <div class="meta-grid">${metaHtml}</div>
+
     <h2>Sections &amp; phases</h2>
     <table>
-      <thead><tr><th class="num">Seq</th><th>Hole section</th><th>Phase</th><th class="num">Planned days</th><th class="num">Depth from</th><th class="num">Depth to</th><th>Notes</th></tr></thead>
-      <tbody>${sectionRows || '<tr><td colspan="7">No sections configured.</td></tr>'}</tbody>
+      <thead><tr><th>Hole section</th><th class="num">Depth from</th><th class="num">Depth to</th><th>Phase</th><th class="num">Planned days</th><th class="num">Section total (days)</th></tr></thead>
+      <tbody>${sectionRows || '<tr><td colspan="6">No sections configured.</td></tr>'}</tbody>
+      <tfoot>
+        <tr class="total-row"><td colspan="4">Total planned days</td><td class="num" colspan="2">${Number(afe.total_planned_days || 0).toFixed(1)} days</td></tr>
+      </tfoot>
     </table>
-    <h2>AFE lines</h2>
+
+    <h2>Services</h2>
     <table>
-      <thead><tr><th class="num">#</th><th>Item</th><th>Type</th><th>Cost code</th><th>Section</th><th>Rate basis</th><th class="num">Qty</th><th>Unit</th><th>Notes</th></tr></thead>
-      <tbody>${lineRows || '<tr><td colspan="9">No AFE lines yet.</td></tr>'}</tbody>
+      <thead><tr><th class="num">#</th><th>Service</th><th>Cost code</th><th>Rate basis</th><th>Section</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit / Fixed rate</th><th class="num">Estimated cost</th></tr></thead>
+      <tbody>${serviceRows}</tbody>
+      <tfoot><tr class="total-row"><td colspan="8">Total service costs</td><td class="num">${money(servicesTotal)}</td></tr></tfoot>
     </table>
+
+    <h2>Tangibles</h2>
+    <table>
+      <thead><tr><th class="num">#</th><th>Item</th><th>Cost code</th><th>Rate basis</th><th>Section</th><th class="num">Estimated consumption</th><th>Unit</th><th class="num">Unit rate</th><th class="num">Estimated cost</th></tr></thead>
+      <tbody>${tangibleRows}</tbody>
+      <tfoot><tr class="total-row"><td colspan="8">Total tangibles cost</td><td class="num">${money(tangiblesTotal)}</td></tr></tfoot>
+    </table>
+
+    <h2>Cost summary</h2>
+    <table>
+      <thead><tr><th>Component</th><th class="num">Amount</th></tr></thead>
+      <tbody>
+        <tr><td>Total service costs</td><td class="num">${money(servicesTotal)}</td></tr>
+        <tr><td>Total tangibles cost</td><td class="num">${money(tangiblesTotal)}</td></tr>
+        <tr class="total-row"><td>Total costs</td><td class="num">${money(estimatedTotal)}</td></tr>
+        <tr><td>AFE budget</td><td class="num">${money(afe.budget_amount)}</td></tr>
+        <tr><td>Variance to budget</td><td class="num">${money(Number(afe.budget_amount || 0) - estimatedTotal)}</td></tr>
+      </tbody>
+    </table>
+
     <div class="signatures"><div>Prepared by</div><div>Reviewed by</div><div>Approved by</div></div>
-    <p class="print-footer">Printed ${new Date().toLocaleString()} — unit rates are maintained on the AFE Cost Estimates page.</p>
+    <p class="print-footer">Printed ${new Date().toLocaleString()} — ${escapeHtml(pricedFootnote)}</p>
   `)
 }
 
@@ -1442,6 +1611,20 @@ onMounted(() => void loadAll())
                   />
                 </template>
               </Column>
+              <Column header="All sections" :style="{ width: '120px' }">
+                <template #body="{ data }">
+                  <div class="all-sections-cell">
+                    <Checkbox
+                      v-model="data.applies_to_all_sections"
+                      binary
+                      :disabled="!isDraft"
+                      data-testid="all-sections"
+                      @change="onAllSectionsChange(data)"
+                    />
+                    <small class="afe-hint">Applies to every section</small>
+                  </div>
+                </template>
+              </Column>
               <Column header="Section" :style="{ width: '170px' }">
                 <template #body="{ data }">
                   <Select
@@ -1451,7 +1634,7 @@ onMounted(() => void loadAll())
                     filter
                     show-clear
                     fluid
-                    :disabled="!isDraft"
+                    :disabled="!isDraft || data.applies_to_all_sections"
                     :invalid="needsSection(data) && !data.hole_section_id"
                     :placeholder="needsSection(data) ? 'Required' : 'Section'"
                     data-testid="hole-section"
@@ -1582,7 +1765,7 @@ onMounted(() => void loadAll())
           <div class="section-planner-header">
             <div>
               <strong>Well Section & Phase Breakdown</strong>
-              <small class="planner-subtitle">Define hole sections, operational phases, planned days, and depths before adding line items.</small>
+              <small class="planner-subtitle">Define each hole section with its depth interval, then add the phases and planned days inside it. Section days roll up from its phases; the AFE total is the sum of all sections.</small>
             </div>
             <Button label="Add Section" icon="pi pi-plus" size="small" outlined @click="addSectionRow" />
           </div>
@@ -1592,85 +1775,126 @@ onMounted(() => void loadAll())
               <tr>
                 <th style="width: 40px">#</th>
                 <th style="min-width: 150px">Hole Section</th>
-                <th style="min-width: 160px">Phase</th>
+                <th style="width: 105px">Depth From</th>
+                <th style="width: 105px">Depth To</th>
+                <th style="min-width: 170px">Phase</th>
                 <th style="width: 120px">Planned Days</th>
-                <th style="width: 110px">Depth From</th>
-                <th style="width: 110px">Depth To</th>
-                <th style="width: 50px" />
+                <th style="width: 120px">Actions</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(sec, idx) in afeForm.sections" :key="idx">
-                <td>{{ idx + 1 }}</td>
-                <td>
-                  <Select
-                    v-model="sec.hole_section_id"
-                    :options="holeSections"
-                    option-label="code"
-                    option-value="id"
-                    placeholder="Section size"
-                    fluid
-                    size="small"
-                  >
-                    <template #option="{ option }">{{ option.code }} ({{ option.name }})</template>
-                  </Select>
-                </td>
-                <td>
-                  <Select
-                    v-model="sec.phase"
-                    :options="phases"
-                    option-label="name"
-                    option-value="name"
-                    :placeholder="phases.length ? 'Select phase' : 'No phases configured'"
-                    :disabled="!phases.length"
-                    fluid
-                    size="small"
-                    data-testid="section-phase"
-                  />
-                </td>
-                <td>
-                  <InputNumber
-                    v-model="sec.planned_days"
-                    :min="0"
-                    :max-fraction-digits="2"
-                    fluid
-                    size="small"
-                    @input="recalculateSectionTotals"
-                  />
-                </td>
-                <td>
-                  <InputNumber
-                    v-model="sec.planned_depth_from"
-                    :min="0"
-                    :max-fraction-digits="1"
-                    fluid
-                    size="small"
-                    @input="recalculateSectionTotals"
-                  />
-                </td>
-                <td>
-                  <InputNumber
-                    v-model="sec.planned_depth_to"
-                    :min="0"
-                    :max-fraction-digits="1"
-                    fluid
-                    size="small"
-                    @input="recalculateSectionTotals"
-                  />
-                </td>
-                <td>
-                  <Button icon="pi pi-trash" size="small" text severity="danger" @click="removeSectionRow(idx)" />
-                </td>
-              </tr>
+              <template v-for="(sec, idx) in afeForm.sections" :key="idx">
+                <tr class="section-row">
+                  <td class="section-index">{{ idx + 1 }}</td>
+                  <td>
+                    <Select
+                      v-model="sec.hole_section_id"
+                      :options="holeSections"
+                      option-label="code"
+                      option-value="id"
+                      placeholder="Section size"
+                      fluid
+                      size="small"
+                    >
+                      <template #option="{ option }">{{ option.code }} ({{ option.name }})</template>
+                    </Select>
+                  </td>
+                  <td>
+                    <InputNumber
+                      v-model="sec.planned_depth_from"
+                      :min="0"
+                      :max-fraction-digits="1"
+                      fluid
+                      size="small"
+                      @input="recalculateSectionTotals"
+                    />
+                  </td>
+                  <td>
+                    <InputNumber
+                      v-model="sec.planned_depth_to"
+                      :min="0"
+                      :max-fraction-digits="1"
+                      fluid
+                      size="small"
+                      @input="recalculateSectionTotals"
+                    />
+                  </td>
+                  <td colspan="2">
+                    <span class="section-total">
+                      Section total: <strong>{{ sectionPlannedDays(sec).toFixed(1) }} days</strong>
+                    </span>
+                  </td>
+                  <td class="section-actions">
+                    <Button
+                      icon="pi pi-plus"
+                      size="small"
+                      text
+                      title="Add phase to this section"
+                      aria-label="Add phase"
+                      @click="addPhaseRow(idx)"
+                    />
+                    <Button
+                      icon="pi pi-trash"
+                      size="small"
+                      text
+                      severity="danger"
+                      title="Remove section"
+                      aria-label="Remove section"
+                      @click="removeSectionRow(idx)"
+                    />
+                  </td>
+                </tr>
+                <tr v-for="(ph, phIdx) in sec.phases" :key="phIdx" class="phase-row">
+                  <td />
+                  <td class="phase-indent">
+                    <span class="phase-badge">Phase {{ phIdx + 1 }}</span>
+                  </td>
+                  <td />
+                  <td />
+                  <td>
+                    <Select
+                      v-model="ph.phase"
+                      :options="phases"
+                      option-label="name"
+                      option-value="name"
+                      :placeholder="phases.length ? 'Select phase' : 'No phases configured'"
+                      :disabled="!phases.length"
+                      fluid
+                      size="small"
+                      data-testid="section-phase"
+                    />
+                  </td>
+                  <td>
+                    <InputNumber
+                      v-model="ph.planned_days"
+                      :min="0"
+                      :max-fraction-digits="2"
+                      fluid
+                      size="small"
+                      @input="recalculateSectionTotals"
+                    />
+                  </td>
+                  <td>
+                    <Button
+                      icon="pi pi-times"
+                      size="small"
+                      text
+                      severity="danger"
+                      title="Remove phase"
+                      aria-label="Remove phase"
+                      @click="removePhaseRow(idx, phIdx)"
+                    />
+                  </td>
+                </tr>
+              </template>
               <tr v-if="!afeForm.sections.length">
                 <td colspan="7" class="text-center text-muted" style="padding: 12px">No sections configured. Click "Add Section" to establish the well profile.</td>
               </tr>
             </tbody>
             <tfoot>
               <tr>
-                <td colspan="3" style="text-align: right; font-weight: bold">Totals:</td>
+                <td colspan="4" style="text-align: right; font-weight: bold">Total Planned Days / Max Depth:</td>
                 <td style="font-weight: bold">{{ Number(afeForm.total_planned_days).toFixed(1) }} days</td>
-                <td />
                 <td style="font-weight: bold">{{ Number(afeForm.total_planned_depth).toFixed(0) }}</td>
                 <td />
               </tr>
@@ -1844,6 +2068,54 @@ onMounted(() => void loadAll())
   padding: 8px;
 }
 
+.section-planning-table .section-row {
+  background: #f8fafc;
+}
+
+.section-planning-table .section-row > td {
+  border-top: 2px solid #cbd5e1;
+}
+
+.section-index {
+  font-weight: 700;
+  color: #0f766e;
+}
+
+.section-total {
+  display: block;
+  color: #334155;
+  font-size: 0.78rem;
+}
+
+.section-total strong {
+  color: #0f766e;
+}
+
+.section-actions {
+  white-space: nowrap;
+}
+
+.phase-row > td {
+  background: #ffffff;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.phase-indent {
+  padding-left: 22px !important;
+}
+
+.phase-badge {
+  display: inline-block;
+  background: #eef2ff;
+  color: #4338ca;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .afe-hint {
   display: block;
   margin-top: 2px;
@@ -1858,6 +2130,13 @@ onMounted(() => void loadAll())
 .afe-na,
 .afe-placeholder {
   color: var(--app-muted);
+}
+
+.all-sections-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
 }
 
 .form-row {

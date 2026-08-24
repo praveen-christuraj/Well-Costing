@@ -2,6 +2,37 @@
 
 All notable project changes are documented here.
 
+## 2026-08-24 — Section-phase planning, all-sections rates, and full AFE print
+
+### Added
+
+- **Section → Phase planning hierarchy.** An AFE section is now defined by its
+  hole section and depth interval, and the operational phases inside it are
+  entered as child rows (`afe_section_phases`). A section's planned days are
+  derived as the sum of its phases' planned days, and the AFE's total planned
+  days are the sum of all sections. The AFE dialog shows each section with its
+  expandable phase rows (add / remove phases), with live section and AFE
+  totals. Daily Cost comparison now rolls planned days up phase-by-phase so
+  actual days can be tracked against each planned phase.
+- **All-sections service rates.** An AFE line can be flagged "Applies to every
+  section", so a common service (e.g. a rig day rate) is entered once instead
+  of being duplicated per section. The section reference is ignored while the
+  flag is set, and AFE Cost Estimates group these lines under "All sections".
+- **Full AFE printout.** The AFE page's Print now shows AFE number, well name,
+  rig name, and project name; sections, planned depth, and planned days with
+  the phase breakdown; a services table with unit/fixed rates and estimated
+  costs; a tangibles table with unit rate, estimated consumption, and
+  estimated costs; and a cost summary with Total Service Costs, Total Tangibles
+  Cost, and Total Costs (rates pulled live from AFE Cost Estimates).
+- Migration `20260824_0025` adds `afe_section_phases` and
+  `afe_lines.applies_to_all_sections`.
+
+### Changed
+
+- `afe_sections.planned_days` and `afes.total_planned_days` are now derived on
+  save from the phase plan instead of being typed directly. Legacy
+  single-phase sections continue to work unchanged.
+
 ## 2026-08-24 — Confirmed deletion flows and complete audit coverage
 
 ### Added

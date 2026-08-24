@@ -671,7 +671,11 @@ class DailyCostService:
                     Decimal(rate_row.unit_rate) if rate_row else Decimal("0")
                 )
                 estimate_total += amount
-                section_key = line.hole_section.code if line.hole_section else "Unassigned"
+                section_key = (
+                    "All sections"
+                    if line.applies_to_all_sections
+                    else (line.hole_section.code if line.hole_section else "Unassigned")
+                )
                 planned_by_section[section_key] = (
                     planned_by_section.get(section_key, Decimal("0")) + amount
                 )
@@ -682,10 +686,17 @@ class DailyCostService:
                 planned_days_by_section[section_key] = planned_days_by_section.get(
                     section_key, Decimal("0")
                 ) + Decimal(section.planned_days or 0)
-                phase_key = section.phase or "Unassigned"
-                planned_days_by_phase[phase_key] = planned_days_by_phase.get(
-                    phase_key, Decimal("0")
-                ) + Decimal(section.planned_days or 0)
+                # Roll the section's phase plan: prefer the child phase rows,
+                # falling back to the legacy single phase value.
+                phase_plan = (
+                    [(ph.phase, ph.planned_days) for ph in (section.phases or []) if ph.is_active]
+                    if (section.phases or [])
+                    else [(section.phase, section.planned_days)]
+                )
+                for phase_name, phase_days in phase_plan:
+                    planned_days_by_phase[phase_name or "Unassigned"] = planned_days_by_phase.get(
+                        phase_name or "Unassigned", Decimal("0")
+                    ) + Decimal(phase_days or 0)
 
         entries = self.session.scalars(
             select(DailyCostEntry)

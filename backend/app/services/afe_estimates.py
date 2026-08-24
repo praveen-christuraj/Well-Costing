@@ -260,6 +260,7 @@ class AfeEstimateService:
             cost_code=item.cost_code.code if item.cost_code else None,
             hole_section_id=item.hole_section_id,
             hole_section_code=item.hole_section.code if item.hole_section else None,
+            applies_to_all_sections=item.applies_to_all_sections,
             rate_basis=item.rate_basis,
             quantity=quantity,
             unit_id=item.unit_id,
@@ -318,7 +319,9 @@ class AfeEstimateService:
         buckets: dict[str, AfeCostEstimateGroupTotal] = {}
         for line in lines:
             if dimension == "section":
-                key = line.hole_section_code or "Unassigned"
+                key = "All sections" if line.applies_to_all_sections else (
+                    line.hole_section_code or "Unassigned"
+                )
             elif dimension == "item_type":
                 key = (line.item_type or "other").replace("_", " ").title()
             elif dimension == "cost_code":

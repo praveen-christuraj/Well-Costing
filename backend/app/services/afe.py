@@ -23,6 +23,7 @@ from app.models.afe import (
     AfeAuditLog,
     AfeLine,
     AfeSection,
+    AfeSectionPhase,
     DrillingPhase,
     Project,
     Well,
@@ -41,6 +42,8 @@ from app.schemas.afe import (
     AfeLineRead,
     AfeLineUpdate,
     AfeRead,
+    AfeSectionCreate,
+    AfeSectionPhaseRead,
     AfeSectionRead,
     AfeUpdate,
     DrillingPhaseCreate,
@@ -673,17 +676,13 @@ class AfeService:
 
         sections_input = payload.sections
         if sections_input:
-            if not values.get("total_planned_days") or values["total_planned_days"] == Decimal("0"):
-                values["total_planned_days"] = sum(
-                    (s.planned_days for s in sections_input), Decimal("0")
-                )
-            if not values.get("total_planned_depth") or values["total_planned_depth"] == Decimal(
-                "0"
-            ):
-                values["total_planned_depth"] = max(
-                    (s.planned_depth_to for s in sections_input if s.planned_depth_to is not None),
-                    default=Decimal("0"),
-                )
+            values["total_planned_days"] = sum(
+                (self._section_planned_days(s) for s in sections_input), Decimal("0")
+            )
+            values["total_planned_depth"] = max(
+                (s.planned_depth_to for s in sections_input if s.planned_depth_to is not None),
+                default=Decimal("0"),
+            )
 
         afe = Afe(
             **values,
@@ -696,13 +695,17 @@ class AfeService:
         try:
             self.session.flush()
             if sections_input:
+                created_sections: list[AfeSection] = []
                 for idx, sec_input in enumerate(sections_input):
+                    planned_days = self._section_planned_days(sec_input)
                     sec = AfeSection(
                         afe_id=afe.id,
                         sequence=sec_input.sequence or (idx + 1),
                         hole_section_id=sec_input.hole_section_id,
-                        phase=sec_input.phase,
-                        planned_days=sec_input.planned_days,
+                        phase=self._section_phase_name(
+                            sec_input, sec_input.phase or "Drilling"
+                        ),
+                        planned_days=planned_days,
                         planned_depth_from=sec_input.planned_depth_from,
                         planned_depth_to=sec_input.planned_depth_to,
                         depth_unit_id=sec_input.depth_unit_id or afe.depth_unit_id,
@@ -712,6 +715,10 @@ class AfeService:
                         updated_by=self.actor_id,
                     )
                     self.session.add(sec)
+                    created_sections.append(sec)
+                self.session.flush()
+                for sec, sec_input in zip(created_sections, sections_input, strict=True):
+                    self._apply_section_phases(sec, sec_input)
                 self.session.flush()
 
             audit_entry = AfeAuditLog(
@@ -805,17 +812,19 @@ class AfeService:
             for section in afe.sections
         ]
         if sections_input is not None:
-            # Replace existing sections
+            # Replace existing sections (and their phases, which cascade)
             for old_sec in list(afe.sections):
                 self.session.delete(old_sec)
             self.session.flush()
+            created_sections: list[AfeSection] = []
             for idx, sec_input in enumerate(sections_input):
+                planned_days = self._section_planned_days(sec_input)
                 sec = AfeSection(
                     afe_id=afe.id,
                     sequence=sec_input.sequence or (idx + 1),
                     hole_section_id=sec_input.hole_section_id,
-                    phase=sec_input.phase,
-                    planned_days=sec_input.planned_days,
+                    phase=self._section_phase_name(sec_input, sec_input.phase or "Drilling"),
+                    planned_days=planned_days,
                     planned_depth_from=sec_input.planned_depth_from,
                     planned_depth_to=sec_input.planned_depth_to,
                     depth_unit_id=sec_input.depth_unit_id
@@ -826,15 +835,17 @@ class AfeService:
                     updated_by=self.actor_id,
                 )
                 self.session.add(sec)
-            if "total_planned_days" not in values or values["total_planned_days"] is None:
-                values["total_planned_days"] = sum(
-                    (s.planned_days for s in sections_input), Decimal("0")
-                )
-            if "total_planned_depth" not in values or values["total_planned_depth"] is None:
-                values["total_planned_depth"] = max(
-                    (s.planned_depth_to for s in sections_input if s.planned_depth_to is not None),
-                    default=Decimal("0"),
-                )
+                created_sections.append(sec)
+            self.session.flush()
+            for sec, sec_input in zip(created_sections, sections_input, strict=True):
+                self._apply_section_phases(sec, sec_input)
+            values["total_planned_days"] = sum(
+                (self._section_planned_days(s) for s in sections_input), Decimal("0")
+            )
+            values["total_planned_depth"] = max(
+                (s.planned_depth_to for s in sections_input if s.planned_depth_to is not None),
+                default=Decimal("0"),
+            )
 
         for field, value in values.items():
             setattr(afe, field, value)
@@ -1149,6 +1160,58 @@ class AfeService:
         return afe
 
     @staticmethod
+    def _section_planned_days(sec_input: AfeSectionCreate) -> Decimal:
+        """A section's planned days: the sum of its active phases when present.
+
+        Falls back to the legacy single ``planned_days`` value so old clients
+        and imported rows keep working unchanged.
+        """
+        if sec_input.phases:
+            return sum(
+                (ph.planned_days for ph in sec_input.phases if ph.is_active), Decimal("0")
+            )
+        return (
+            sec_input.planned_days
+            if sec_input.planned_days is not None
+            else Decimal("0")
+        )
+
+    @staticmethod
+    def _section_phase_name(sec_input: AfeSectionCreate, legacy: str) -> str:
+        """The first active phase name, else the legacy single-phase value."""
+        if sec_input.phases:
+            for ph in sec_input.phases:
+                if ph.is_active:
+                    return ph.phase
+        return legacy or "Drilling"
+
+    @staticmethod
+    def _section_planned_days_from_phases(section: AfeSection) -> Decimal:
+        """Recompute a stored section's planned days from its phase rows."""
+        active_phases = [ph for ph in (section.phases or []) if ph.is_active]
+        if not active_phases:
+            return section.planned_days
+        return sum((ph.planned_days for ph in active_phases), Decimal("0"))
+
+    def _apply_section_phases(self, section: AfeSection, sec_input: AfeSectionCreate) -> None:
+        """Create the phase rows for a section from the incoming payload."""
+        if not sec_input.phases:
+            return
+        for ph_idx, ph_input in enumerate(sec_input.phases):
+            self.session.add(
+                AfeSectionPhase(
+                    afe_section_id=section.id,
+                    sequence=ph_input.sequence or (ph_idx + 1),
+                    phase=ph_input.phase,
+                    planned_days=ph_input.planned_days,
+                    notes=ph_input.notes,
+                    is_active=ph_input.is_active,
+                    created_by=self.actor_id,
+                    updated_by=self.actor_id,
+                )
+            )
+
+    @staticmethod
     def _read(afe: Afe, include_items: bool) -> AfeRead:
         active_items = [item for item in (afe.items or []) if item.is_active]
         items = [AfeLineService.read(item) for item in active_items] if include_items else []
@@ -1161,12 +1224,27 @@ class AfeService:
                 hole_section_code=s.hole_section.code if s.hole_section else None,
                 hole_section_name=s.hole_section.name if s.hole_section else None,
                 phase=s.phase,
-                planned_days=s.planned_days,
+                planned_days=AfeService._section_planned_days_from_phases(s),
                 planned_depth_from=s.planned_depth_from,
                 planned_depth_to=s.planned_depth_to,
                 depth_unit_id=s.depth_unit_id,
                 depth_unit_code=s.depth_unit.code if s.depth_unit else None,
                 notes=s.notes,
+                phases=[
+                    AfeSectionPhaseRead(
+                        id=ph.id,
+                        afe_section_id=ph.afe_section_id,
+                        sequence=ph.sequence,
+                        phase=ph.phase,
+                        planned_days=ph.planned_days,
+                        notes=ph.notes,
+                        is_active=ph.is_active,
+                        created_at=ph.created_at,
+                        updated_at=ph.updated_at,
+                    )
+                    for ph in (s.phases or [])
+                    if ph.is_active
+                ],
                 is_active=s.is_active,
                 created_at=s.created_at,
                 updated_at=s.updated_at,
@@ -1466,6 +1544,10 @@ class AfeLineService:
             value = values.get(field)
             if value is None:
                 continue
+            # A line flagged as applying to all sections never carries a
+            # section reference, so the section is not required to exist.
+            if field == "hole_section_id" and values.get("applies_to_all_sections"):
+                continue
             record = self.session.get(model, value)
             if record is None or not record.is_active:
                 raise BusinessValidationError(f"{field} must reference an active record")
@@ -1475,6 +1557,11 @@ class AfeLineService:
         if item is None:
             raise BusinessValidationError("catalog_item_id must reference an active record")
         catalogue_basis = getattr(item, "rate_basis", None)
+
+        # A service flagged as applying to all sections has no single section;
+        # clear any section that may have been carried over from the client.
+        if values.get("applies_to_all_sections"):
+            values["hole_section_id"] = None
 
         # Derive planned duration days from section if not explicitly given
         planned_duration = values.get("planned_duration_days")

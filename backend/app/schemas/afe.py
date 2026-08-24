@@ -127,11 +127,38 @@ class DrillingPhaseRead(BaseModel):
 
 
 # ------------------------------------------------------------- AFE Sections
+class AfeSectionPhaseCreate(BaseModel):
+    sequence: int = Field(default=1, ge=1)
+    phase: str = Field(default="Drilling", min_length=1, max_length=100)
+    planned_days: Decimal = Field(default=Decimal("0"), ge=0, max_digits=12, decimal_places=4)
+    notes: str | None = None
+    is_active: bool = True
+
+
+class AfeSectionPhaseRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    afe_section_id: UUID
+    sequence: int
+    phase: str
+    planned_days: Decimal
+    notes: str | None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
 class AfeSectionCreate(BaseModel):
     sequence: int = Field(default=1, ge=1)
     hole_section_id: UUID | None = None
-    phase: str = Field(default="Drilling", min_length=1, max_length=100)
-    planned_days: Decimal = Field(default=Decimal("0"), ge=0, max_digits=12, decimal_places=4)
+    # Legacy single-phase fields; when ``phases`` is supplied it takes
+    # precedence and ``planned_days`` is derived as the sum of the phases.
+    phase: str | None = Field(default=None, min_length=1, max_length=100)
+    planned_days: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=4)
+    phases: list[AfeSectionPhaseCreate] = Field(
+        default_factory=lambda: list[AfeSectionPhaseCreate]()
+    )
     planned_depth_from: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=4)
     planned_depth_to: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=4)
     depth_unit_id: UUID | None = None
@@ -146,6 +173,8 @@ class AfeSectionCreate(BaseModel):
             and self.planned_depth_to < self.planned_depth_from
         ):
             raise ValueError("planned_depth_to must be greater than or equal to planned_depth_from")
+        if self.phases and not any(ph.is_active for ph in self.phases):
+            raise ValueError("a section needs at least one active phase")
         return self
 
 
@@ -154,6 +183,7 @@ class AfeSectionUpdate(BaseModel):
     hole_section_id: UUID | None = None
     phase: str | None = Field(default=None, min_length=1, max_length=100)
     planned_days: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=4)
+    phases: list[AfeSectionPhaseCreate] | None = None
     planned_depth_from: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=4)
     planned_depth_to: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=4)
     depth_unit_id: UUID | None = None
@@ -177,6 +207,9 @@ class AfeSectionRead(BaseModel):
     depth_unit_id: UUID | None
     depth_unit_code: str | None = None
     notes: str | None
+    phases: list[AfeSectionPhaseRead] = Field(
+        default_factory=lambda: list[AfeSectionPhaseRead]()
+    )
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -235,6 +268,7 @@ class AfeLineCreate(BaseModel):
     quantity: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     unit_id: UUID
     hole_section_id: UUID | None = None
+    applies_to_all_sections: bool = False
     rate_basis: str | None = Field(default=None, max_length=20)
     daily_consumption: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     quantity_override_reason: str | None = Field(default=None, max_length=500)
@@ -269,6 +303,7 @@ class AfeLineUpdate(BaseModel):
     quantity: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     unit_id: UUID | None = None
     hole_section_id: UUID | None = None
+    applies_to_all_sections: bool | None = None
     rate_basis: str | None = Field(default=None, max_length=20)
     daily_consumption: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     quantity_override_reason: str | None = Field(default=None, max_length=500)
@@ -300,6 +335,7 @@ class AfeLineRead(BaseModel):
     hole_section_id: UUID | None
     hole_section_code: str | None
     hole_section_name: str | None
+    applies_to_all_sections: bool = False
     rate_basis: str
     daily_consumption: Decimal | None
     computed_quantity: Decimal | None
