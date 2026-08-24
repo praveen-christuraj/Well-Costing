@@ -75,7 +75,7 @@ function groupTotals(dimension: 'section' | 'item_type' | 'cost_code'): AfeCostE
   const buckets = new Map<string, AfeCostEstimateGroupTotal>()
   for (const row of rows.value) {
     const key = dimension === 'section'
-      ? (row.hole_section_code ?? 'Unassigned')
+      ? (row.applies_to_all_sections ? 'All sections' : (row.hole_section_code ?? 'Unassigned'))
       : dimension === 'item_type'
         ? (row.item_type ?? 'other').replace(/_/g, ' ')
         : (row.cost_code ?? 'Unassigned')
@@ -223,7 +223,7 @@ function printEstimate(): void {
       <td>${escapeHtml(row.catalog_item_code)}<br><small>${escapeHtml(row.catalog_item_name)}</small></td>
       <td>${escapeHtml((row.item_type ?? '').replace(/_/g, ' '))}</td>
       <td>${escapeHtml(row.cost_code ?? '')}</td>
-      <td>${escapeHtml(row.hole_section_code ?? '—')}</td>
+      <td>${escapeHtml(row.applies_to_all_sections ? 'All sections' : (row.hole_section_code ?? '—'))}</td>
       <td>${escapeHtml(row.rate_basis.replace(/_/g, ' '))}</td>
       <td class="num">${Number(row.quantity)}</td>
       <td>${escapeHtml(row.unit_code ?? '')}</td>

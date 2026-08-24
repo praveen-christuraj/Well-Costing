@@ -157,7 +157,14 @@ class Afe(TimestampMixin, AuditMixin, Base):
 
 
 class AfeSection(TimestampMixin, AuditMixin, Base):
-    """Section, phase, planned days, and planned depth planning entries for an AFE."""
+    """Section planning container for an AFE.
+
+    A section is defined first (hole section plus the depth interval it covers);
+    the operational phases that make up the section are then entered as child
+    rows of :class:`AfeSectionPhase`. ``planned_days`` is derived on save as the
+    sum of the planned days of the section's phases, and the AFE's
+    ``total_planned_days`` is the sum over all sections.
+    """
 
     __tablename__ = "afe_sections"
     __table_args__ = (
@@ -176,6 +183,9 @@ class AfeSection(TimestampMixin, AuditMixin, Base):
     hole_section_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("hole_sections.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    # Legacy single-phase fields, retained for backward compatibility. New
+    # writes carry the phases in ``afe_section_phases`` and ``planned_days`` is
+    # recomputed from them; ``phase`` mirrors the first phase for old records.
     phase: Mapped[str] = mapped_column(
         String(100), default="Drilling", server_default="Drilling", index=True
     )
@@ -195,6 +205,40 @@ class AfeSection(TimestampMixin, AuditMixin, Base):
     afe: Mapped[Afe] = relationship(back_populates="sections")
     hole_section: Mapped[HoleSection | None] = relationship(lazy="joined")
     depth_unit: Mapped[Unit | None] = relationship(lazy="joined")
+    phases: Mapped[list["AfeSectionPhase"]] = relationship(
+        back_populates="afe_section",
+        cascade="all, delete-orphan",
+        order_by="AfeSectionPhase.sequence",
+        lazy="selectin",
+    )
+
+
+class AfeSectionPhase(TimestampMixin, AuditMixin, Base):
+    """One operational phase of an AFE section with its planned days."""
+
+    __tablename__ = "afe_section_phases"
+    __table_args__ = (
+        CheckConstraint("sequence >= 1", name="positive_afe_section_phase_sequence"),
+        CheckConstraint("planned_days >= 0", name="non_negative_afe_section_phase_days"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    afe_section_id: Mapped[UUID] = mapped_column(
+        ForeignKey("afe_sections.id", ondelete="CASCADE"), index=True
+    )
+    sequence: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    phase: Mapped[str] = mapped_column(
+        String(100), default="Drilling", server_default="Drilling", index=True
+    )
+    planned_days: Mapped[Decimal] = mapped_column(
+        Numeric(12, 4), default=Decimal("0"), server_default="0"
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", index=True
+    )
+
+    afe_section: Mapped[AfeSection] = relationship(back_populates="phases")
 
 
 class AfeAuditLog(TimestampMixin, Base):
@@ -256,6 +300,12 @@ class AfeLine(TimestampMixin, AuditMixin, Base):
     unit_id: Mapped[UUID] = mapped_column(ForeignKey("units.id", ondelete="RESTRICT"), index=True)
     hole_section_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("hole_sections.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    # When true the line's rate applies to every section of the AFE, so the
+    # planner enters it once instead of duplicating it per section. The
+    # hole_section_id is ignored while this flag is set.
+    applies_to_all_sections: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", index=True
     )
     rate_basis: Mapped[str] = mapped_column(
         String(20), default="daily", server_default="daily", index=True

@@ -660,3 +660,119 @@ def test_list_estimates_survive_orphaned_afe_and_currency(
     assert item["well_code"] is None
     assert item["project_code"] is None
     assert item["currency_code"] is None
+
+
+def test_afe_sections_with_phases_roll_up_planned_days(client: TestClient) -> None:
+    """Sections carry phases; section days and AFE total days are derived sums."""
+    auth = headers(client)
+    refs = setup_references(client, auth)
+    project, well, _ = setup_afe(client, auth)
+    del project
+
+    payload = {
+        "well_id": well["id"],
+        "code": "AFE-PH-01",
+        "title": "Phased well plan",
+        "depth_unit_id": refs["metre"]["id"],
+        "sections": [
+            {
+                "sequence": 1,
+                "hole_section_id": refs["surface_section"]["id"],
+                "planned_depth_from": "0",
+                "planned_depth_to": "1200",
+                "depth_unit_id": refs["metre"]["id"],
+                "phases": [
+                    {"sequence": 1, "phase": "Drilling", "planned_days": "10.0"},
+                    {"sequence": 2, "phase": "Logging", "planned_days": "2.5"},
+                    {"sequence": 3, "phase": "Casing & Cementing", "planned_days": "4.0"},
+                ],
+            },
+            {
+                "sequence": 2,
+                "hole_section_id": refs["intermediate_section"]["id"],
+                "planned_depth_from": "1200",
+                "planned_depth_to": "3000",
+                "depth_unit_id": refs["metre"]["id"],
+                "phases": [
+                    {"sequence": 1, "phase": "Drilling", "planned_days": "15.0"},
+                    {"sequence": 2, "phase": "Completion", "planned_days": "6.0"},
+                ],
+            },
+        ],
+    }
+    created = client.post("/api/v1/afes", json=payload, headers=auth)
+    assert created.status_code == 201, created.text
+    body = created.json()
+
+    # Section 1: 10 + 2.5 + 4 = 16.5 days; Section 2: 15 + 6 = 21 days.
+    sections = {s["sequence"]: s for s in body["sections"]}
+    assert Decimal(sections[1]["planned_days"]) == Decimal("16.5000")
+    assert Decimal(sections[2]["planned_days"]) == Decimal("21.0000")
+    assert len(sections[1]["phases"]) == 3
+    assert sections[1]["phases"][1]["phase"] == "Logging"
+    assert Decimal(sections[1]["phases"][1]["planned_days"]) == Decimal("2.5000")
+    # Total planned days = 16.5 + 21 = 37.5; depth = max depth to = 3000.
+    assert Decimal(body["total_planned_days"]) == Decimal("37.5000")
+    assert Decimal(body["total_planned_depth"]) == Decimal("3000.0000")
+
+    # Detail read returns the same rolled-up values.
+    detail = client.get(f"/api/v1/afes/{created.json()['id']}", headers=auth)
+    assert detail.status_code == 200, detail.text
+    assert Decimal(detail.json()["total_planned_days"]) == Decimal("37.5000")
+    assert len(detail.json()["sections"][0]["phases"]) == 3
+
+    # Updating with a changed phase re-derives the section and AFE totals.
+    updated = client.patch(
+        f"/api/v1/afes/{created.json()['id']}",
+        json={
+            "sections": [
+                {
+                    "sequence": 1,
+                    "hole_section_id": refs["surface_section"]["id"],
+                    "planned_depth_from": "0",
+                    "planned_depth_to": "1200",
+                    "phases": [
+                        {"sequence": 1, "phase": "Drilling", "planned_days": "12.0"},
+                        {"sequence": 2, "phase": "Logging", "planned_days": "3.0"},
+                    ],
+                },
+            ]
+        },
+        headers=auth,
+    )
+    assert updated.status_code == 200, updated.text
+    assert Decimal(updated.json()["sections"][0]["planned_days"]) == Decimal("15.0000")
+    assert Decimal(updated.json()["total_planned_days"]) == Decimal("15.0000")
+
+
+def test_afe_line_can_apply_to_all_sections(client: TestClient) -> None:
+    """A service flagged as applying to all sections stores no hole section."""
+    auth = headers(client)
+    refs = setup_references(client, auth)
+    _, _, afe = setup_afe(client, auth)
+
+    created = client.post(
+        f"/api/v1/afes/{afe['id']}/lines",
+        headers=auth,
+        json={
+            "line_number": 1,
+            "catalog_item_id": refs["service"]["id"],
+            "cost_code_id": refs["cost_code"]["id"],
+            "quantity": 1,
+            "unit_id": refs["day"]["id"],
+            "applies_to_all_sections": True,
+            "hole_section_id": refs["surface_section"]["id"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    line = created.json()
+    assert line["applies_to_all_sections"] is True
+    # The section reference is ignored/cleared while the flag is set.
+    assert line["hole_section_id"] is None
+    assert line["rate_basis"] == "daily"
+
+    detail = client.get(f"/api/v1/afes/{afe['id']}", headers=auth)
+    assert detail.status_code == 200, detail.text
+    saved = detail.json()["items"][0]
+    assert saved["applies_to_all_sections"] is True
+    assert saved["hole_section_id"] is None

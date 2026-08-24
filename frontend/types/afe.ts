@@ -34,6 +34,16 @@ export interface DrillingPhaseRecord {
   is_active: boolean
 }
 
+export interface AfeSectionPhaseRecord {
+  id: string
+  afe_section_id: string
+  sequence: number
+  phase: string
+  planned_days: number | string
+  notes?: string | null
+  is_active: boolean
+}
+
 export interface AfeSectionRecord {
   id: string
   afe_id: string
@@ -47,7 +57,17 @@ export interface AfeSectionRecord {
   planned_depth_to?: number | string | null
   depth_unit_id?: string | null
   depth_unit_code?: string | null
+  phases?: AfeSectionPhaseRecord[]
   notes?: string | null
+  is_active: boolean
+}
+
+export interface EditableAfeSectionPhase {
+  id?: string
+  sequence: number
+  phase: string
+  planned_days: number | null
+  notes?: string
   is_active: boolean
 }
 
@@ -60,6 +80,7 @@ export interface EditableAfeSection {
   planned_depth_from: number | null
   planned_depth_to: number | null
   depth_unit_id: string
+  phases: EditableAfeSectionPhase[]
   notes: string
   is_active: boolean
   _state?: 'clean' | 'new' | 'dirty'
@@ -132,6 +153,7 @@ export interface AfeLineRecord {
   hole_section_id: string | null
   hole_section_code: string | null
   hole_section_name: string | null
+  applies_to_all_sections: boolean
   rate_basis: RateBasis
   daily_consumption: string | null
   computed_quantity: string | null
@@ -191,6 +213,7 @@ export interface EditableAfeLine {
   quantity: string
   unit_id: string
   hole_section_id: string
+  applies_to_all_sections: boolean
   rate_basis: RateBasis
   daily_consumption: string
   computed_quantity: string

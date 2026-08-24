@@ -42,6 +42,7 @@ class AfeCostEstimateLineRead(BaseModel):
     cost_code: str | None = None
     hole_section_id: UUID | None = None
     hole_section_code: str | None = None
+    applies_to_all_sections: bool = False
     rate_basis: str
     quantity: Decimal
     unit_id: UUID

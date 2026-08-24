@@ -7,6 +7,7 @@ projects -> wells -> afes -> afe_lines
                          |        +-> cost_codes
                          |        +-> units (quantity unit, depth unit)
                          |        +-> hole_sections
+                         |-> afe_sections -> afe_section_phases
                          +-> optional superseded AFE
 ```
 
@@ -18,12 +19,32 @@ The AFE tables were the requirement-intake tables: `well_requirements` became
 `estimate_items.afe_line_id`, and `afe_snapshots.afe_code`. Well requirements
 and the AFE were always the same document under two names.
 
+## Sections and phases
+
+An AFE is planned as a sequence of sections (`afe_sections`). A section is
+defined first by its hole section and the depth interval it covers
+(`planned_depth_from` / `planned_depth_to`). The operational phases inside the
+section are entered as child rows in `afe_section_phases`, each with its own
+planned days.
+
+- A section's `planned_days` is derived as the sum of the planned days of its
+  active phases (`afe_section_phases.planned_days`).
+- The AFE's `total_planned_days` is the sum of all its sections' planned days,
+  and `total_planned_depth` is the deepest `planned_depth_to`.
+- The legacy single `phase` / `planned_days` columns on `afe_sections` remain
+  for backward compatibility; new writes carry phases and the service
+  recomputes both values from them.
+
 ## AFE line fields
 
 Planning context recorded on a line:
 
 - Quantity and unit
 - Hole section (a foreign key to `hole_sections`, not free text)
+- `applies_to_all_sections` — when true the line's rate applies to every
+  section of the AFE, so a common service (for example a rig day rate) is
+  entered once instead of being duplicated per section. The `hole_section_id`
+  is ignored while the flag is set.
 - Rate basis, and the daily-consumption inputs that follow from it
 - Planned duration in days
 - Planned depth from/to and depth unit

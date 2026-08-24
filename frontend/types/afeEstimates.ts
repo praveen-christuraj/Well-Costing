@@ -12,6 +12,7 @@ export interface AfeCostEstimateLine {
   cost_code: string | null
   hole_section_id: string | null
   hole_section_code: string | null
+  applies_to_all_sections: boolean
   rate_basis: string
   quantity: string | number
   unit_id: string
