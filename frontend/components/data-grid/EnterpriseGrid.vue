@@ -258,7 +258,7 @@ function confirmDelete(row: EditableRow): void {
     return
   }
   confirm.require({
-    message: `Delete this ${props.singular}? It is removed permanently when it is not referenced elsewhere, otherwise it is deactivated.`,
+    message: `Delete this ${props.singular}? The record will be permanently removed. If it is linked to another record, deletion will be blocked and the linked records must be deleted first.`,
     header: `Delete ${props.singular}`,
     icon: 'pi pi-exclamation-triangle',
     rejectProps: { label: 'Cancel', severity: 'secondary', outlined: true },
@@ -280,12 +280,12 @@ async function removeRow(row: EditableRow): Promise<void> {
         success.value = `The ${props.singular} was left unchanged.`
         return
       }
-      // A permanent delete is only downgraded when the API explicitly reports
-      // a reference conflict. Network, authorization, and validation failures
-      // must not silently turn into a different write operation.
+      // A reference conflict is never downgraded to a soft delete. Deactivation
+      // hides data that is still part of another workflow and makes the linked
+      // record inaccessible. Keep everything unchanged and tell the user what
+      // must be removed first.
       if (!(caught instanceof NormalizedApiError) || caught.status !== 409) throw caught
-      await props.removeRecord(String(row.id), false)
-      success.value = `The ${props.singular} is referenced elsewhere, so it was deactivated instead of deleted.`
+      throw new Error(`${caught.message} Delete the linked record(s) first, then try again.`)
     }
     await load()
   }
@@ -451,7 +451,10 @@ function printCell(row: EditableRow, column: GridColumn): string {
   return suffix ? `${rendered} ${String(suffix)}` : rendered
 }
 
-const printedAt = computed(() => new Date().toLocaleString())
+// Do not evaluate the clock during SSR. A changing timestamp in the
+// print-only DOM makes Vue hydrate different text nodes on every request.
+const printedAt = ref('')
+onMounted(() => { printedAt.value = new Date().toLocaleString() })
 
 function resetFilters(): void {
   search.value = ''
@@ -884,7 +887,7 @@ defineExpose({ reload: load })
       <p v-if="!rows.length" class="eg__print-empty">No {{ title.toLowerCase() }} matched the current filters.</p>
     </div>
 
-    <Dialog v-model:visible="pasteVisible" modal header="Paste rows from Excel" :style="{ width: '760px' }">
+    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="pasteVisible" modal header="Paste rows from Excel" :style="{ width: '760px' }">
       <p class="eg__paste-hint">
         Copy cells directly from your workbook. Columns are read in this order:
       </p>
