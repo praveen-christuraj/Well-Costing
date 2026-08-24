@@ -360,11 +360,11 @@ async function hardDeleteRow(row: EditableRow): Promise<void> {
 function confirmDeactivateSelected(): void {
   clearFeedback()
   confirm.require({
-    message: `Deactivate ${selected.value.length} selected ${props.title.toLowerCase()}?`,
-    header: 'Deactivate records',
+    message: `Permanently delete ${selected.value.length} selected ${props.title.toLowerCase()}? Linked records will block the operation and must be deleted first.`,
+    header: 'Delete records',
     icon: 'pi pi-exclamation-triangle',
     rejectProps: { label: 'Cancel', severity: 'secondary', outlined: true },
-    acceptProps: { label: 'Deactivate', severity: 'danger' },
+    acceptProps: { label: 'Delete', severity: 'danger' },
     accept: () => void deactivateSelected(),
   })
 }
@@ -373,9 +373,9 @@ async function deactivateSelected(): Promise<void> {
   loading.value = true
   try {
     const targets = selected.value.filter(row => row.id)
-    await Promise.all(targets.map(row => props.removeRecord(String(row.id), false)))
+    await Promise.all(targets.map(row => props.removeRecord(String(row.id), true)))
     await load()
-    success.value = `${targets.length} ${props.title.toLowerCase()} deactivated.`
+    success.value = `${targets.length} ${props.title.toLowerCase()} deleted.`
   }
   catch (caught: unknown) {
     error.value = caught instanceof Error ? caught.message : 'The records could not be deactivated.'
