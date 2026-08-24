@@ -292,6 +292,8 @@ function cancelCascade(): void {
     <Dialog
       v-model:visible="impactVisible"
       modal
+      :dismissable-mask="false"
+      :close-on-escape="false"
       header="This item has rate history"
       :style="{ width: '520px' }"
       @hide="cancelCascade"
@@ -306,8 +308,8 @@ function cancelCascade(): void {
         </li>
       </ul>
       <p class="cascade-note">
-        Prefer keeping the price history? Cancel and deactivate the item instead — it stays
-        searchable and its rates remain intact.
+        Cancel leaves the item and all linked rate history unchanged. Linked records must be
+        deleted first unless you explicitly confirm the cascade above.
       </p>
       <template #footer>
         <Button label="Cancel" text @click="cancelCascade" />

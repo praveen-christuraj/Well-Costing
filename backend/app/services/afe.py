@@ -233,12 +233,12 @@ class DrillingPhaseService:
             raise NotFoundError("Drilling phase not found")
         if not phase.is_active:
             raise BusinessValidationError("Drilling phase is already deleted")
-        phase.is_active = False
-        phase.updated_by = self.actor_id
+        # Phases are referenced by value on AFE sections, not by a foreign key.
+        # Remove the master row instead of creating an inaccessible inactive row.
+        code = phase.code
+        self.session.delete(phase)
         self.session.flush()
-        _audit(
-            self.session, self.actor_id, "soft_delete", "drilling_phase", phase.id, phase.code, None
-        )
+        _audit(self.session, self.actor_id, "delete", "drilling_phase", phase.id, code, None)
         self.session.commit()
 
     def recover(self, phase_id: UUID) -> DrillingPhaseRead:
@@ -384,10 +384,9 @@ class ProjectService:
         project = self.repository.get(project_id)
         if project is None:
             raise NotFoundError("Project not found")
-        if project.is_active:
-            raise BusinessValidationError(
-                "Project must be deleted (deactivated) before permanent deletion"
-            )
+        # Deletion is immediate. The dependency checks below deliberately run
+        # for active records too; linked data must be removed first rather than
+        # hiding this project in a soft-deleted state.
         well_count = int(
             self.session.scalar(
                 select(func.count()).select_from(Well).where(Well.project_id == project.id)
@@ -574,10 +573,8 @@ class WellService:
         well = self.repository.get(well_id)
         if well is None:
             raise NotFoundError("Well not found")
-        if well.is_active:
-            raise BusinessValidationError(
-                "Well must be deleted (deactivated) before permanent deletion"
-            )
+        # Deletion is immediate. Dependency checks apply to active records so
+        # users are told exactly which AFEs must be deleted first.
         afe_count = int(
             self.session.scalar(select(func.count()).select_from(Afe).where(Afe.well_id == well.id))
             or 0

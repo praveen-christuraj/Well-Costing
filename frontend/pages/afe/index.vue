@@ -128,7 +128,7 @@ async function saveProject(): Promise<void> {
 }
 
 async function deactivateProject(record: ProjectRecord): Promise<void> {
-  if (!window.confirm(`Delete project ${record.code}? It moves to the deleted list — wells and AFEs stay in place, and it can be recovered or permanently deleted from there.`)) return
+  if (!window.confirm(`Delete project ${record.code}? Linked wells must be deleted first. This cannot be undone.`)) return
   error.value = null
   try { await api.deleteProject(record.id) }
   catch (caught: unknown) {
@@ -241,7 +241,7 @@ async function saveWell(): Promise<void> {
 }
 
 async function deactivateWell(record: WellRecord): Promise<void> {
-  if (!window.confirm(`Delete well ${record.code}? It moves to the deleted list — existing AFEs stay in place, and it can be recovered or permanently deleted from there.`)) return
+  if (!window.confirm(`Delete well ${record.code}? Linked AFEs must be deleted first. This cannot be undone.`)) return
   error.value = null
   try { await api.deleteWell(record.id) }
   catch (caught: unknown) {
@@ -393,9 +393,20 @@ function removeSectionRow(index: number): void {
   recalculateSectionTotals()
 }
 
+function safeNumber(value: unknown, fallback = 0): number {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(numeric) ? numeric : fallback
+}
+
+function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
+
 function recalculateSectionTotals(): void {
-  const totalDays = afeForm.value.sections.reduce((sum, s) => sum + (Number(s.planned_days) || 0), 0)
-  const maxDepth = afeForm.value.sections.reduce((max, s) => Math.max(max, Number(s.planned_depth_to) || 0), 0)
+  const totalDays = afeForm.value.sections.reduce((sum, s) => sum + safeNumber(s.planned_days), 0)
+  const maxDepth = afeForm.value.sections.reduce((max, s) => Math.max(max, safeNumber(s.planned_depth_to)), 0)
   afeForm.value.total_planned_days = totalDays
   afeForm.value.total_planned_depth = maxDepth
 }
@@ -411,17 +422,17 @@ async function saveAfe(): Promise<void> {
       code: afeForm.value.code,
       title: afeForm.value.title,
       description: afeForm.value.description || null,
-      budget_amount: afeForm.value.budget_amount || 0,
-      total_planned_days: afeForm.value.total_planned_days || 0,
-      total_planned_depth: afeForm.value.total_planned_depth || 0,
+      budget_amount: safeNumber(afeForm.value.budget_amount),
+      total_planned_days: safeNumber(afeForm.value.total_planned_days),
+      total_planned_depth: safeNumber(afeForm.value.total_planned_depth),
       depth_unit_id: afeForm.value.depth_unit_id || null,
       sections: afeForm.value.sections.map((s, idx) => ({
         sequence: idx + 1,
         hole_section_id: s.hole_section_id || null,
         phase: s.phase,
-        planned_days: Number(s.planned_days) || 0,
-        planned_depth_from: s.planned_depth_from !== null ? Number(s.planned_depth_from) : null,
-        planned_depth_to: s.planned_depth_to !== null ? Number(s.planned_depth_to) : null,
+        planned_days: safeNumber(s.planned_days),
+        planned_depth_from: nullableNumber(s.planned_depth_from),
+        planned_depth_to: nullableNumber(s.planned_depth_to),
         depth_unit_id: s.depth_unit_id || afeForm.value.depth_unit_id || null,
         notes: s.notes || null,
         is_active: true,

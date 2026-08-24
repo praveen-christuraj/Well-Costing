@@ -138,7 +138,7 @@ def update_project(
 
 @router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deactivate_project(project_id: UUID, current_user: CurrentUser, session: DbSession) -> Response:
-    ProjectService(session, current_user.id).deactivate(project_id)
+    ProjectService(session, current_user.id).hard_delete(project_id)
     return Response(status_code=204)
 
 
@@ -210,7 +210,7 @@ def update_well(
 
 @router.delete("/wells/{well_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deactivate_well(well_id: UUID, current_user: CurrentUser, session: DbSession) -> Response:
-    WellService(session, current_user.id).deactivate(well_id)
+    WellService(session, current_user.id).hard_delete(well_id)
     return Response(status_code=204)
 
 

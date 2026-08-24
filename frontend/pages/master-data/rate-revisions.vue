@@ -38,7 +38,9 @@ const changeTypeFilter = ref<string | null>(null)
 
 const first = computed(() => (page.value - 1) * pageSize.value)
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
-const printedAt = computed(() => new Date().toLocaleString())
+// Set only after hydration; formatting the current time during SSR produces
+// different markup in the browser and triggers a hydration mismatch.
+const printedAt = ref('')
 
 async function load(): Promise<void> {
   loading.value = true
@@ -112,6 +114,7 @@ watch([itemFilter, changeTypeFilter], () => {
 })
 
 onMounted(() => {
+  printedAt.value = new Date().toLocaleString()
   void references.load(['catalogue'])
   void load()
 })

@@ -1,5 +1,5 @@
 import { $fetch, FetchError, type FetchOptions, type $Fetch } from 'ofetch'
-import { NormalizedApiError, type ApiError } from '~/types/api'
+import { NormalizedApiError, type ApiError, type ApiErrorBody } from '~/types/api'
 
 export type AccessTokenProvider = () => string | null
 
@@ -12,6 +12,15 @@ function isApiError(value: unknown): value is ApiError {
     && 'code' in candidate
     && 'message' in candidate
   )
+}
+
+/** FastAPI validation errors are returned as { detail: [...] }, while our
+ * application errors use { error: ... }. Keep the field-level reason visible
+ * to the form instead of reducing every bad AFE payload to "network error". */
+function validationErrorBody(value: unknown): ApiErrorBody | null {
+  if (typeof value !== 'object' || value === null || !('detail' in value)) return null
+  const detail = (value as { detail?: unknown }).detail
+  return { code: 'validation_error', message: 'Please correct the highlighted data', details: Array.isArray(detail) ? detail : [{ msg: String(detail) }] }
 }
 
 export class ApiClient {
@@ -100,6 +109,8 @@ export class ApiClient {
       if (isApiError(error.data)) {
         throw new NormalizedApiError(error.data.error, error.statusCode ?? 0)
       }
+      const validation = validationErrorBody(error.data)
+      if (validation) throw new NormalizedApiError(validation, error.statusCode ?? 0)
       throw new NormalizedApiError(
         {
           code: 'network_error',
