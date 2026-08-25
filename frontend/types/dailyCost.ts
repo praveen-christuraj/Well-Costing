@@ -190,7 +190,15 @@ export interface ReferenceServiceRate {
   vendor_name?: string | null
   rate_basis: 'daily' | 'per_service' | 'per_section' | 'fixed'
   operating_rate: number
-  unit_id: string
+  standby_rate: number
+  mobilization_rate: number
+  demobilization_rate: number
+  fixed_charges: number
+  personnel_operating_rate: number
+  personnel_standby_rate: number
+  other_rate: number
+  multiply_by_input: boolean
+  unit_id: string | null
   unit_code: string
 }
 

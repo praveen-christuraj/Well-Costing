@@ -157,6 +157,15 @@ async function saveSubActivity(): Promise<void> {
 }
 
 /* -------------------------------- Calculations ---------------------------- */
+function rateForMode(source: ReferenceServiceRate, mode: DailyCostServiceLine['service_type']): number {
+  const rates: Record<DailyCostServiceLine['service_type'], number> = {
+    operation: Number(source.operating_rate), standby: Number(source.standby_rate),
+    mobilisation: Number(source.mobilization_rate), demobilisation: Number(source.demobilization_rate),
+    personnel_operation: Number(source.personnel_operating_rate), personnel_standby: Number(source.personnel_standby_rate), other: Number(source.other_rate),
+  }
+  return rates[mode] || Number(source.operating_rate) || 0
+}
+
 function computeServiceAmount(line: DailyCostServiceLine): number {
   const hours = Number(line.service_hours) || 0
   const baseRate = Number(line.unit_rate) || 0
@@ -166,6 +175,12 @@ function computeServiceAmount(line: DailyCostServiceLine): number {
     : baseRate
   const days = hours / 24.0
   line.operating_days = Number(days.toFixed(4))
+  const selected = refServices.value.find(item => item.afe_line_id === line.afe_line_id)
+  const multiply = selected?.multiply_by_input ?? line.rate_basis === 'daily'
+  if (!multiply) {
+    line.amount = Number(effectiveRate.toFixed(2))
+    return line.amount
+  }
 
   if (line.rate_basis === 'daily') {
     // Daily rate: hours / 24 * daily rate
@@ -246,13 +261,19 @@ function onServiceSelect(line: DailyCostServiceLine): void {
     line.vendor_id = match.vendor_id ?? null
     line.vendor_name = match.vendor_name ?? null
     line.rate_basis = match.rate_basis
-    line.unit_rate = match.operating_rate
+    line.unit_rate = rateForMode(match, line.service_type)
     // For per_section, prompt for section selection; for fixed/per_service, rate auto-populates
     if (match.rate_basis === 'per_section') {
       line.hole_section_id = entryHoleSectionId.value
     }
     computeServiceAmount(line)
   }
+}
+
+function onServiceModeChange(line: DailyCostServiceLine): void {
+  const source = refServices.value.find(item => item.afe_line_id === line.afe_line_id)
+  if (source) line.unit_rate = rateForMode(source, line.service_type)
+  computeServiceAmount(line)
 }
 
 function removeServiceLine(index: number): void {
@@ -1079,6 +1100,7 @@ onMounted(() => void loadAll())
                     option-value="value"
                     fluid
                     size="small"
+                    @change="onServiceModeChange(data)"
                   />
                 </template>
               </Column>

@@ -154,9 +154,10 @@ export interface AfeLineRecord {
   secondary_category_name: string | null
   cost_code_id: string
   cost_code: string | null
-  quantity: string
-  unit_id: string
+  quantity: string | null
+  unit_id: string | null
   unit_code: string | null
+  service_type: 'service' | 'tangible' | 'consumable' | 'other'
   hole_section_id: string | null
   hole_section_code: string | null
   hole_section_name: string | null
@@ -215,8 +216,9 @@ export interface EditableAfeLine {
   primary_category_id: string
   secondary_category_id: string
   cost_code_id: string
-  quantity: string
-  unit_id: string
+  quantity: string | null
+  unit_id: string | null
+  service_type: 'service' | 'tangible' | 'consumable' | 'other'
   hole_section_id: string
   applies_to_all_sections: boolean
   rate_basis: RateBasis

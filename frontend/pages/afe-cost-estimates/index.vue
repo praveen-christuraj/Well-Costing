@@ -5,6 +5,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import Button from 'primevue/button'
+import Checkbox from 'primevue/checkbox'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
 import InputNumber from 'primevue/inputnumber'
@@ -36,6 +37,15 @@ const estimate = ref<AfeCostEstimate | null>(null)
 
 interface EditableEstimateLine extends AfeCostEstimateLine {
   _rate: number
+  _operatingRate: number
+  _standbyRate: number
+  _mobilizationRate: number
+  _demobilizationRate: number
+  _fixedCharges: number
+  _personnelOperatingRate: number
+  _personnelStandbyRate: number
+  _otherRate: number
+  _multiplyByInput: boolean
   _vendorId: string | null
   _remarks: string
   _dirty: boolean
@@ -95,6 +105,15 @@ function setRows(detail: AfeCostEstimate): void {
   rows.value = detail.lines.map(line => ({
     ...line,
     _rate: Number(line.unit_rate) || 0,
+    _operatingRate: Number(line.operating_rate) || Number(line.unit_rate) || 0,
+    _standbyRate: Number(line.standby_rate) || 0,
+    _mobilizationRate: Number(line.mobilization_rate) || 0,
+    _demobilizationRate: Number(line.demobilization_rate) || 0,
+    _fixedCharges: Number(line.fixed_charges) || 0,
+    _personnelOperatingRate: Number(line.personnel_operating_rate) || 0,
+    _personnelStandbyRate: Number(line.personnel_standby_rate) || 0,
+    _otherRate: Number(line.other_rate) || 0,
+    _multiplyByInput: line.multiply_by_input !== false,
     _vendorId: line.vendor_id,
     _remarks: line.remarks ?? '',
     _dirty: false,
@@ -162,7 +181,16 @@ async function saveRates(): Promise<void> {
   try {
     estimate.value = await estimatesApi.saveRates(selectedAfeId.value, rows.value.map(row => ({
       afe_line_id: row.afe_line_id,
-      unit_rate: Number(row._rate) || 0,
+      unit_rate: Number(row._operatingRate) || 0,
+      operating_rate: Number(row._operatingRate) || 0,
+      standby_rate: Number(row._standbyRate) || 0,
+      mobilization_rate: Number(row._mobilizationRate) || 0,
+      demobilization_rate: Number(row._demobilizationRate) || 0,
+      fixed_charges: Number(row._fixedCharges) || 0,
+      personnel_operating_rate: Number(row._personnelOperatingRate) || 0,
+      personnel_standby_rate: Number(row._personnelStandbyRate) || 0,
+      other_rate: Number(row._otherRate) || 0,
+      multiply_by_input: row._multiplyByInput,
       vendor_id: row._vendorId || null,
       remarks: row._remarks.trim() || null,
     })))
@@ -274,7 +302,15 @@ onMounted(() => void loadFoundation().catch((caught: unknown) => {
       <Column header="Rate basis"><template #body="{ data }"><Tag :value="data.rate_basis.replaceAll('_', ' ')" severity="info" /></template></Column>
       <Column header="Quantity"><template #body="{ data }">{{ Number(data.quantity) }}</template></Column>
       <Column field="unit_code" header="Unit" />
-      <Column header="Unit rate" style="min-width: 150px"><template #body="{ data }"><InputNumber v-model="data._rate" :min="0" :max-fraction-digits="4" fluid @input="mark(data)" /></template></Column>
+      <Column header="Operating" style="min-width: 125px"><template #body="{ data }"><InputNumber v-model="data._operatingRate" :min="0" fluid @input="mark(data)" /></template></Column>
+      <Column header="Standby" style="min-width: 125px"><template #body="{ data }"><InputNumber v-model="data._standbyRate" :min="0" fluid @input="mark(data)" /></template></Column>
+      <Column header="Mobilization" style="min-width: 125px"><template #body="{ data }"><InputNumber v-model="data._mobilizationRate" :min="0" fluid @input="mark(data)" /></template></Column>
+      <Column header="Demobilization" style="min-width: 125px"><template #body="{ data }"><InputNumber v-model="data._demobilizationRate" :min="0" fluid @input="mark(data)" /></template></Column>
+      <Column header="Fixed charges" style="min-width: 125px"><template #body="{ data }"><InputNumber v-model="data._fixedCharges" :min="0" fluid @input="mark(data)" /></template></Column>
+      <Column header="Personnel operating" style="min-width: 135px"><template #body="{ data }"><InputNumber v-model="data._personnelOperatingRate" :min="0" fluid @input="mark(data)" /></template></Column>
+      <Column header="Personnel standby" style="min-width: 135px"><template #body="{ data }"><InputNumber v-model="data._personnelStandbyRate" :min="0" fluid @input="mark(data)" /></template></Column>
+      <Column header="Other" style="min-width: 125px"><template #body="{ data }"><InputNumber v-model="data._otherRate" :min="0" fluid @input="mark(data)" /></template></Column>
+      <Column header="Multiply time/usage" style="min-width: 110px"><template #body="{ data }"><Checkbox v-model="data._multiplyByInput" binary @change="mark(data)" /></template></Column>
       <Column header="Estimated amount"><template #body="{ data }"><strong>${{ money(lineAmount(data)) }}</strong></template></Column>
       <Column header="Vendor" style="min-width: 180px"><template #body="{ data }"><Select v-model="data._vendorId" :options="vendors" option-label="name" option-value="id" show-clear filter placeholder="Optional" fluid @change="mark(data)" /></template></Column>
       <Column header="Remarks" style="min-width: 180px"><template #body="{ data }"><InputText v-model="data._remarks" placeholder="Contract reference…" fluid @input="mark(data)" /></template></Column>

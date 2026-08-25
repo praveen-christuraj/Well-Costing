@@ -47,9 +47,18 @@ class AfeCostEstimateLine(TimestampMixin, AuditMixin, Base):
     afe_line_id: Mapped[UUID] = mapped_column(
         ForeignKey("afe_lines.id", ondelete="CASCADE"), index=True
     )
-    unit_rate: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4), default=Decimal("0"), server_default="0"
-    )
+    # The eight negotiated rate categories are maintained independently. The
+    # legacy unit_rate mirrors operating_rate for backwards compatibility.
+    unit_rate: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"), server_default="0")
+    operating_rate: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"), server_default="0")
+    standby_rate: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"), server_default="0")
+    mobilization_rate: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"), server_default="0")
+    demobilization_rate: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"), server_default="0")
+    fixed_charges: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"), server_default="0")
+    personnel_operating_rate: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"), server_default="0")
+    personnel_standby_rate: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"), server_default="0")
+    other_rate: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"), server_default="0")
+    multiply_by_input: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     vendor_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("vendors.id", ondelete="RESTRICT"), nullable=True, index=True
     )

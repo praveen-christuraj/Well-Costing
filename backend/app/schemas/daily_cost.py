@@ -231,7 +231,15 @@ class ReferenceServiceRate(BaseModel):
     vendor_name: str | None = None
     rate_basis: str
     operating_rate: Decimal
-    unit_id: UUID
+    standby_rate: Decimal = Decimal("0")
+    mobilization_rate: Decimal = Decimal("0")
+    demobilization_rate: Decimal = Decimal("0")
+    fixed_charges: Decimal = Decimal("0")
+    personnel_operating_rate: Decimal = Decimal("0")
+    personnel_standby_rate: Decimal = Decimal("0")
+    other_rate: Decimal = Decimal("0")
+    multiply_by_input: bool = True
+    unit_id: UUID | None = None
     unit_code: str
 
 

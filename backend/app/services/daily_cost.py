@@ -298,10 +298,25 @@ class DailyCostService:
                 if override is not None and Decimal(str(override)) > 0
                 else base_rate
             )
-            if rate_basis == "daily":
-                line_amount = operating_days * effective_rate
+            # Select the AFE Cost Estimate category from the operating mode.
+            # Mobilization/demobilization/fixed charges can explicitly be full
+            # amount even when a user records hours for operational context.
+            category_rates = {
+                "operation": "operating_rate", "standby": "standby_rate",
+                "mobilisation": "mobilization_rate", "demobilisation": "demobilization_rate",
+                "personnel_operation": "personnel_operating_rate",
+                "personnel_standby": "personnel_standby_rate", "other": "other_rate",
+            }
+            if s_input.service_type == "other" and rate_basis == "fixed":
+                category_field = "fixed_charges"
             else:
-                line_amount = effective_rate
+                category_field = category_rates.get(s_input.service_type, "operating_rate")
+            if estimate_rate is not None:
+                selected_rate = Decimal(getattr(estimate_rate, category_field, 0) or 0)
+                effective_rate = Decimal(str(override)) if override is not None and Decimal(str(override)) > 0 else selected_rate
+                base_rate = selected_rate
+            multiply = estimate_rate.multiply_by_input if estimate_rate is not None else rate_basis == "daily"
+            line_amount = operating_days * effective_rate if multiply else effective_rate
             total_services += line_amount
 
             s_line = DailyCostServiceLine(
@@ -586,7 +601,15 @@ class DailyCostService:
                         rate_basis=line.rate_basis,
                         unit_id=line.unit_id,
                         unit_code=line.unit.code if line.unit else "EA",
-                        operating_rate=unit_rate,
+                        operating_rate=Decimal(rate_row.operating_rate or unit_rate) if rate_row else unit_rate,
+                        standby_rate=Decimal(rate_row.standby_rate) if rate_row else Decimal("0"),
+                        mobilization_rate=Decimal(rate_row.mobilization_rate) if rate_row else Decimal("0"),
+                        demobilization_rate=Decimal(rate_row.demobilization_rate) if rate_row else Decimal("0"),
+                        fixed_charges=Decimal(rate_row.fixed_charges) if rate_row else Decimal("0"),
+                        personnel_operating_rate=Decimal(rate_row.personnel_operating_rate) if rate_row else Decimal("0"),
+                        personnel_standby_rate=Decimal(rate_row.personnel_standby_rate) if rate_row else Decimal("0"),
+                        other_rate=Decimal(rate_row.other_rate) if rate_row else Decimal("0"),
+                        multiply_by_input=rate_row.multiply_by_input if rate_row else True,
                     )
                 )
 

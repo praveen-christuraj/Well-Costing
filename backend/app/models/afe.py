@@ -301,8 +301,11 @@ class AfeLine(TimestampMixin, AuditMixin, Base):
     cost_code_id: Mapped[UUID] = mapped_column(
         ForeignKey("cost_codes.id", ondelete="RESTRICT"), index=True
     )
-    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
-    unit_id: Mapped[UUID] = mapped_column(ForeignKey("units.id", ondelete="RESTRICT"), index=True)
+    # Scope lines do not carry a planned quantity or UOM. Daily consumption is
+    # captured against a unit-priced consumable in the daily cost entry.
+    quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    unit_id: Mapped[UUID | None] = mapped_column(ForeignKey("units.id", ondelete="RESTRICT"), nullable=True, index=True)
+    service_type: Mapped[str] = mapped_column(String(20), default="service", server_default="service", index=True)
     hole_section_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("hole_sections.id", ondelete="RESTRICT"), nullable=True, index=True
     )

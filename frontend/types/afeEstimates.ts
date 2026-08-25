@@ -24,6 +24,15 @@ export interface AfeCostEstimateLine {
   unit_id: string
   unit_code: string | null
   unit_rate: string | number
+  operating_rate: string | number
+  standby_rate: string | number
+  mobilization_rate: string | number
+  demobilization_rate: string | number
+  fixed_charges: string | number
+  personnel_operating_rate: string | number
+  personnel_standby_rate: string | number
+  other_rate: string | number
+  multiply_by_input: boolean
   estimated_amount: string | number
   vendor_id: string | null
   vendor_name: string | null
@@ -71,6 +80,15 @@ export interface AfeCostEstimate {
 export interface AfeCostEstimateRateInput {
   afe_line_id: string
   unit_rate: number
+  operating_rate: number
+  standby_rate: number
+  mobilization_rate: number
+  demobilization_rate: number
+  fixed_charges: number
+  personnel_operating_rate: number
+  personnel_standby_rate: number
+  other_rate: number
+  multiply_by_input: boolean
   vendor_id?: string | null
   remarks?: string | null
 }
