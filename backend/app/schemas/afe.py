@@ -265,8 +265,10 @@ class AfeLineCreate(BaseModel):
     line_number: int = Field(ge=1)
     secondary_category_id: UUID
     cost_code_id: UUID
+    # Scope setup deliberately does not ask for quantity/UOM.
     quantity: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
-    unit_id: UUID
+    unit_id: UUID | None = None
+    service_type: Literal["service", "tangible", "consumable", "other"] = "service"
     hole_section_id: UUID | None = None
     applies_to_all_sections: bool = False
     rate_basis: str | None = Field(default=None, max_length=20)
@@ -302,6 +304,7 @@ class AfeLineUpdate(BaseModel):
     cost_code_id: UUID | None = None
     quantity: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     unit_id: UUID | None = None
+    service_type: Literal["service", "tangible", "consumable", "other"] | None = None
     hole_section_id: UUID | None = None
     applies_to_all_sections: bool | None = None
     rate_basis: str | None = Field(default=None, max_length=20)
@@ -335,9 +338,10 @@ class AfeLineRead(BaseModel):
     secondary_category_name: str | None = None
     cost_code_id: UUID
     cost_code: str | None = None
-    quantity: Decimal
-    unit_id: UUID
+    quantity: Decimal | None = None
+    unit_id: UUID | None = None
     unit_code: str | None = None
+    service_type: Literal["service", "tangible", "consumable", "other"] = "service"
     hole_section_id: UUID | None
     hole_section_code: str | None
     hole_section_name: str | None

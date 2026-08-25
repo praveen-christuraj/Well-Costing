@@ -80,7 +80,12 @@ class AfeEstimateService:
                 )
                 self.session.add(row)
                 rate_rows[entry.afe_line_id] = row
-            row.unit_rate = Decimal(str(entry.unit_rate))
+            # unit_rate remains the compatibility alias used by older reports.
+            row.operating_rate = Decimal(str(entry.operating_rate or entry.unit_rate))
+            row.unit_rate = row.operating_rate
+            for field in ("standby_rate", "mobilization_rate", "demobilization_rate", "fixed_charges", "personnel_operating_rate", "personnel_standby_rate", "other_rate"):
+                setattr(row, field, Decimal(str(getattr(entry, field))))
+            row.multiply_by_input = entry.multiply_by_input
             row.vendor_id = entry.vendor_id
             row.remarks = entry.remarks
             row.is_active = True
@@ -270,7 +275,9 @@ class AfeEstimateService:
         self, item: AfeLine, rate: AfeCostEstimateLine | None
     ) -> AfeCostEstimateLineRead:
         quantity = self.effective_quantity(item)
-        unit_rate = Decimal(rate.unit_rate) if rate else Decimal("0")
+        unit_rate = Decimal(rate.operating_rate or rate.unit_rate) if rate else Decimal("0")
+        multiplier = Decimal(item.planned_duration_days or 0) if rate and rate.multiply_by_input else Decimal("1")
+        estimated_amount = unit_rate * multiplier
         (
             primary_id,
             primary_code,
@@ -303,7 +310,16 @@ class AfeEstimateService:
             unit_id=item.unit_id,
             unit_code=item.unit.code if item.unit else None,
             unit_rate=unit_rate,
-            estimated_amount=quantity * unit_rate,
+            operating_rate=unit_rate,
+            standby_rate=Decimal(rate.standby_rate) if rate else Decimal("0"),
+            mobilization_rate=Decimal(rate.mobilization_rate) if rate else Decimal("0"),
+            demobilization_rate=Decimal(rate.demobilization_rate) if rate else Decimal("0"),
+            fixed_charges=Decimal(rate.fixed_charges) if rate else Decimal("0"),
+            personnel_operating_rate=Decimal(rate.personnel_operating_rate) if rate else Decimal("0"),
+            personnel_standby_rate=Decimal(rate.personnel_standby_rate) if rate else Decimal("0"),
+            other_rate=Decimal(rate.other_rate) if rate else Decimal("0"),
+            multiply_by_input=rate.multiply_by_input if rate else True,
+            estimated_amount=estimated_amount,
             vendor_id=rate.vendor_id if rate else None,
             vendor_name=rate.vendor.name if rate and rate.vendor else None,
             remarks=rate.remarks if rate else None,

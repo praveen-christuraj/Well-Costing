@@ -18,7 +18,17 @@ class AfeCostEstimateRateInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     afe_line_id: UUID
+    # Rate categories; unit_rate remains an operating-rate compatibility alias.
     unit_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    operating_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    standby_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    mobilization_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    demobilization_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    fixed_charges: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    personnel_operating_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    personnel_standby_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    other_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    multiply_by_input: bool = True
     vendor_id: UUID | None = None
     remarks: str | None = None
 
@@ -60,6 +70,15 @@ class AfeCostEstimateLineRead(BaseModel):
     unit_id: UUID
     unit_code: str | None = None
     unit_rate: Decimal = Decimal("0")
+    operating_rate: Decimal = Decimal("0")
+    standby_rate: Decimal = Decimal("0")
+    mobilization_rate: Decimal = Decimal("0")
+    demobilization_rate: Decimal = Decimal("0")
+    fixed_charges: Decimal = Decimal("0")
+    personnel_operating_rate: Decimal = Decimal("0")
+    personnel_standby_rate: Decimal = Decimal("0")
+    other_rate: Decimal = Decimal("0")
+    multiply_by_input: bool = True
     estimated_amount: Decimal = Decimal("0")
     vendor_id: UUID | None = None
     vendor_name: str | None = None

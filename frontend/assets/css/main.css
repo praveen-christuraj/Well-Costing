@@ -298,7 +298,10 @@
   .layout-main-container {
     display: flex;
     flex-direction: column;
+    min-width: 0;
     min-height: 100vh;
+    /* Keep the full desktop canvas available beside the docked navigation;
+       dashboard grids may scroll rather than collapsing into narrow cards. */
     padding: calc(var(--layout-topbar-height) + 16px) 0 24px var(--layout-sidebar-width);
     transition: padding-left .25s;
   }

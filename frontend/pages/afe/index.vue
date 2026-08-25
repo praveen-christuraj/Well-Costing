@@ -617,7 +617,16 @@ function onPrimaryCategoryChange(line: EditableAfeLine): void {
   void ensureSecondaryOptions(line.primary_category_id); markDirty(line)
 }
 function onSecondaryCategoryChange(line: EditableAfeLine): void { line.cost_code_id = ''; markDirty(line) }
-function basisOptionsFor(_line: EditableAfeLine): { label: string, value: RateBasis }[] { return rateBasesFor() }
+function onServiceTypeChange(line: EditableAfeLine): void {
+  line.rate_basis = line.service_type === 'consumable' ? 'daily_consumption' : 'daily'
+  line.daily_consumption = ''
+  markDirty(line)
+}
+function basisOptionsFor(line: EditableAfeLine): { label: string, value: RateBasis }[] {
+  return line.service_type === 'consumable'
+    ? [{ label: 'Consumption rate', value: 'daily_consumption' }]
+    : [{ label: 'Daily rate', value: 'daily' }, { label: 'Per service / fixed', value: 'fixed' }, { label: 'Per section', value: 'per_section' }]
+}
 function isConsumptionLine(line: EditableAfeLine): boolean { return line.rate_basis === 'daily_consumption' }
 function needsSection(line: EditableAfeLine): boolean { return line.rate_basis === 'per_section' && !line.applies_to_all_sections }
 function onAllSectionsChange(line: EditableAfeLine): void { if (line.applies_to_all_sections) line.hole_section_id = ''; markDirty(line) }
@@ -670,8 +679,10 @@ function toPayload(line: EditableAfeLine) {
     line_number: line.line_number,
     secondary_category_id: line.secondary_category_id,
     cost_code_id: line.cost_code_id,
-    quantity: nullableValue(line.quantity === '' ? '' : String(line.quantity)),
-    unit_id: line.unit_id,
+    // AFE Lines are scope only. Actual time/usage is captured in Daily Cost.
+    quantity: null,
+    unit_id: null,
+    service_type: line.service_type,
     hole_section_id: line.applies_to_all_sections ? null : nullableValue(line.hole_section_id),
     applies_to_all_sections: line.applies_to_all_sections,
     rate_basis: line.rate_basis,
@@ -688,7 +699,7 @@ function toPayload(line: EditableAfeLine) {
 
 function toEditable(record: AfeLineRecord): EditableAfeLine {
   void ensureSecondaryOptions(record.primary_category_id ?? '')
-  return { id: record.id, line_number: record.line_number, primary_category_id: record.primary_category_id ?? '', secondary_category_id: record.secondary_category_id ?? '', cost_code_id: record.cost_code_id, quantity: String(record.quantity), unit_id: record.unit_id, hole_section_id: record.hole_section_id ?? '', applies_to_all_sections: record.applies_to_all_sections, rate_basis: record.rate_basis, daily_consumption: record.daily_consumption ?? '', computed_quantity: record.computed_quantity ?? '', quantity_override_reason: record.quantity_override_reason ?? '', planned_duration_days: record.planned_duration_days ?? '', planned_depth_from: record.planned_depth_from ?? '', planned_depth_to: record.planned_depth_to ?? '', depth_unit_id: record.depth_unit_id ?? '', notes: record.notes ?? '', is_active: record.is_active, _state: 'clean' }
+  return { id: record.id, line_number: record.line_number, primary_category_id: record.primary_category_id ?? '', secondary_category_id: record.secondary_category_id ?? '', cost_code_id: record.cost_code_id, quantity: record.quantity ?? null, unit_id: record.unit_id ?? null, service_type: record.service_type ?? 'service', hole_section_id: record.hole_section_id ?? '', applies_to_all_sections: record.applies_to_all_sections, rate_basis: record.rate_basis, daily_consumption: record.daily_consumption ?? '', computed_quantity: record.computed_quantity ?? '', quantity_override_reason: record.quantity_override_reason ?? '', planned_duration_days: record.planned_duration_days ?? '', planned_depth_from: record.planned_depth_from ?? '', planned_depth_to: record.planned_depth_to ?? '', depth_unit_id: record.depth_unit_id ?? '', notes: record.notes ?? '', is_active: record.is_active, _state: 'clean' }
 }
 
 const blankLine = (): EditableAfeLine => ({
@@ -696,8 +707,9 @@ const blankLine = (): EditableAfeLine => ({
   primary_category_id: '',
   secondary_category_id: '',
   cost_code_id: '',
-  quantity: '0',
-  unit_id: '',
+  quantity: null,
+  unit_id: null,
+  service_type: 'service',
   hole_section_id: '',
   applies_to_all_sections: false,
   rate_basis: 'daily',
@@ -776,11 +788,7 @@ function missingRequired(line: EditableAfeLine): string[] {
   const missing: string[] = []
   if (!line.secondary_category_id) missing.push('Secondary category')
   if (!line.cost_code_id) missing.push('Cost code')
-  if (!line.unit_id) missing.push('Unit')
   if (needsSection(line) && !line.hole_section_id) missing.push('Section (charged per section)')
-  if (isConsumptionLine(line) && !line.daily_consumption) {
-    missing.push('Usage per day (charged on daily usage)')
-  }
   if (isOverridden(line) && !line.quantity_override_reason.trim()) {
     missing.push('Override reason (quantity differs from the computed total)')
   }
@@ -1414,7 +1422,15 @@ onMounted(() => void loadAll())
                   </Select>
                 </template>
               </Column>
-              <Column header="Rate basis" :style="{ width: '160px' }">
+              <Column header="Service type" :style="{ width: '135px' }">
+                <template #body="{ data }">
+                  <Select v-model="data.service_type" :options="[
+                    { label: 'Service', value: 'service' }, { label: 'Tangible', value: 'tangible' },
+                    { label: 'Consumable', value: 'consumable' }, { label: 'Other', value: 'other' },
+                  ]" option-label="label" option-value="value" fluid :disabled="!isDraft" @change="onServiceTypeChange(data)" />
+                </template>
+              </Column>
+              <Column header="Costing method" :style="{ width: '160px' }">
                 <template #body="{ data }">
                   <Select
                     v-model="data.rate_basis"
@@ -1479,13 +1495,6 @@ onMounted(() => void loadAll())
                   <span v-else class="afe-na">—</span>
                 </template>
               </Column>
-              <Column header="Qty" :style="{ width: '140px' }">
-                <template #body="{ data }">
-                  <InputNumber v-model="data.quantity" :min="0" :max-fraction-digits="4" fluid :disabled="!isDraft" @input="markDirty(data)" />
-                  <small v-if="isOverridden(data)" class="afe-hint afe-hint--warn">Overrides {{ computedQuantityFor(data) }}</small>
-                  <small v-else-if="isConsumptionLine(data) && computedQuantityFor(data) !== null" class="afe-hint">Computed ({{ getPlannedDaysForLine(data) }}d)</small>
-                </template>
-              </Column>
               <Column header="Override reason" :style="{ minWidth: '170px' }">
                 <template #body="{ data }">
                   <InputText
@@ -1498,11 +1507,6 @@ onMounted(() => void loadAll())
                     @input="markDirty(data)"
                   />
                   <span v-else class="afe-na">—</span>
-                </template>
-              </Column>
-              <Column header="Unit" :style="{ width: '120px' }">
-                <template #body="{ data }">
-                  <Select v-model="data.unit_id" :options="units" option-label="code" option-value="id" filter show-clear fluid :disabled="!isDraft" @change="markDirty(data)" />
                 </template>
               </Column>
               <Column header="Notes" :style="{ minWidth: '160px' }">

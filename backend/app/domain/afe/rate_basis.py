@@ -151,15 +151,14 @@ def resolve_planned_quantity(
 
     basis = normalize_rate_basis(rate_basis)
     if basis != "daily_consumption":
-        if quantity is None:
-            raise RateBasisError("quantity is required")
-        return PlannedQuantity(quantity=quantity, computed_quantity=None, is_overridden=False)
+        # AFE lines now define the service scope only; quantities are entered
+        # at daily usage/time posting. Preserve historical quantities if sent.
+        return PlannedQuantity(quantity=quantity or Decimal("0"), computed_quantity=None, is_overridden=False)
 
+    # Daily usage belongs in the daily cost log. A planned estimate is optional
+    # at AFE scope, so an unset value simply leaves the planned quantity at zero.
     if daily_consumption is None or planned_duration_days is None:
-        raise RateBasisError(
-            "daily_consumption and planned_duration_days are required "
-            "when a line is charged on daily consumption"
-        )
+        return PlannedQuantity(quantity=quantity or Decimal("0"), computed_quantity=None, is_overridden=False)
     computed = compute_daily_consumption_quantity(daily_consumption, planned_duration_days)
     if quantity is None or quantity == computed:
         return PlannedQuantity(quantity=computed, computed_quantity=computed, is_overridden=False)
