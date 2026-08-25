@@ -28,7 +28,8 @@ from app.models.afe import (
     Project,
     Well,
 )
-from app.models.master_data import CatalogItem, CostCode, HoleSection, Unit
+from app.models.master_data import CostCode, HoleSection, Unit
+from app.models.categories import SecondaryCategory
 from app.repositories.afe import (
     AfeLineRepository,
     AfeRepository,
@@ -1357,7 +1358,8 @@ class AfeLineService:
             item.computed_quantity is not None and item.quantity == item.computed_quantity
         )
         merged = {
-            "catalog_item_id": item.catalog_item_id,
+            "secondary_category_id": item.secondary_category_id,
+            "cost_code_id": item.cost_code_id,
             "hole_section_id": item.hole_section_id,
             "rate_basis": item.rate_basis,
             "quantity": None if was_computed else item.quantity,
@@ -1534,7 +1536,7 @@ class AfeLineService:
 
     def _validate_references(self, values: dict[str, Any]) -> None:
         references = {
-            "catalog_item_id": CatalogItem,
+            "secondary_category_id": SecondaryCategory,
             "cost_code_id": CostCode,
             "unit_id": Unit,
             "depth_unit_id": Unit,
@@ -1553,10 +1555,17 @@ class AfeLineService:
                 raise BusinessValidationError(f"{field} must reference an active record")
 
     def _apply_rate_basis(self, afe: Afe, values: dict[str, Any]) -> None:
-        item = self.session.get(CatalogItem, values["catalog_item_id"])
-        if item is None:
-            raise BusinessValidationError("catalog_item_id must reference an active record")
-        catalogue_basis = getattr(item, "rate_basis", None)
+        secondary = self.session.get(SecondaryCategory, values["secondary_category_id"])
+        if secondary is None or not secondary.is_active:
+            raise BusinessValidationError("secondary_category_id must reference an active record")
+        # AFE lines are intentionally independent of catalogue items. Their rate
+        # basis is selected at line level; no item defaults are applied.
+        cost_code = self.session.get(CostCode, values.get("cost_code_id"))
+        if cost_code is None or not cost_code.is_active:
+            raise BusinessValidationError("cost_code_id must reference an active record")
+        if cost_code.cost_category.secondary_category_id != secondary.id:
+            raise BusinessValidationError("cost_code_id is not configured for the selected secondary category")
+        catalogue_basis = None
 
         # A service flagged as applying to all sections has no single section;
         # clear any section that may have been carried over from the client.
@@ -1578,9 +1587,9 @@ class AfeLineService:
 
         try:
             basis = (
-                validate_rate_basis(item.item_type, values["rate_basis"])
+                validate_rate_basis(None, values["rate_basis"])
                 if values.get("rate_basis")
-                else default_rate_basis(item.item_type, catalogue_basis)
+                else default_rate_basis(None, catalogue_basis)
             )
             resolved = resolve_planned_quantity(
                 rate_basis=basis,
@@ -1617,6 +1626,11 @@ class AfeLineService:
                         "catalog_item_code",
                         "catalog_item_name",
                         "item_type",
+                        "primary_category_id",
+                        "primary_category_code",
+                        "primary_category_name",
+                        "secondary_category_code",
+                        "secondary_category_name",
                         "cost_code",
                         "unit_code",
                         "depth_unit_code",
@@ -1628,7 +1642,12 @@ class AfeLineService:
                 "catalog_item_code": catalog_item.code if catalog_item else None,
                 "catalog_item_name": catalog_item.name if catalog_item else None,
                 "item_type": catalog_item.item_type if catalog_item else None,
-                "cost_code": cost_code.code if cost_code else None,
+                "primary_category_id": item.secondary_category.primary_category_id if item.secondary_category else None,
+                "primary_category_code": item.secondary_category.primary_category.code if item.secondary_category and item.secondary_category.primary_category else None,
+                "primary_category_name": item.secondary_category.primary_category.name if item.secondary_category and item.secondary_category.primary_category else None,
+                "secondary_category_code": item.secondary_category.code if item.secondary_category else None,
+                "secondary_category_name": item.secondary_category.name if item.secondary_category else None,
+                "cost_code": cost_code.name if cost_code else None,
                 "unit_code": unit.code if unit else None,
                 "depth_unit_code": item.depth_unit.code if item.depth_unit else None,
                 "hole_section_code": item.hole_section.code if item.hole_section else None,

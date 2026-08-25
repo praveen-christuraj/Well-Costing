@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import AuditMixin, Base, TimestampMixin
 from app.domain.afe.rate_basis import RATE_BASES
 from app.models.master_data import CatalogItem, CostCode, HoleSection, Unit, sql_in
+from app.models.categories import SecondaryCategory
 
 
 class Project(TimestampMixin, AuditMixin, Base):
@@ -290,8 +291,12 @@ class AfeLine(TimestampMixin, AuditMixin, Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     afe_id: Mapped[UUID] = mapped_column(ForeignKey("afes.id", ondelete="CASCADE"), index=True)
     line_number: Mapped[int] = mapped_column(Integer)
-    catalog_item_id: Mapped[UUID] = mapped_column(
-        ForeignKey("catalog_items.id", ondelete="RESTRICT"), index=True
+    # Legacy reference retained for historical lines; new lines classify directly.
+    catalog_item_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("catalog_items.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    secondary_category_id: Mapped[UUID] = mapped_column(
+        ForeignKey("secondary_categories.id", ondelete="RESTRICT"), index=True
     )
     cost_code_id: Mapped[UUID] = mapped_column(
         ForeignKey("cost_codes.id", ondelete="RESTRICT"), index=True
@@ -325,7 +330,8 @@ class AfeLine(TimestampMixin, AuditMixin, Base):
     )
 
     afe: Mapped[Afe] = relationship(back_populates="items")
-    catalog_item: Mapped[CatalogItem] = relationship(lazy="joined")
+    catalog_item: Mapped[CatalogItem | None] = relationship(lazy="joined")
+    secondary_category: Mapped[SecondaryCategory] = relationship(lazy="joined")
     cost_code: Mapped[CostCode] = relationship(lazy="joined")
     hole_section: Mapped[HoleSection | None] = relationship(lazy="joined")
     unit: Mapped[Unit] = relationship(foreign_keys=[unit_id], lazy="joined")

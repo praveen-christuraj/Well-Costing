@@ -35,9 +35,8 @@ import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
 import PageHeader from '~/components/design-system/PageHeader.vue'
-import { defaultRateBasisFor, rateBasesFor } from '~/types/afe'
+import { rateBasesFor } from '~/types/afe'
 import { escapeHtml, formatMoneyCell, printDocument } from '~/utils/printDocument'
-import { parseTsv } from '~/utils/tsv'
 import type {
   AfeAuditLogRecord,
   AfeLineRecord,
@@ -65,8 +64,6 @@ const wells = ref<WellRecord[]>([])
 const afes = ref<AfeRecord[]>([])
 const phases = ref<DrillingPhaseRecord[]>([])
 
-const catalogueItems = ref<MasterDataRecord[]>([])
-
 /**
  * AFE lines are built from the classification and nothing else: the Primary
  * Category narrows the Secondary Categories, and the Secondary Category
@@ -78,6 +75,7 @@ const references = useReferenceOptions()
 const primaryCategoryOptions = ref<GridSelectOption[]>([])
 const secondaryOptionsByPrimary = ref<Record<string, GridSelectOption[]>>({})
 const costCodes = ref<MasterDataRecord[]>([])
+const costCategories = ref<MasterDataRecord[]>([])
 const units = ref<MasterDataRecord[]>([])
 const holeSections = ref<MasterDataRecord[]>([])
 
@@ -601,121 +599,49 @@ async function hardDeleteAfe(record: AfeRecord): Promise<void> {
 }
 
 /* ------------------------------------------------- AFE lines ----------------- */
-const pasteVisible = ref(false)
-const pasteText = ref('')
-const pasteColumns = [
-  { field: 'catalog_item_code' },
-  { field: 'item_type' },
-  { field: 'cost_code' },
-  { field: 'quantity' },
-  { field: 'unit_code' },
-  { field: 'hole_section_code' },
-]
-
-function catalogueItemFor(line: EditableAfeLine): MasterDataRecord | undefined {
-  return catalogueItems.value.find(record => record.id === line.catalog_item_id)
-}
-
 /** Secondary categories under a primary, fetched once and reused. */
 async function ensureSecondaryOptions(primaryId: string): Promise<void> {
   if (!primaryId || secondaryOptionsByPrimary.value[primaryId]) return
-  secondaryOptionsByPrimary.value = {
-    ...secondaryOptionsByPrimary.value,
-    [primaryId]: await references.cascade(SLOT.afeLineSecondary, primaryId),
-  }
+  secondaryOptionsByPrimary.value = { ...secondaryOptionsByPrimary.value, [primaryId]: await references.cascade(SLOT.afeLineSecondary, primaryId) }
+}
+function secondaryOptionsFor(line: EditableAfeLine): GridSelectOption[] { return secondaryOptionsByPrimary.value[line.primary_category_id] ?? [] }
+
+function costCodeOptionsFor(line: EditableAfeLine): MasterDataRecord[] {
+  if (!line.secondary_category_id) return []
+  const categoryIds = new Set(costCategories.value.filter(category => category.secondary_category_id === line.secondary_category_id).map(category => category.id))
+  return costCodes.value.filter(code => code.cost_category_id && categoryIds.has(code.cost_category_id))
 }
 
-function secondaryOptionsFor(line: EditableAfeLine): GridSelectOption[] {
-  return secondaryOptionsByPrimary.value[line.primary_category_id] ?? []
-}
-
-/** Catalogue items allowed on a line, narrowed by its classification. */
-function itemOptionsFor(line: EditableAfeLine): MasterDataRecord[] {
-  if (line.secondary_category_id) {
-    return catalogueItems.value.filter(item => item.secondary_category_id === line.secondary_category_id)
-  }
-  if (line.primary_category_id) {
-    return catalogueItems.value.filter(item => item.primary_category_id === line.primary_category_id)
-  }
-  return []
-}
-
-/** Choosing a primary category invalidates everything below it. */
 function onPrimaryCategoryChange(line: EditableAfeLine): void {
-  line.secondary_category_id = ''
-  line.catalog_item_id = ''
-  void ensureSecondaryOptions(line.primary_category_id)
-  markDirty(line)
+  line.secondary_category_id = ''; line.cost_code_id = ''
+  void ensureSecondaryOptions(line.primary_category_id); markDirty(line)
 }
+function onSecondaryCategoryChange(line: EditableAfeLine): void { line.cost_code_id = ''; markDirty(line) }
+function basisOptionsFor(_line: EditableAfeLine): { label: string, value: RateBasis }[] { return rateBasesFor() }
+function isConsumptionLine(line: EditableAfeLine): boolean { return line.rate_basis === 'daily_consumption' }
+function needsSection(line: EditableAfeLine): boolean { return line.rate_basis === 'per_section' && !line.applies_to_all_sections }
+function onAllSectionsChange(line: EditableAfeLine): void { if (line.applies_to_all_sections) line.hole_section_id = ''; markDirty(line) }
 
-function onSecondaryCategoryChange(line: EditableAfeLine): void {
-  line.catalog_item_id = ''
-  markDirty(line)
-}
-
-function basisOptionsFor(line: EditableAfeLine): { label: string, value: RateBasis }[] {
-  return rateBasesFor(catalogueItemFor(line)?.item_type)
-}
-
-function isConsumptionLine(line: EditableAfeLine): boolean {
-  return line.rate_basis === 'daily_consumption'
-}
-
-function needsSection(line: EditableAfeLine): boolean {
-  return line.rate_basis === 'per_section' && !line.applies_to_all_sections
-}
-
-function onAllSectionsChange(line: EditableAfeLine): void {
-  if (line.applies_to_all_sections) line.hole_section_id = ''
-  markDirty(line)
-}
-
-/** Planned days from the AFE section associated with the line, or total planned days of the AFE. */
 function getPlannedDaysForLine(line: EditableAfeLine): number {
-  if (selectedAfe.value && selectedAfe.value.sections?.length) {
-    if (line.hole_section_id) {
-      const match = selectedAfe.value.sections.find(s => s.hole_section_id === line.hole_section_id && s.is_active)
-      if (match) return Number(match.planned_days) || 0
-    }
-    return Number(selectedAfe.value.total_planned_days) || 1
+  if (selectedAfe.value?.sections?.length && line.hole_section_id) {
+    const section = selectedAfe.value.sections.find(candidate => candidate.hole_section_id === line.hole_section_id && candidate.is_active)
+    if (section) return Number(section.planned_days) || 0
   }
   return Number(selectedAfe.value?.total_planned_days) || 1
 }
-
-/** Usage per day times section planned days. */
 function computedQuantityFor(line: EditableAfeLine): number | null {
-  if (!isConsumptionLine(line)) return null
-  const perDay = Number(line.daily_consumption)
-  const days = getPlannedDaysForLine(line)
-  if (!line.daily_consumption || Number.isNaN(perDay) || Number.isNaN(days)) return null
-  return perDay * days
+  if (!isConsumptionLine(line) || !line.daily_consumption) return null
+  const value = Number(line.daily_consumption) * getPlannedDaysForLine(line)
+  return Number.isFinite(value) ? value : null
 }
-
 function isOverridden(line: EditableAfeLine): boolean {
-  const computedVal = computedQuantityFor(line)
-  return computedVal !== null && line.quantity !== '' && Number(line.quantity) !== computedVal
+  const computed = computedQuantityFor(line)
+  return computed !== null && line.quantity !== '' && Number(line.quantity) !== computed
 }
-
 function syncComputedQuantity(line: EditableAfeLine): void {
-  const computedVal = computedQuantityFor(line)
-  if (computedVal === null) {
-    line.computed_quantity = ''
-    return
-  }
-  line.computed_quantity = String(computedVal)
-  if (!line.quantity_override_reason.trim()) line.quantity = String(computedVal)
-}
-
-function onItemChange(line: EditableAfeLine): void {
-  const item = catalogueItemFor(line)
-  if (item) {
-    line.primary_category_id = item.primary_category_id ?? line.primary_category_id
-    line.secondary_category_id = item.secondary_category_id ?? line.secondary_category_id
-  }
-  line.rate_basis = defaultRateBasisFor(item?.item_type, item?.rate_basis ?? null)
-  if (item?.default_unit_id && !line.unit_id) line.unit_id = item.default_unit_id
-  if (item?.cost_code_id && !line.cost_code_id) line.cost_code_id = item.cost_code_id
-  onBasisChange(line)
+  const computed = computedQuantityFor(line)
+  line.computed_quantity = computed === null ? '' : String(computed)
+  if (computed !== null && !line.quantity_override_reason.trim()) line.quantity = String(computed)
 }
 
 function onBasisChange(line: EditableAfeLine): void {
@@ -742,7 +668,7 @@ function nullableValue(value: unknown): unknown {
 function toPayload(line: EditableAfeLine) {
   return {
     line_number: line.line_number,
-    catalog_item_id: line.catalog_item_id,
+    secondary_category_id: line.secondary_category_id,
     cost_code_id: line.cost_code_id,
     quantity: nullableValue(line.quantity === '' ? '' : String(line.quantity)),
     unit_id: line.unit_id,
@@ -761,38 +687,14 @@ function toPayload(line: EditableAfeLine) {
 }
 
 function toEditable(record: AfeLineRecord): EditableAfeLine {
-  const item = catalogueItems.value.find(candidate => candidate.id === record.catalog_item_id)
-  void ensureSecondaryOptions(item?.primary_category_id ?? '')
-  return {
-    id: record.id,
-    line_number: record.line_number,
-    primary_category_id: item?.primary_category_id ?? '',
-    secondary_category_id: item?.secondary_category_id ?? '',
-    catalog_item_id: record.catalog_item_id,
-    cost_code_id: record.cost_code_id,
-    quantity: String(record.quantity),
-    unit_id: record.unit_id,
-    hole_section_id: record.hole_section_id ?? '',
-    applies_to_all_sections: record.applies_to_all_sections,
-    rate_basis: record.rate_basis,
-    daily_consumption: record.daily_consumption ?? '',
-    computed_quantity: record.computed_quantity ?? '',
-    quantity_override_reason: record.quantity_override_reason ?? '',
-    planned_duration_days: record.planned_duration_days ?? '',
-    planned_depth_from: record.planned_depth_from ?? '',
-    planned_depth_to: record.planned_depth_to ?? '',
-    depth_unit_id: record.depth_unit_id ?? '',
-    notes: record.notes ?? '',
-    is_active: record.is_active,
-    _state: 'clean',
-  }
+  void ensureSecondaryOptions(record.primary_category_id ?? '')
+  return { id: record.id, line_number: record.line_number, primary_category_id: record.primary_category_id ?? '', secondary_category_id: record.secondary_category_id ?? '', cost_code_id: record.cost_code_id, quantity: String(record.quantity), unit_id: record.unit_id, hole_section_id: record.hole_section_id ?? '', applies_to_all_sections: record.applies_to_all_sections, rate_basis: record.rate_basis, daily_consumption: record.daily_consumption ?? '', computed_quantity: record.computed_quantity ?? '', quantity_override_reason: record.quantity_override_reason ?? '', planned_duration_days: record.planned_duration_days ?? '', planned_depth_from: record.planned_depth_from ?? '', planned_depth_to: record.planned_depth_to ?? '', depth_unit_id: record.depth_unit_id ?? '', notes: record.notes ?? '', is_active: record.is_active, _state: 'clean' }
 }
 
 const blankLine = (): EditableAfeLine => ({
   line_number: lines.value.reduce((max, line) => Math.max(max, line.line_number), 0) + 1,
   primary_category_id: '',
   secondary_category_id: '',
-  catalog_item_id: '',
   cost_code_id: '',
   quantity: '0',
   unit_id: '',
@@ -870,53 +772,9 @@ async function recoverRemovedLine(line: AfeLineRecord): Promise<void> {
   }
 }
 
-function applyPaste(): void {
-  error.value = null
-  const parsed = parseTsv(pasteText.value, pasteColumns)
-  const created: EditableAfeLine[] = []
-  for (const values of parsed) {
-    const item = catalogueItems.value.find(record => record.code === values.catalog_item_code)
-    const costCode = costCodes.value.find(record => record.code === values.cost_code)
-    const unit = units.value.find(record => record.code === values.unit_code)
-    if (!item || !costCode || !unit) {
-      error.value = `Paste row '${values.catalog_item_code}' needs an existing item, cost code, and unit code.`
-      return
-    }
-    const sectionCode = values.hole_section_code
-    const section = sectionCode
-      ? holeSections.value.find(record => record.code.toUpperCase() === sectionCode.toUpperCase() || record.name.toUpperCase() === sectionCode.toUpperCase())
-      : undefined
-    if (sectionCode && !section) {
-      error.value = `Section '${sectionCode}' is not configured. Add it under Master Data › Hole Sections first.`
-      return
-    }
-    const line = {
-      ...blankLine(),
-      line_number: Math.max(
-        lines.value.reduce((max, row) => Math.max(max, row.line_number), 0),
-        created.reduce((max, row) => Math.max(max, row.line_number), 0),
-      ) + 1,
-      primary_category_id: item.primary_category_id ?? '',
-      secondary_category_id: item.secondary_category_id ?? '',
-      catalog_item_id: item.id,
-      cost_code_id: costCode.id,
-      quantity: values.quantity || '0',
-      unit_id: unit.id,
-      hole_section_id: section?.id ?? '',
-    }
-    line.rate_basis = defaultRateBasisFor(item.item_type, item.rate_basis ?? null)
-    syncComputedQuantity(line)
-    created.push(line)
-  }
-  lines.value.unshift(...created)
-  pasteText.value = ''
-  pasteVisible.value = false
-  success.value = `${created.length} rows added from the clipboard. Review them, then choose Save.`
-}
-
 function missingRequired(line: EditableAfeLine): string[] {
   const missing: string[] = []
-  if (!line.catalog_item_id) missing.push('Item')
+  if (!line.secondary_category_id) missing.push('Secondary category')
   if (!line.cost_code_id) missing.push('Cost code')
   if (!line.unit_id) missing.push('Unit')
   if (needsSection(line) && !line.hole_section_id) missing.push('Section (charged per section)')
@@ -1216,14 +1074,14 @@ async function loadAll(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    const [projectPage, wellPage, afePage, deletedPage, phaseList, catalogue, codePage, unitPage, sectionPage] = await Promise.all([
+    const [projectPage, wellPage, afePage, deletedPage, phaseList, codePage, categoryPage, unitPage, sectionPage] = await Promise.all([
       api.listProjects(),
       api.listWells(),
       api.listAfes(undefined, undefined, true),
       api.listDeletedAfes(),
       api.listDrillingPhases(),
-      master.list('catalog-items'),
       master.list('cost-codes'),
+      master.list('cost-categories'),
       master.list('units'),
       master.list('hole-sections'),
     ])
@@ -1232,8 +1090,8 @@ async function loadAll(): Promise<void> {
     afes.value = afePage.items
     deletedAfes.value = deletedPage.items
     phases.value = phaseList
-    catalogueItems.value = catalogue.items
     costCodes.value = codePage.items
+    costCategories.value = categoryPage.items
     units.value = unitPage.items
     holeSections.value = sectionPage.items.filter(section => section.is_active)
     primaryCategoryOptions.value = (await references.slot(SLOT.afeLinePrimary))
@@ -1254,7 +1112,7 @@ onMounted(() => void loadAll())
   <div class="library-page">
     <PageHeader
       title="AFE & Well Scope"
-      description="Register projects and wells, configure AFE budgets, hole sections, planned days and depths on the AFEs tab. Phases come from master data. Build detailed scope lines on the AFE Lines tab, where each line is classified with the Primary and Secondary Categories before an item is chosen. Submitted AFEs can be reopened with audited remarks for well-scoped revisions."
+      description="Register projects and wells, configure AFE budgets, hole sections, planned days and depths on the AFEs tab. Phases come from master data. Build detailed scope lines on the AFE Lines tab, where each line is classified with the Primary and Secondary Categories and linked to its configured cost code. Submitted AFEs can be reopened with audited remarks for well-scoped revisions."
     >
       <template #actions>
         <Button label="New AFE" icon="pi pi-plus" @click="openAfeDialog()" />
@@ -1504,8 +1362,6 @@ onMounted(() => void loadAll())
                   title="Restore removed lines"
                   @click="openRemovedLines"
                 />
-                <Button label="Paste" icon="pi pi-clipboard" text :disabled="!isDraft" @click="pasteVisible = true" />
-                <Button label="Template" icon="pi pi-file-excel" text :disabled="!isDraft" @click="download('template')" />
                 <Button label="Export" icon="pi pi-download" text :disabled="!selectedAfeId" @click="download('export')" />
                 <Button label="Print" icon="pi pi-print" text :disabled="!selectedAfe" @click="printAfe" />
                 <Button :label="pendingCount ? `Save ${pendingCount}` : 'Save'" icon="pi pi-save" :disabled="!isDraft || !pendingCount" :loading="saving" @click="saveLines" />
@@ -1571,30 +1427,11 @@ onMounted(() => void loadAll())
                   />
                 </template>
               </Column>
-              <Column header="Item" :style="{ minWidth: '240px' }">
+              <Column header="Cost code" :style="{ minWidth: '220px' }">
                 <template #body="{ data }">
-                  <Select
-                    v-model="data.catalog_item_id"
-                    :options="itemOptionsFor(data)"
-                    option-label="name"
-                    option-value="id"
-                    filter
-                    show-clear
-                    fluid
-                    :disabled="!isDraft || !data.primary_category_id"
-                    :placeholder="data.primary_category_id ? 'Select item' : 'Classify the line first'"
-                    @change="onItemChange(data)"
-                  >
-                    <template #option="{ option }">{{ option.code }} — {{ option.name }}</template>
+                  <Select v-model="data.cost_code_id" :options="costCodeOptionsFor(data)" option-label="name" option-value="id" filter show-clear fluid :disabled="!isDraft || !data.secondary_category_id" :placeholder="data.secondary_category_id ? 'Select cost code' : 'Select secondary category first'" @change="markDirty(data)">
+                    <template #option="{ option }">{{ option.name }}</template>
                   </Select>
-                  <small v-if="data.primary_category_id && !itemOptionsFor(data).length" class="afe-hint afe-hint--warn">
-                    No catalogue items are classified here yet.
-                  </small>
-                </template>
-              </Column>
-              <Column header="Cost code" :style="{ width: '150px' }">
-                <template #body="{ data }">
-                  <Select v-model="data.cost_code_id" :options="costCodes" option-label="code" option-value="id" filter show-clear fluid :disabled="!isDraft" @change="markDirty(data)" />
                 </template>
               </Column>
               <Column header="Rate basis" :style="{ width: '160px' }">
@@ -1959,8 +1796,8 @@ onMounted(() => void loadAll())
       </p>
       <DataTable :value="removedLines" data-key="id" striped-rows show-gridlines size="small">
         <Column field="line_number" header="#" :style="{ width: '60px' }" />
-        <Column header="Item">
-          <template #body="{ data }">{{ data.catalog_item_name ?? data.catalog_item_code ?? '—' }}</template>
+        <Column header="Secondary category">
+          <template #body="{ data }">{{ data.secondary_category_name ?? data.secondary_category_code ?? '—' }}</template>
         </Column>
         <Column field="quantity" header="Qty" />
         <Column field="unit_code" header="Unit" />
@@ -1976,18 +1813,6 @@ onMounted(() => void loadAll())
       </template>
     </Dialog>
 
-    <!-- Paste dialog -->
-    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="pasteVisible" modal header="Paste AFE lines" :style="{ width: '720px' }">
-      <p class="afe-paste-hint">
-        Copy cells from your workbook in this column order: item code, item type,
-        cost code, quantity, unit code, section code. The section must already exist under Master Data › Hole Sections.
-      </p>
-      <Textarea v-model="pasteText" rows="10" fluid autofocus placeholder="Paste tab-separated rows here" />
-      <template #footer>
-        <Button label="Cancel" severity="secondary" text @click="pasteVisible = false" />
-        <Button label="Apply rows" icon="pi pi-check" :disabled="!pasteText.trim()" @click="applyPaste" />
-      </template>
-    </Dialog>
   </div>
 </template>
 
