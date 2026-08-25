@@ -1,88 +1,179 @@
 <script setup lang="ts">
+/**
+ * Cost Control is a read-only reconciliation workspace over the active chain:
+ * AFE budget → AFE Cost Estimate → Daily Cost actuals.
+ */
 import { computed, onMounted, ref } from 'vue'
 import Button from 'primevue/button'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
-import Dialog from 'primevue/dialog'
-import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Select from 'primevue/select'
+import Tab from 'primevue/tab'
+import TabList from 'primevue/tablist'
+import TabPanel from 'primevue/tabpanel'
+import TabPanels from 'primevue/tabpanels'
+import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
-import Textarea from 'primevue/textarea'
 import PageHeader from '~/components/design-system/PageHeader.vue'
-import type { Estimate } from '~/types/estimates'
-import type { CostControlBatch, CostControlLineInput, CostState } from '~/types/costControl'
-import { parseTsv } from '~/utils/tsv'
+import type { ProjectRecord, WellRecord } from '~/types/afe'
+import type { ComparisonBucket, DailyCostComparison } from '~/types/dailyCost'
+import { downloadBlob } from '~/utils/download'
+import { escapeHtml, formatMoneyCell, printDocument } from '~/utils/printDocument'
 
 definePageMeta({ middleware: 'auth' })
-const api = useCostControl(); const estimatesApi = useEstimates()
-const estimates = ref<Estimate[]>([]); const batches = ref<CostControlBatch[]>([])
-const estimateId = ref(''); const versionId = ref(''); const costState = ref<CostState>('field_estimate')
-const activeBatch = ref<CostControlBatch | null>(null); const error = ref<string | null>(null); const posting = ref(false); const validating = ref(false)
-const pasteVisible = ref(false); const pasteText = ref('')
-type GridRow = CostControlLineInput & { _key: number }
-let key = 0
-const blank = (): GridRow => ({ _key: ++key, transaction_date: new Date().toISOString().slice(0, 10), source_document_type: '', source_document_reference: '', external_transaction_id: null, cost_code: '', vendor_code: null, description: '', quantity: null, unit_code: null, currency_code: '', amount: '', correction_kind: 'original', reverses_transaction_id: null })
-const rows = ref<GridRow[]>([blank()])
-const selectedEstimate = computed(() => estimates.value.find(item => item.id === estimateId.value))
-const versions = computed(() => selectedEstimate.value?.versions ?? [])
-const stateOptions = [
-  { label: 'Field estimate', value: 'field_estimate' }, { label: 'Commitment', value: 'commitment' },
-  { label: 'Accrual', value: 'accrual' }, { label: 'Booked actual', value: 'actual' }, { label: 'Forecast', value: 'forecast' },
-]
-const pasteColumns = ['transaction_date', 'source_document_type', 'source_document_reference', 'external_transaction_id', 'cost_code', 'vendor_code', 'description', 'quantity', 'unit_code', 'currency_code', 'amount'].map(field => ({ field }))
-function chooseEstimate() { versionId.value = versions.value.find(item => item.version_number === selectedEstimate.value?.current_version_number)?.id ?? versions.value[0]?.id ?? '' }
-async function load() { const [estimatePage, batchPage] = await Promise.all([estimatesApi.list(), api.list()]); estimates.value = estimatePage.items; batches.value = batchPage.items; if (!estimateId.value && estimates.value[0]) { estimateId.value = estimates.value[0].id; chooseEstimate() } }
-function addRow() { rows.value.unshift(blank()) }
-function duplicateRow(row: GridRow) { rows.value.unshift({ ...row, _key: ++key }) }
-function applyPaste() { const parsed = parseTsv(pasteText.value, pasteColumns); rows.value.unshift(...parsed.map(item => ({ ...blank(), ...item, external_transaction_id: item.external_transaction_id || null, vendor_code: item.vendor_code || null, quantity: item.quantity || null, unit_code: item.unit_code || null }))); pasteVisible.value = false; pasteText.value = '' }
-async function validateBatch() { if (!versionId.value) { error.value = 'Select an estimate version.'; return } validating.value = true; error.value = null; try { activeBatch.value = await api.validate(versionId.value, costState.value, rows.value.map(({ _key, ...row }) => row)); await load() } catch (caught: unknown) { error.value = caught instanceof Error ? caught.message : 'Validation failed' } finally { validating.value = false } }
-async function postBatch() { if (!activeBatch.value) return; posting.value = true; error.value = null; try { activeBatch.value = await api.post(activeBatch.value.id) } catch (caught: unknown) { error.value = caught instanceof Error ? caught.message : 'Posting blocked'; activeBatch.value = await api.get(activeBatch.value.id); await load() } finally { posting.value = false } }
-async function upload(event: Event) { const input = event.target as HTMLInputElement; const file = input.files?.[0]; if (!file || !versionId.value) return; error.value = null; try { activeBatch.value = (await api.preview(versionId.value, costState.value, file)).batch; await load() } catch (caught: unknown) { error.value = caught instanceof Error ? caught.message : 'Import preview failed' } finally { input.value = '' } }
-async function downloadTemplate() { const blob = await api.template(); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'cost-control-template.xlsx'; link.click(); URL.revokeObjectURL(url) }
-onMounted(() => void load().catch((caught: unknown) => { error.value = caught instanceof Error ? caught.message : 'Load failed' }))
+
+const api = useDailyCost()
+const afeApi = useAfe()
+const projects = ref<ProjectRecord[]>([])
+const wells = ref<WellRecord[]>([])
+const projectId = ref<string | null>(null)
+const wellId = ref('')
+const comparison = ref<DailyCostComparison | null>(null)
+const loading = ref(false)
+const error = ref<string | null>(null)
+const activeTab = ref('date')
+
+const wellOptions = computed(() => projectId.value
+  ? wells.value.filter(well => well.project_id === projectId.value)
+  : wells.value)
+const budgetUsed = computed(() => {
+  const budget = Number(comparison.value?.afe_budget ?? 0)
+  return budget > 0 ? Number(comparison.value?.cumulative_actual_cost ?? 0) / budget * 100 : 0
+})
+const controlStatus = computed(() => {
+  if (!comparison.value?.afe_id) return { label: 'AFE required', severity: 'warn' }
+  if (Number(comparison.value.variance_to_budget) < 0) return { label: 'Over budget', severity: 'danger' }
+  if (budgetUsed.value >= 90) return { label: 'Watch', severity: 'warn' }
+  return { label: 'Within budget', severity: 'success' }
+})
+
+function money(value: string | number | null | undefined): string {
+  return formatMoneyCell(value)
+}
+
+function onProjectChange(): void {
+  if (wellId.value && !wellOptions.value.some(item => item.id === wellId.value)) {
+    wellId.value = ''
+    comparison.value = null
+  }
+}
+
+async function loadComparison(): Promise<void> {
+  if (!wellId.value) return
+  loading.value = true
+  error.value = null
+  try {
+    comparison.value = await api.getComparison(wellId.value)
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'Cost control data could not be loaded.'
+    comparison.value = null
+  }
+  finally { loading.value = false }
+}
+
+async function exportExcel(): Promise<void> {
+  if (!wellId.value) return
+  try {
+    downloadBlob(await api.exportComparison(wellId.value), `cost-control-${comparison.value?.well_code ?? 'well'}.xlsx`)
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The cost control export failed.'
+  }
+}
+
+function bucketRows(title: string, values: ComparisonBucket[]): string {
+  return `<h2>${escapeHtml(title)}</h2><table><thead><tr><th>Group</th><th class="num">Actual</th><th class="num">Planned</th><th class="num">Variance</th></tr></thead><tbody>${values.map(item => `<tr><td>${escapeHtml(item.label)}</td><td class="num">${money(item.total_cost)}</td><td class="num">${item.planned_cost == null ? '—' : money(item.planned_cost)}</td><td class="num">${item.variance == null ? '—' : money(item.variance)}</td></tr>`).join('')}</tbody></table>`
+}
+
+function printControl(): void {
+  const detail = comparison.value
+  if (!detail) return
+  const meta = [
+    ['Well', `${detail.well_code ?? ''} — ${detail.well_name ?? ''}`],
+    ['Governing AFE', detail.afe_code ?? 'No AFE'],
+    ['AFE budget', `$${money(detail.afe_budget)}`],
+    ['AFE cost estimate', `$${money(detail.estimate_total)}`],
+    ['Daily Cost actual', `$${money(detail.cumulative_actual_cost)}`],
+    ['Budget remaining', `$${money(detail.variance_to_budget)}`],
+  ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')
+  const daily = detail.by_date.map(item => `<tr><td>${escapeHtml(item.entry_date)}</td><td>${escapeHtml(item.phase ?? '—')}</td><td>${escapeHtml(item.activity_name ?? '—')}</td><td class="num">${money(item.daily_cost)}</td><td class="num">${money(item.cumulative_cost)}</td><td class="num">${item.planned_cumulative == null ? '—' : money(item.planned_cumulative)}</td></tr>`).join('')
+  printDocument(`Cost Control ${detail.well_code ?? ''}`, `
+    <h1>COST CONTROL</h1><p class="doc-subtitle">AFE and AFE Cost Estimate reconciled directly with Daily Cost actuals.</p>
+    <div class="meta-grid">${meta}</div>
+    <h2>Daily reconciliation</h2><table><thead><tr><th>Date</th><th>Phase</th><th>Activity</th><th class="num">Daily actual</th><th class="num">Cumulative</th><th class="num">Planned cumulative</th></tr></thead><tbody>${daily}</tbody></table>
+    ${bucketRows('By hole section', detail.by_section)}${bucketRows('By activity', detail.by_activity)}
+    <p class="print-footer">Printed ${new Date().toLocaleString()}.</p>
+  `)
+}
+
+onMounted(async () => {
+  try {
+    const [projectPage, wellPage] = await Promise.all([afeApi.listProjects(), afeApi.listWells()])
+    projects.value = projectPage.items.filter(item => item.is_active)
+    wells.value = wellPage.items.filter(item => item.is_active)
+    if (wells.value[0]) {
+      wellId.value = wells.value[0].id
+      await loadComparison()
+    }
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'Cost control references could not be loaded.'
+  }
+})
 </script>
 
 <template>
   <div class="cost-control-page">
-    <PageHeader title="Cost control staging" description="Keep field estimates, commitments, accruals, booked actuals, and forecasts separate. Posting remains blocked until authoritative recognition and allocation rules are approved.">
-      <template #actions><Button label="Template" icon="pi pi-file-excel" outlined @click="downloadTemplate" /><label class="p-button p-component p-button-outlined"><i class="pi pi-upload" /> Excel preview<input type="file" accept=".xlsx,.xlsm,.xls" hidden @change="upload"></label></template>
+    <PageHeader
+      title="Cost Control"
+      description="Control well spend using the governing AFE budget, priced AFE Cost Estimate and actual Daily Cost entries."
+    >
+      <template #actions>
+        <Tag v-if="comparison" :value="controlStatus.label" :severity="controlStatus.severity as any" />
+        <Button label="Print" icon="pi pi-print" outlined :disabled="!comparison" @click="printControl" />
+        <Button label="Export Excel" icon="pi pi-file-excel" outlined :disabled="!comparison" @click="exportExcel" />
+        <Button label="Refresh" icon="pi pi-refresh" :loading="loading" :disabled="!wellId" @click="loadComparison" />
+      </template>
     </PageHeader>
-    <Message severity="warn" :closable="false">All rows are staging records only. No AFE posting, reconciliation, forecast, or reversal amount is calculated under policy <strong>pending-all-cost-states</strong>.</Message>
-    <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
-    <section class="cost-control-setup bulk-grid-panel">
-      <label>Estimate<Select v-model="estimateId" :options="estimates" option-label="title" option-value="id" filter fluid @change="chooseEstimate" /></label>
-      <label>Version<Select v-model="versionId" :options="versions" option-label="version_number" option-value="id" fluid /></label>
-      <label>Cost state<Select v-model="costState" :options="stateOptions" option-label="label" option-value="value" fluid /></label>
+    <Message v-if="error" severity="error" closable @close="error = null">{{ error }}</Message>
+    <Message v-if="comparison && !comparison.afe_id" severity="warn" :closable="false">This well has no governing AFE. Create and price an AFE before controlling actual spend.</Message>
+
+    <section class="control-selector bulk-grid-panel">
+      <label>Project<Select v-model="projectId" :options="projects" option-label="code" option-value="id" show-clear filter placeholder="All projects" fluid @change="onProjectChange" /></label>
+      <label>Well<Select v-model="wellId" :options="wellOptions" option-label="code" option-value="id" filter placeholder="Select well" fluid @change="loadComparison"><template #option="{ option }"><strong>{{ option.code }}</strong>&nbsp;— {{ option.name }}</template></Select></label>
+      <div v-if="comparison"><span>Governing AFE</span><strong>{{ comparison.afe_code ?? 'Not configured' }}</strong><small>{{ comparison.afe_title }}</small></div>
     </section>
 
-    <div class="grid-toolbar bulk-grid-panel"><strong>Bulk staging grid</strong><div class="grid-toolbar__actions"><Button label="Add row" icon="pi pi-plus" text @click="addRow" /><Button label="Paste" icon="pi pi-clipboard" text @click="pasteVisible = true" /><Button label="Validate batch" icon="pi pi-check" :loading="validating" @click="validateBatch" /></div></div>
-    <DataTable :value="rows" data-key="_key" show-gridlines scrollable class="bulk-grid-panel" :rows="25" paginator>
-      <Column header="#"><template #body="{ index }">{{ index + 1 }}</template></Column>
-      <Column header="Date" style="min-width:130px"><template #body="{ data }"><InputText v-model="data.transaction_date" fluid /></template></Column>
-      <Column header="Document type" style="min-width:150px"><template #body="{ data }"><InputText v-model="data.source_document_type" fluid /></template></Column>
-      <Column header="Document reference" style="min-width:170px"><template #body="{ data }"><InputText v-model="data.source_document_reference" fluid /></template></Column>
-      <Column header="Cost code" style="min-width:130px"><template #body="{ data }"><InputText v-model="data.cost_code" fluid /></template></Column>
-      <Column header="Vendor" style="min-width:130px"><template #body="{ data }"><InputText v-model="data.vendor_code" fluid /></template></Column>
-      <Column header="Description" style="min-width:220px"><template #body="{ data }"><InputText v-model="data.description" fluid /></template></Column>
-      <Column header="Qty" style="min-width:110px"><template #body="{ data }"><InputText v-model="data.quantity" fluid /></template></Column>
-      <Column header="Unit" style="min-width:100px"><template #body="{ data }"><InputText v-model="data.unit_code" fluid /></template></Column>
-      <Column header="Currency" style="min-width:110px"><template #body="{ data }"><InputText v-model="data.currency_code" fluid /></template></Column>
-      <Column header="Amount" style="min-width:130px"><template #body="{ data }"><InputText v-model="data.amount" fluid /></template></Column>
-      <Column header="Correction" style="min-width:140px"><template #body="{ data }"><Select v-model="data.correction_kind" :options="['original','reversal','adjustment']" fluid /></template></Column>
-      <Column header=""><template #body="{ data }"><Button icon="pi pi-copy" text aria-label="Duplicate row" @click="duplicateRow(data)" /></template></Column>
-    </DataTable>
-
-    <section v-if="activeBatch" class="cost-control-batch-panel">
-      <div><span class="eyebrow">Active batch</span><h2>{{ activeBatch.cost_state.replace('_', ' ') }}</h2></div>
-      <Tag :value="activeBatch.status" :severity="activeBatch.status === 'validated' ? 'success' : 'warn'" />
-      <span>{{ activeBatch.valid_rows }} valid · {{ activeBatch.error_rows }} errors · AFE {{ activeBatch.afe_snapshot_id ? 'linked' : 'missing' }}</span>
-      <Button label="Post immutable records" icon="pi pi-lock" :disabled="activeBatch.status === 'invalid'" :loading="posting" @click="postBatch" />
+    <section v-if="comparison" class="control-kpis">
+      <article><span>AFE budget</span><strong>${{ money(comparison.afe_budget) }}</strong><small>{{ Number(comparison.total_planned_days).toFixed(1) }} planned days</small></article>
+      <article><span>AFE Cost Estimate</span><strong>${{ money(comparison.estimate_total) }}</strong><small>Priced AFE lines</small></article>
+      <article><span>Daily Cost actual</span><strong class="primary">${{ money(comparison.cumulative_actual_cost) }}</strong><small>{{ comparison.days_elapsed }} entries logged</small></article>
+      <article><span>Budget remaining</span><strong :class="Number(comparison.variance_to_budget) < 0 ? 'danger' : 'success'">${{ money(comparison.variance_to_budget) }}</strong><small>{{ budgetUsed.toFixed(1) }}% of budget used</small></article>
+      <article><span>Estimate remaining</span><strong :class="Number(comparison.variance_to_estimate) < 0 ? 'danger' : 'success'">${{ money(comparison.variance_to_estimate) }}</strong><small>Estimate less actual</small></article>
     </section>
 
-    <section class="cost-control-history"><h2>Staging history</h2><DataTable :value="batches" show-gridlines class="bulk-grid-panel"><Column field="cost_state" header="Cost state" /><Column field="source_type" header="Source" /><Column field="total_rows" header="Rows" /><Column field="status" header="Status"><template #body="{ data }"><Tag :value="data.status" /></template></Column><Column field="created_at" header="Created" /></DataTable></section>
-
-    <Dialog v-model:visible="pasteVisible" modal header="Paste cost-control rows" :style="{ width: '760px' }"><p>Column order: date, document type, document reference, external ID, cost code, vendor, description, quantity, unit, currency, amount.</p><Textarea v-model="pasteText" rows="10" fluid /><template #footer><Button label="Apply rows" @click="applyPaste" /></template></Dialog>
+    <Tabs v-if="comparison" v-model:value="activeTab">
+      <TabList><Tab value="date">Daily reconciliation</Tab><Tab value="section">By section</Tab><Tab value="activity">By activity</Tab><Tab value="phase">By phase</Tab></TabList>
+      <TabPanels>
+        <TabPanel value="date"><DataTable :value="comparison.by_date" paginator :rows="25" striped-rows show-gridlines class="bulk-grid-panel"><Column field="entry_date" header="Date" /><Column field="phase" header="Phase" /><Column field="hole_section_code" header="Section" /><Column field="activity_name" header="Activity" /><Column header="Daily actual"><template #body="{ data }">${{ money(data.daily_cost) }}</template></Column><Column header="Cumulative"><template #body="{ data }"><strong>${{ money(data.cumulative_cost) }}</strong></template></Column><Column header="Planned cumulative"><template #body="{ data }">{{ data.planned_cumulative == null ? '—' : `$${money(data.planned_cumulative)}` }}</template></Column></DataTable></TabPanel>
+        <TabPanel value="section"><DataTable :value="comparison.by_section" striped-rows show-gridlines class="bulk-grid-panel"><Column field="label" header="Hole section" /><Column header="Planned estimate"><template #body="{ data }">{{ data.planned_cost == null ? '—' : `$${money(data.planned_cost)}` }}</template></Column><Column header="Actual"><template #body="{ data }">${{ money(data.total_cost) }}</template></Column><Column header="Variance"><template #body="{ data }"><strong :class="Number(data.variance ?? 0) < 0 ? 'danger' : 'success'">{{ data.variance == null ? '—' : `$${money(data.variance)}` }}</strong></template></Column></DataTable></TabPanel>
+        <TabPanel value="activity"><DataTable :value="comparison.by_sub_activity" striped-rows show-gridlines class="bulk-grid-panel"><Column field="activity_name" header="Activity" /><Column field="label" header="Sub-activity" /><Column field="responsible_party" header="Responsible party" /><Column header="Operational charges"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column><Column header="Quantity charges"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column><Column header="Actual total"><template #body="{ data }"><strong>${{ money(data.total_cost) }}</strong></template></Column></DataTable></TabPanel>
+        <TabPanel value="phase"><DataTable :value="comparison.by_phase" striped-rows show-gridlines class="bulk-grid-panel"><Column field="label" header="Phase" /><Column field="planned_days" header="Planned days" /><Column field="actual_days" header="Actual days" /><Column header="Actual total"><template #body="{ data }"><strong>${{ money(data.total_cost) }}</strong></template></Column></DataTable></TabPanel>
+      </TabPanels>
+    </Tabs>
   </div>
 </template>
+
+<style scoped>
+.control-selector { display: grid; grid-template-columns: repeat(3, minmax(200px, 1fr)); gap: 1rem; padding: 1rem; margin-bottom: 1rem; }
+.control-selector label, .control-selector > div { display: grid; gap: .35rem; color: var(--text-color-secondary); font-size: .75rem; text-transform: uppercase; }
+.control-selector strong { color: var(--text-color); font-size: 1rem; }
+.control-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .8rem; margin-bottom: 1rem; }
+.control-kpis article { display: grid; gap: .3rem; padding: 1rem; border: 1px solid var(--surface-border); border-radius: 10px; background: var(--surface-card); }
+.control-kpis span { color: var(--text-color-secondary); font-size: .75rem; text-transform: uppercase; } .control-kpis strong { font-size: 1.25rem; } .control-kpis small { color: var(--text-color-secondary); }
+.primary { color: var(--primary-color); } .success { color: #16a34a; } .danger { color: #dc2626; }
+@media (max-width: 760px) { .control-selector { grid-template-columns: 1fr; } }
+</style>

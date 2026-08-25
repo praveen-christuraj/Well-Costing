@@ -20,8 +20,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import AuditMixin, Base, TimestampMixin
 from app.domain.afe.rate_basis import RATE_BASES
-from app.models.master_data import CatalogItem, CostCode, HoleSection, Unit, sql_in
 from app.models.categories import SecondaryCategory
+from app.models.master_data import CatalogItem, CostCode, HoleSection, Unit, sql_in
 
 
 class Project(TimestampMixin, AuditMixin, Base):

@@ -54,7 +54,7 @@ function toPayload(row: EditableRow) {
 const blankRow = () => ({ code: '', name: '', cost_category_id: '', description: '', is_active: true })
 
 const description = computed(
-  () => 'Define the cost codes every AFE line is charged to. A cost code is a short, stable identifier that groups related spend for reporting — the AFE picks one per line and every later cost build, report, and posting rolls up under it.',
+  () => 'Define the cost codes every AFE line is charged to. A cost code is a short, stable identifier that groups related spend for reporting — the AFE picks one per line and AFE Cost Estimates, Daily Cost, Cost Control and reports roll up under it.',
 )
 </script>
 
@@ -80,8 +80,8 @@ const description = computed(
           <h3>What it is used for</h3>
           <ul>
             <li>Every AFE line is charged to exactly one cost code.</li>
-            <li>Cost builds roll line costs up by cost code and category.</li>
-            <li>Reports and Cost Control postings are filtered and summed by cost code.</li>
+            <li>AFE Cost Estimates roll planned line costs up by cost code and configured category.</li>
+            <li>Daily Cost, Reports and Cost Control are filtered and summed by cost code.</li>
             <li>It links the estimate to the actuals so variance is measured like-for-like.</li>
           </ul>
         </article>

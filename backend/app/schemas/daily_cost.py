@@ -5,14 +5,15 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Money = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
 OptionalMoney = Field(default=None, ge=0, max_digits=18, decimal_places=4)
 
 
 class DailyCostServiceLineInput(BaseModel):
-    service_id: UUID
+    afe_line_id: UUID | None = None
+    service_id: UUID | None = None
     cost_code_id: UUID
     vendor_id: UUID | None = None
     hole_section_id: UUID | None = None
@@ -26,15 +27,24 @@ class DailyCostServiceLineInput(BaseModel):
     override_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     remarks: str | None = None
 
+    @model_validator(mode="after")
+    def require_source(self) -> "DailyCostServiceLineInput":
+        if self.afe_line_id is None and self.service_id is None:
+            raise ValueError("afe_line_id is required for a configured AFE charge")
+        return self
+
 
 class DailyCostServiceLineRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     daily_cost_entry_id: UUID
-    service_id: UUID
+    afe_line_id: UUID | None = None
+    service_id: UUID | None = None
     service_code: str | None = None
     service_name: str | None = None
+    primary_category_name: str | None = None
+    secondary_category_name: str | None = None
     cost_code_id: UUID
     cost_code: str | None = None
     vendor_id: UUID | None = None
@@ -56,7 +66,8 @@ class DailyCostServiceLineRead(BaseModel):
 
 
 class DailyCostConsumableLineInput(BaseModel):
-    consumable_id: UUID
+    afe_line_id: UUID | None = None
+    consumable_id: UUID | None = None
     cost_code_id: UUID
     vendor_id: UUID | None = None
     sub_activity_id: UUID | None = None
@@ -66,15 +77,24 @@ class DailyCostConsumableLineInput(BaseModel):
     override_rate: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     remarks: str | None = None
 
+    @model_validator(mode="after")
+    def require_source(self) -> "DailyCostConsumableLineInput":
+        if self.afe_line_id is None and self.consumable_id is None:
+            raise ValueError("afe_line_id is required for a configured AFE charge")
+        return self
+
 
 class DailyCostConsumableLineRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     daily_cost_entry_id: UUID
-    consumable_id: UUID
+    afe_line_id: UUID | None = None
+    consumable_id: UUID | None = None
     consumable_code: str | None = None
     consumable_name: str | None = None
+    primary_category_name: str | None = None
+    secondary_category_name: str | None = None
     cost_code_id: UUID
     cost_code: str | None = None
     vendor_id: UUID | None = None
@@ -197,26 +217,39 @@ class DailyCostAnalyticsRead(BaseModel):
 
 
 class ReferenceServiceRate(BaseModel):
-    service_id: UUID
+    """Operational/time charge sourced from one AFE estimate line."""
+
+    afe_line_id: UUID
+    service_id: UUID | None = None
     service_code: str
     service_name: str
-    cost_code_id: UUID | None = None
+    primary_category_name: str | None = None
+    secondary_category_name: str | None = None
+    cost_code_id: UUID
     cost_code: str
     vendor_id: UUID | None = None
     vendor_name: str | None = None
     rate_basis: str
     operating_rate: Decimal
+    unit_id: UUID
     unit_code: str
 
 
 class ReferenceConsumableRate(BaseModel):
-    consumable_id: UUID
+    """Quantity charge sourced from one AFE estimate line."""
+
+    afe_line_id: UUID
+    consumable_id: UUID | None = None
     consumable_code: str
     consumable_name: str
-    item_type: str
-    cost_code_id: UUID | None = None
+    primary_category_name: str | None = None
+    secondary_category_name: str | None = None
+    cost_code_id: UUID
     cost_code: str
-    unit_id: UUID | None = None
+    vendor_id: UUID | None = None
+    vendor_name: str | None = None
+    rate_basis: str
+    unit_id: UUID
     unit_code: str
     unit_rate: Decimal
 

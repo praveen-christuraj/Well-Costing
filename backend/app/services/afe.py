@@ -12,11 +12,11 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import BusinessValidationError, ConflictError, NotFoundError
 from app.domain.afe.rate_basis import (
+    RATE_BASES,
     RateBasisError,
-    default_rate_basis,
+    normalize_rate_basis,
     requires_hole_section,
     resolve_planned_quantity,
-    validate_rate_basis,
 )
 from app.models.afe import (
     Afe,
@@ -28,8 +28,8 @@ from app.models.afe import (
     Project,
     Well,
 )
-from app.models.master_data import CostCode, HoleSection, Unit
 from app.models.categories import SecondaryCategory
+from app.models.master_data import CostCode, HoleSection, Unit
 from app.repositories.afe import (
     AfeLineRepository,
     AfeRepository,
@@ -703,9 +703,7 @@ class AfeService:
                         afe_id=afe.id,
                         sequence=sec_input.sequence or (idx + 1),
                         hole_section_id=sec_input.hole_section_id,
-                        phase=self._section_phase_name(
-                            sec_input, sec_input.phase or "Drilling"
-                        ),
+                        phase=self._section_phase_name(sec_input, sec_input.phase or "Drilling"),
                         planned_days=planned_days,
                         planned_depth_from=sec_input.planned_depth_from,
                         planned_depth_to=sec_input.planned_depth_to,
@@ -1067,24 +1065,15 @@ class AfeService:
         return self._read(afe, include_items=True)
 
     def delete(self, afe_id: UUID) -> None:
-        """Permanently delete an AFE, unless a Cost Builder estimate references it.
+        """Permanently delete an active AFE and its owned estimate rates.
 
-        The UI no longer uses a soft-deleted holding area for AFEs. Keeping a
-        linked AFE hidden would make the estimate and its source impossible to
-        manage, so the API returns a conflict with the dependency instead.
+        Daily Cost history keeps its well/date/amounts and its nullable AFE
+        header link is cleared by the database. No retired Cost Builder
+        dependency participates in this lifecycle.
         """
         afe = self.repository.get(afe_id)
         if afe is None:
             raise NotFoundError("AFE not found")
-        from app.models.estimates import CostEstimate
-        estimate_count = int(self.session.scalar(
-            select(func.count()).select_from(CostEstimate).where(CostEstimate.afe_id == afe.id)
-        ) or 0)
-        if estimate_count:
-            raise ConflictError(
-                f"AFE '{afe.code}' is linked to {estimate_count} Cost Builder estimate(s). "
-                "Delete those estimates first, then delete the AFE."
-            )
         code = afe.code
         self.session.delete(afe)
         self.session.flush()
@@ -1092,13 +1081,7 @@ class AfeService:
         self.session.commit()
 
     def hard_delete(self, afe_id: UUID) -> None:
-        """Permanently delete a soft-deleted AFE.
-
-        The AFE's own sections, lines, and audit trail are removed with it. A
-        clear conflict is raised when other records (cost estimates built in the
-        Cost Builder) still reference the AFE, instead of an unhandled database
-        error.
-        """
+        """Permanently delete a soft-deleted AFE and its owned estimate rates."""
 
         afe = self.repository.get(afe_id)
         if afe is None:
@@ -1106,20 +1089,6 @@ class AfeService:
         if afe.is_active:
             raise BusinessValidationError(
                 "AFE must be soft-deleted before permanent deletion. Soft-delete it first."
-            )
-        from app.models.estimates import CostEstimate
-
-        estimate_count = int(
-            self.session.scalar(
-                select(func.count()).select_from(CostEstimate).where(CostEstimate.afe_id == afe.id)
-            )
-            or 0
-        )
-        if estimate_count:
-            raise ConflictError(
-                f"AFE '{afe.code}' still has {estimate_count} cost estimate(s) built from it "
-                "in the Cost Builder. Delete those estimates first (Cost Builder → Delete → "
-                "Delete forever), then permanently delete the AFE."
             )
         # Keep code for audit before deletion
         code = afe.code
@@ -1168,14 +1137,8 @@ class AfeService:
         and imported rows keep working unchanged.
         """
         if sec_input.phases:
-            return sum(
-                (ph.planned_days for ph in sec_input.phases if ph.is_active), Decimal("0")
-            )
-        return (
-            sec_input.planned_days
-            if sec_input.planned_days is not None
-            else Decimal("0")
-        )
+            return sum((ph.planned_days for ph in sec_input.phases if ph.is_active), Decimal("0"))
+        return sec_input.planned_days if sec_input.planned_days is not None else Decimal("0")
 
     @staticmethod
     def _section_phase_name(sec_input: AfeSectionCreate, legacy: str) -> str:
@@ -1564,10 +1527,11 @@ class AfeLineService:
         if cost_code is None or not cost_code.is_active:
             raise BusinessValidationError("cost_code_id must reference an active record")
         if cost_code.cost_category.secondary_category_id != secondary.id:
-            raise BusinessValidationError("cost_code_id is not configured for the selected secondary category")
-        catalogue_basis = None
+            raise BusinessValidationError(
+                "cost_code_id is not configured for the selected secondary category"
+            )
 
-        # A service flagged as applying to all sections has no single section;
+        # A line flagged as applying to all sections has no single section;
         # clear any section that may have been carried over from the client.
         if values.get("applies_to_all_sections"):
             values["hole_section_id"] = None
@@ -1586,11 +1550,11 @@ class AfeLineService:
             )
 
         try:
-            basis = (
-                validate_rate_basis(None, values["rate_basis"])
-                if values.get("rate_basis")
-                else default_rate_basis(None, catalogue_basis)
-            )
+            basis = normalize_rate_basis(values.get("rate_basis") or "per_unit")
+            if basis not in RATE_BASES:
+                raise RateBasisError(
+                    f"rate_basis '{basis}' is not valid; use one of {', '.join(RATE_BASES)}"
+                )
             resolved = resolve_planned_quantity(
                 rate_basis=basis,
                 quantity=values.get("quantity"),
@@ -1613,54 +1577,19 @@ class AfeLineService:
 
     @staticmethod
     def _line_item_identity(item: AfeLine) -> tuple[str | None, str | None, str | None]:
+        """Preserve historical catalogue identity without guessing a type.
+
+        New AFE lines use the user-configured primary/secondary classification.
+        Their calculation method is the explicitly selected rate basis.
+        """
         if item.catalog_item is not None:
             return item.catalog_item.code, item.catalog_item.name, item.catalog_item.item_type
         secondary = item.secondary_category
-        primary = secondary.primary_category if secondary else None
         return (
             secondary.code if secondary else None,
             secondary.name if secondary else None,
-            AfeLineService._infer_item_type(
-                primary.code if primary else None,
-                primary.name if primary else None,
-                item.rate_basis,
-            ),
+            None,
         )
-
-    @staticmethod
-    def _infer_item_type(
-        primary_code: str | None,
-        primary_name: str | None,
-        rate_basis: str | None,
-    ) -> str | None:
-        mapping = {
-            "SERVICE": "service",
-            "SERVICES": "service",
-            "TANGIBLE": "tangible",
-            "TANGIBLES": "tangible",
-            "MATERIAL": "material",
-            "MATERIALS": "material",
-            "EQUIPMENT": "equipment",
-            "MUDCHEMICAL": "mud_chemical",
-            "MUDCHEMICALS": "mud_chemical",
-            "CEMENTADDITIVE": "cement_additive",
-            "CEMENTADDITIVES": "cement_additive",
-        }
-        for candidate in (primary_code, primary_name):
-            key = AfeLineService._normalise_item_scope(candidate)
-            if key in mapping:
-                return mapping[key]
-        if rate_basis in {"daily", "per_service", "per_section"}:
-            return "service"
-        if rate_basis == "daily_consumption":
-            return "mud_chemical"
-        if rate_basis == "per_unit":
-            return "tangible"
-        return None
-
-    @staticmethod
-    def _normalise_item_scope(value: str | None) -> str:
-        return "".join(character for character in (value or "").upper() if character.isalnum())
 
     @staticmethod
     def read(item: AfeLine) -> AfeLineRead:

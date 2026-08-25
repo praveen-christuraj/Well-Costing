@@ -20,9 +20,12 @@ export const SERVICE_TYPES: { label: string, value: ServiceType }[] = [
 export interface DailyCostServiceLine {
   id?: string
   daily_cost_entry_id?: string
-  service_id: string
+  afe_line_id: string | null
+  service_id: string | null
   service_code?: string | null
   service_name?: string | null
+  primary_category_name?: string | null
+  secondary_category_name?: string | null
   cost_code_id: string
   cost_code?: string | null
   vendor_id?: string | null
@@ -44,9 +47,12 @@ export interface DailyCostServiceLine {
 export interface DailyCostConsumableLine {
   id?: string
   daily_cost_entry_id?: string
-  consumable_id: string
+  afe_line_id: string | null
+  consumable_id: string | null
   consumable_code?: string | null
   consumable_name?: string | null
+  primary_category_name?: string | null
+  secondary_category_name?: string | null
   cost_code_id: string
   cost_code?: string | null
   vendor_id?: string | null
@@ -172,25 +178,34 @@ export interface DailyCostAnalytics {
 }
 
 export interface ReferenceServiceRate {
-  service_id: string
+  afe_line_id: string
+  service_id: string | null
   service_code: string
   service_name: string
+  primary_category_name?: string | null
+  secondary_category_name?: string | null
   cost_code_id: string
   cost_code: string
   vendor_id?: string | null
   vendor_name?: string | null
   rate_basis: 'daily' | 'per_service' | 'per_section' | 'fixed'
   operating_rate: number
+  unit_id: string
   unit_code: string
 }
 
 export interface ReferenceConsumableRate {
-  consumable_id: string
+  afe_line_id: string
+  consumable_id: string | null
   consumable_code: string
   consumable_name: string
-  item_type: string
+  primary_category_name?: string | null
+  secondary_category_name?: string | null
   cost_code_id: string
   cost_code: string
+  vendor_id?: string | null
+  vendor_name?: string | null
+  rate_basis: 'per_unit' | 'daily_consumption'
   unit_id: string
   unit_code: string
   unit_rate: number

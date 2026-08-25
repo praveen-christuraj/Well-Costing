@@ -1,366 +1,57 @@
 <script setup lang="ts">
-/** Help & user manual — the end-to-end guide to how the modules link together. */
 import PageHeader from '~/components/design-system/PageHeader.vue'
-
 definePageMeta({ middleware: 'auth' })
-
 const sections = [
-  { id: 'overview', label: 'How the modules link together' },
-  { id: 'workflow', label: 'Recommended workflow' },
-  { id: 'master-data', label: 'Master Data — start here' },
-  { id: 'afe-backbone', label: 'AFE — the costing backbone' },
-  { id: 'reopen-afe', label: 'Reopening submitted AFEs & audit' },
-  { id: 'deleted-afes', label: 'Deleted AFEs & recovery' },
-  { id: 'audit-log', label: 'Audit Log' },
-  { id: 'cost-builder-vs-daily', label: 'AFE Cost Estimates vs Daily Cost' },
-  { id: 'daily-cost', label: 'Daily Cost Entry & analytics' },
-  { id: 'cost-control', label: 'Cost Control & postings' },
-  { id: 'reports', label: 'Reports & export' },
-  { id: 'assurance', label: 'Assurance' },
-  { id: 'administration', label: 'Administration' },
+  { id: 'flow', label: 'Data flow' },
+  { id: 'master-data', label: '1. Master Data' },
+  { id: 'afe', label: '2. AFE' },
+  { id: 'estimate', label: '3. AFE Cost Estimates' },
+  { id: 'activities', label: '4. Well Activities' },
+  { id: 'daily', label: '5. Daily Cost' },
+  { id: 'analytics', label: '6. Analytics & Cost Control' },
+  { id: 'reports', label: '7. Reports' },
+  { id: 'audit', label: '8. Audit & Assurance' },
 ]
 </script>
 
 <template>
   <div class="help-page">
-    <PageHeader
-      title="Help & User Manual"
-      description="Comprehensive guide explaining module roles, AFE backbone planning, reopening submitted AFEs, AFE Cost Estimates pricing, Daily Cost tracking, and cost analytics."
-    />
-
+    <PageHeader title="Help & User Manual" description="The end-to-end workflow from configured Master Data to AFE planning, priced estimates, Daily Cost actuals, reports and audit." />
     <div class="help-layout">
-      <nav class="help-toc" aria-label="Help contents">
-        <a v-for="section in sections" :key="section.id" :href="`#${section.id}`">{{ section.label }}</a>
-      </nav>
-
+      <nav class="help-toc" aria-label="Help contents"><a v-for="section in sections" :key="section.id" :href="`#${section.id}`">{{ section.label }}</a></nav>
       <main class="help-body">
-        <!-- Overview -->
-        <section id="overview" class="help-section">
-          <h2>How the modules link together</h2>
-          <p>
-            The application is an end-to-end well costing and execution pipeline. Information flows in a structured sequence:
-          </p>
-          <ol class="help-flow">
-            <li><strong>Master Data</strong> — reference catalogues: services, tangibles, mud chemicals, cement additives, vendors, units, and rates.</li>
-            <li><strong>AFE (Authorisation for Expenditure)</strong> — the technical and financial backbone of the well: budget amount, hole sections, phases, planned days, and depths.</li>
-            <li><strong>AFE Cost Estimates</strong> — prices the AFE: every AFE line receives its well-scoped unit rate here, and the saved rates are the single source of rates for daily cost entry. Export and print the priced AFE for records.</li>
-            <li><strong>Daily Cost</strong> — operational field tracking: records daily service hours (hours/24 = operating days × rate) and chemical usage (qty × unit rate), comparing live spend against the AFE budget and generating end-of-well forecasts.</li>
-            <li><strong>Cost Control</strong> — stages and posts multi-state financial transactions (field estimates, commitments, accruals, actuals, forecasts).</li>
-            <li><strong>Reports & Assurance</strong> — multidimensional variance analytics and formal approval governance.</li>
-          </ol>
+        <section id="flow" class="help-section">
+          <h2>One active data flow</h2>
+          <ol class="help-flow"><li><strong>Master Data</strong> supplies user-configured classifications, cost codes, units, sections, vendors and catalogue references.</li><li><strong>AFE</strong> defines the well budget, section/phase plan and classified cost scope.</li><li><strong>AFE Cost Estimates</strong> saves the well-scoped rate for each AFE line.</li><li><strong>Well Activities</strong> defines Planned/NPT/UPA accountability and responsible parties.</li><li><strong>Daily Cost</strong> records actual operational and quantity charges using AFE estimate rates.</li><li><strong>Cost Analytics, Cost Control and Reports</strong> compare AFE plan and estimate directly with Daily Cost actuals.</li></ol>
         </section>
 
-        <!-- Workflow -->
-        <section id="workflow" class="help-section">
-          <h2>Recommended workflow</h2>
-          <ol class="help-steps">
-            <li>Set up <strong>Master Data</strong>: units, currencies, hole sections, cost codes, vendors, services, and chemicals.</li>
-            <li>Open <strong>AFE</strong>: register the <strong>Project</strong>, then the <strong>Well</strong>.</li>
-            <li>Create the <strong>AFE</strong> on the AFEs tab: enter the budget amount and configure the <strong>Well Section & Phase Breakdown</strong> (hole sizes, configurable phases, planned days, and depths).</li>
-            <li>On the <strong>AFE Lines</strong> tab, add planned services and chemicals. (Daily consumption chemicals multiply daily usage by the section's planned days).</li>
-            <li><strong>Submit</strong> the AFE. If changes are later needed, use <strong>Reopen AFE</strong> with mandatory remarks.</li>
-            <li>Open <strong>AFE Cost Estimates</strong> and input the well-scoped unit rate for every AFE line; export or print the priced AFE for records.</li>
-            <li>Configure the <strong>Well Activities</strong> page (Planned, NPT-1, UPA-1, …) — daily cost entry requires the day's activity type so Planned / NPT / UPA spend is accounted properly.</li>
-            <li>During drilling/operations, open <strong>Daily Cost</strong> to record daily service hours and chemical usage. Unit rates come from the AFE Cost Estimates (override available per line), tracking burn rate, balance amount, and 5/7-day trends.</li>
-            <li>Review the planned-versus-actual comparison in <strong>Cost Analytics</strong> — section-wise, activity-wise, phase-wise, date-wise, cumulative, week-wise, and month-wise — plus reconciliation charts in <strong>Reports</strong>.</li>
-          </ol>
-        </section>
+        <section id="master-data" class="help-section"><h2>1. Master Data</h2><p>Configure the classification hierarchy first: Primary → Secondary → Tertiary. AFE lines select the Primary and Secondary categories you created; Cost Estimates display those exact values rather than guessing a service/tangible/other type.</p><ul class="help-list"><li>Configure cost categories and cost codes against the same classification.</li><li>Configure units, hole sections, vendors and phases before planning an AFE.</li><li>Use Administration → Dropdown Sources when a picker must read another approved master-data source.</li><li>Every master-data register supports bulk entry, import, export and print.</li></ul></section>
 
-        <!-- Master Data -->
-        <section id="master-data" class="help-section">
-          <h2>Master Data — start here</h2>
-          <p>
-            Master Data provides the foundational reference records used across the entire platform:
-          </p>
-          <div class="help-table-wrap">
-            <table class="help-table">
-              <thead>
-                <tr><th>Page</th><th>What it holds</th><th>Used by</th></tr>
-              </thead>
-              <tbody>
-                <tr><td>Units of Measure</td><td>UOMs such as M, FT, DAY, EA, BBL, SACK</td><td>Quantities, depths, rates</td></tr>
-                <tr><td>Currencies</td><td>Currency codes such as USD, GBP, EUR</td><td>Rates, orders, reporting</td></tr>
-                <tr><td>Hole Sections</td><td>Well hole sizes (e.g. 36", 26", 17-1/2", 12-1/4", 8-1/2", 6")</td><td>AFE section planning & lines</td></tr>
-                <tr><td>Cost Categories & Codes</td><td>Classification hierarchy (e.g. Rig, Fluids, Directional)</td><td>AFE lines, Daily Cost, Postings</td></tr>
-                <tr><td>Vendors</td><td>Suppliers and service providers</td><td>Rate books and purchase orders</td></tr>
-                <tr><td>Services & Consumables</td><td>Catalog of services, mud chemicals, cement additives</td><td>AFE lines and Daily Cost logs</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <section id="afe" class="help-section"><h2>2. AFE</h2><p>Create Project → Well → AFE. Enter the authorised budget, planned depth, sections and phases. Then add cost-scope lines by selecting the user-configured Primary Category, Secondary Category, cost code, rate basis, quantity and unit.</p><ul class="help-list"><li><strong>Rate basis is the calculation method:</strong> daily, per section, per service, fixed, per unit or daily usage.</li><li>Submit when the scope is ready. Reopening requires remarks and is audited.</li><li>Print and export produce the current AFE scope with any rates already saved in AFE Cost Estimates.</li></ul></section>
 
-        <!-- AFE Backbone -->
-        <section id="afe-backbone" class="help-section">
-          <h2>AFE — The Costing Backbone</h2>
-          <p>
-            The AFE is the central technical and financial anchor for the well:
-          </p>
-          <ul class="help-list">
-            <li><strong>Budget Amount:</strong> The authorised spending limit for the well.</li>
-            <li><strong>Section & Phase Breakdown:</strong> Established on the <strong>AFEs tab</strong> before entering line items. Users enter the hole sections, operational phases (e.g. Drilling, Logging, Casing & Cementing, Completion), planned days, and planned depth intervals.</li>
-            <li><strong>Configurable Phases:</strong> Operational phases are fully configurable by the user via the "Configure Phases" button.</li>
-            <li><strong>Streamlined AFE Lines:</strong> On the AFE lines grid, planned days and depths are not repeated on every row. Chemical daily usage automatically multiplies by the configured section planned days.</li>
-          </ul>
-        </section>
+        <section id="estimate" class="help-section"><h2>3. AFE Cost Estimates</h2><p>Select a well and AFE, then enter the unit/fixed rate, optional vendor and remarks for every AFE line. Estimated amount is quantity × rate. Summaries use the configured Primary/Secondary categories, hole sections and cost codes.</p><p>The saved rate is the default in Daily Cost. A Daily Cost override is allowed for an exceptional day and remains visible in that day record.</p></section>
 
-        <!-- Reopen AFE -->
-        <section id="reopen-afe" class="help-section">
-          <h2>Reopening Submitted AFEs & Audit Trail</h2>
-          <p>
-            Submitted AFEs can be edited when operational changes occur:
-          </p>
-          <ul class="help-list">
-            <li>Click <strong>"Reopen AFE"</strong> on the AFEs tab or AFE Lines tab.</li>
-            <li>A mandatory <strong>Remarks / Reason</strong> must be provided explaining the purpose of the revision.</li>
-            <li>The system records an immutable <strong>Audit Log entry</strong> capturing who reopened the AFE, the timestamp, previous status, and the remarks.</li>
-            <li>Once reopened, lines, sections, and rates can be freely modified. All changes remain <strong>well-scoped</strong> (affecting only that well).</li>
-            <li>When modifications are complete, click <strong>"Resubmit"</strong> to seal the updated baseline.</li>
-          </ul>
-        </section>
+        <section id="activities" class="help-section"><h2>4. Well Activities</h2><p>Configure well-specific sub-activities under the master activities (for example Planned, NPT and UPA), including the responsible party. Daily Cost requires the day activity so reports can show cost accountability.</p></section>
 
-        <!-- Deleted AFEs -->
-        <section id="deleted-afes" class="help-section">
-          <h2>Deleted AFEs & Recovery</h2>
-          <p>
-            Both draft and submitted AFEs can be soft-deleted. Hard-deletion is only allowed from the Deleted AFEs area.
-          </p>
-          <ul class="help-list">
-            <li><strong>Soft-delete:</strong> Click the trash icon on any AFE (draft or submitted). The AFE is moved to the <strong>Deleted AFEs</strong> tab and remains recoverable with all its lines, sections, and audit history intact.</li>
-            <li><strong>Deleted AFEs tab:</strong> Lists every soft-deleted AFE with its deleted timestamp. From here you can <strong>Recover</strong> or <strong>Delete forever</strong>.</li>
-            <li><strong>Recovery guard:</strong> If any active AFE already exists on the main AFEs tab, recovery is blocked — you must delete the active AFE first. This prevents duplicate active AFEs and keeps the financial backbone unambiguous.</li>
-            <li><strong>Permanent delete:</strong> In Deleted AFEs, click <strong>Delete forever</strong> to hard-delete the AFE and its orphaned lines/sections. This action is logged to the global Audit Log.</li>
-            <li><strong>Master Data:</strong> Reference records (units, vendors, services, hole sections, etc.) follow the same pattern: soft-delete via the grid, then recover or hard-delete when <strong>Include inactive</strong> is enabled. The grid shows <strong>Recover</strong> and <strong>Permanently delete</strong> for inactive rows, and recovery is blocked if an active record with the same code already exists.</li>
-            <li><strong>Well Activities:</strong> Sub-activities such as Planned, NPT-1, and UPA-1 are edited with <strong>Save All</strong>. Delete always prompts, deactivates the selected sub-activity rather than removing its history, and exposes it under <strong>Deleted</strong> for recovery.</li>
-          </ul>
-        </section>
+        <section id="daily" class="help-section"><h2>5. Daily Cost</h2><p>Daily Cost loads only lines from the governing AFE and their rates from AFE Cost Estimates. The selected AFE rate basis decides the entry calculation:</p><div class="help-table-wrap"><table class="help-table"><thead><tr><th>Rate basis</th><th>Daily calculation</th></tr></thead><tbody><tr><td>Daily</td><td>Hours ÷ 24 × estimate rate</td></tr><tr><td>Per section / per service / fixed</td><td>Estimate rate once for the entered charge</td></tr><tr><td>Per unit / daily usage</td><td>Used quantity × estimate rate</td></tr></tbody></table></div><p>Save the operational summary, phase, section, depth, progress and activity. The page recalculates cumulative actual, remaining AFE budget, burn rate and forecast.</p></section>
 
-        <!-- Audit Log -->
-        <section id="audit-log" class="help-section">
-          <h2>Audit Log</h2>
-          <p>
-            Every user action is recorded to an immutable <strong>Audit Log</strong> for compliance, displayed at <strong>Audit Log</strong> in the sidebar.
-          </p>
-          <ul class="help-list">
-            <li><strong>Logged from login onward:</strong> login, create, update, submit, reopen, resubmit, soft-delete, recover, hard-delete, import, export, calculation, workflow, and bulk operations across AFE, projects, wells, activities, daily cost, enterprise configuration, master data, phases, and rates.</li>
-            <li><strong>What is stored:</strong> actor (email), timestamp, action, entity type, entity code, and a JSON details payload (e.g. previous status, remarks, or changed fields).</li>
-            <li><strong>Filtering:</strong> Search by actor, entity, or code; filter by action or entity type; paginate through history. The log is append-only and never edited.</li>
-            <li><strong>AFE audit vs global audit:</strong> The AFE detail also shows a per-AFE trail (created, submitted, reopened, soft-deleted, recovered). The global Audit Log aggregates these plus every master-data change for enterprise-wide oversight.</li>
-          </ul>
-        </section>
+        <section id="analytics" class="help-section"><h2>6. Cost Analytics & Cost Control</h2><p><strong>Cost Analytics</strong> provides charts and tables by date, week, month, section, phase, activity and responsible party. <strong>Cost Control</strong> provides the reconciliation view:</p><p><code>AFE budget → AFE Cost Estimate → Daily Cost actual → remaining/variance</code></p><p>Both pages export the same active source chain to Excel; Cost Control also prints a control sheet.</p></section>
 
-        <!-- AFE Cost Estimates vs Daily Cost -->
-        <section id="cost-builder-vs-daily" class="help-section">
-          <h2>AFE Cost Estimates vs Daily Cost Entry</h2>
-          <div class="help-table-wrap">
-            <table class="help-table">
-              <thead>
-                <tr><th>Feature</th><th>AFE Cost Estimates (Planning)</th><th>Daily Cost Entry (Execution)</th></tr>
-              </thead>
-              <tbody>
-                <tr><td><strong>Purpose</strong></td><td>Prices the AFE: well-scoped unit rates for every AFE line</td><td>Real-time operational daily cost tracking</td></tr>
-                <tr><td><strong>Timing</strong></td><td>Planning phase, after AFE lines are added</td><td>Daily during active drilling &amp; completion</td></tr>
-                <tr><td><strong>Input data</strong></td><td>Unit rate (and optional vendor/remarks) per AFE line</td><td>Service hours (0-24), chemical quantities, activity type (Planned / NPT / UPA)</td></tr>
-                <tr><td><strong>Calculation</strong></td><td>Quantity × unit rate = estimated amount; totals by section, item type, and cost code</td><td>Hours/24 × rate basis; Qty × unit rate; cumulative spend. Rates come from the AFE Cost Estimates with per-line override</td></tr>
-                <tr><td><strong>Key Output</strong></td><td>The priced AFE — exportable and printable for records</td><td>Daily burn rate, remaining AFE balance, end-of-well forecast, daily reports</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <section id="reports" class="help-section"><h2>7. Reports</h2><p>Select and generate any of these live reports: AFE Register, AFE Cost Estimate Detail, Daily Cost Register, Cost Performance, or Well Activities & Accountability. Filter by project, well, AFE and—where relevant—date range. The displayed result can be printed or exported to Excel.</p></section>
 
-        <!-- Daily Cost -->
-        <section id="daily-cost" class="help-section">
-          <h2>Daily Cost Entry & Comparative Analytics</h2>
-          <p>
-            The <strong>Daily Cost</strong> module provides live rig-site operational tracking:
-          </p>
-          <ul class="help-list">
-            <li><strong>Activity Type (mandatory):</strong> Each day log records its activity type — a well-scoped sub-activity (e.g. Planned, NPT-1, UPA-1) configured on the <strong>Well Activities</strong> page. This accounts every cost to Planned, NPT, or UPA and its responsible party.</li>
-            <li><strong>Unit Rates:</strong> Rates are read from the <strong>AFE Cost Estimates</strong> of the well's AFE — the single source of unit rates. A per-line override remains available for exceptional days and is stored with the entry.</li>
-            <li><strong>Service Hours Calculation:</strong> User enters the hours a service was active on that date (e.g. 12h, 24h). The system divides by 24 to compute operating days (e.g. 12h = 0.5000 days), and multiplies by the daily rate (or charges fixed / per-section / per-service rate).</li>
-            <li><strong>Chemicals & Additives:</strong> User enters the quantity of mud chemicals or cement additives used; the system multiplies by unit rate.</li>
-            <li><strong>AFE Balance Comparison:</strong> Live calculation of <code>Balance = AFE Budget - Cumulative Actual Spend</code>.</li>
-            <li><strong>Burn Rate & Forecast:</strong> Calculates average daily burn rate (<code>Cumulative / Days Elapsed</code>) and projects total cost at completion (<code>Cumulative + Remaining Planned Days × Burn Rate</code>).</li>
-            <li><strong>Trend & Drill-Through Charts:</strong> Toggle between Last 5 Days, Last 7 Days, and Full Drill-Through to analyze service consumption and daily spend trends.</li>
-            <li><strong>Daily Reports:</strong> Every saved day log can be printed or exported as a daily cost report, and the full daily cost register exports to Excel for records.</li>
-            <li><strong>Delete and recover:</strong> Use <strong>Delete Day Log</strong> only after confirming the prompt. The log is soft-deleted, removed from analytics, retained in <strong>Deleted Logs</strong>, and every edit/delete/recovery is recorded in the global Audit Log.</li>
-          </ul>
-        </section>
-
-        <!-- Cost Control -->
-        <section id="cost-control" class="help-section">
-          <h2>Cost Control & Staging</h2>
-          <p>
-            Cost Control stages and reconciles financial transactions across distinct recognition states:
-            commitments (POs/SOs), accruals (earned services), booked actuals (invoices), and financial forecasts.
-          </p>
-        </section>
-
-        <!-- Reports -->
-        <section id="reports" class="help-section">
-          <h2>Reports</h2>
-          <p>
-            Reports join plan dimensions (from the AFE and its Cost Estimates) with actual spend (from Daily Cost and Cost Control) across shared dimensions: project, well, AFE, cost code, vendor, and currency.
-          </p>
-        </section>
-
-        <!-- Assurance -->
-        <section id="assurance" class="help-section">
-          <h2>Assurance</h2>
-          <p>
-            Tracks review, verification, and sign-off workflows for cost estimates and AFE revisions.
-          </p>
-        </section>
-
-        <!-- Administration -->
-        <section id="administration" class="help-section">
-          <h2>Administration</h2>
-          <p>
-            Enterprise costing hierarchy, organization nodes, cost structures, and corporate rate books.
-          </p>
-        </section>
+        <section id="audit" class="help-section"><h2>8. Audit Log & Assurance</h2><p>The Audit Log is append-only and records actor, time, action, entity and details. Filter the complete trail, then print or export all matching rows—not only the current page. Assurance checks that AFE classifications, estimate rates, Daily Cost sources/totals and Well Activity links remain consistent.</p></section>
       </main>
     </div>
   </div>
 </template>
 
 <style scoped>
-.help-page {
-  width: min(1540px, 100%);
-  margin: 0 auto;
-}
-
-.help-layout {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 24px;
-  align-items: start;
-}
-
-.help-toc {
-  position: sticky;
-  top: calc(var(--layout-topbar-height) + 16px);
-  display: grid;
-  gap: 2px;
-  padding: 10px;
-  border: 1px solid var(--app-border);
-  border-radius: 11px;
-  background: white;
-  box-shadow: var(--app-shadow);
-}
-
-.help-toc a {
-  padding: 7px 10px;
-  border-radius: 7px;
-  color: var(--app-muted);
-  font-size: .78rem;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.help-toc a:hover {
-  background: #eef3f6;
-  color: var(--app-ink);
-}
-
-.help-body {
-  display: grid;
-  gap: 18px;
-  min-width: 0;
-}
-
-.help-section {
-  padding: 20px 24px;
-  border: 1px solid var(--app-border);
-  border-radius: 12px;
-  background: white;
-  box-shadow: var(--app-shadow);
-  scroll-margin-top: calc(var(--layout-topbar-height) + 16px);
-}
-
-.help-section h2 {
-  margin: 0 0 12px;
-  font-size: 1.12rem;
-}
-
-.help-section p {
-  margin: 0 0 12px;
-  color: var(--app-ink);
-  line-height: 1.65;
-}
-
-.help-flow,
-.help-steps {
-  margin: 0 0 12px;
-  padding-left: 20px;
-  line-height: 1.7;
-}
-
-.help-flow li,
-.help-steps li {
-  margin-bottom: 6px;
-}
-
-.help-list {
-  margin: 0 0 12px;
-  padding-left: 20px;
-  line-height: 1.7;
-}
-
-.help-list li {
-  margin-bottom: 6px;
-}
-
-.help-table-wrap {
-  overflow-x: auto;
-  margin-bottom: 12px;
-}
-
-.help-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: .8rem;
-}
-
-.help-table th,
-.help-table td {
-  padding: 8px 10px;
-  border: 1px solid var(--app-border);
-  text-align: left;
-  vertical-align: top;
-}
-
-.help-table thead th {
-  background: #eef3f6;
-  font-size: .72rem;
-  font-weight: 750;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-}
-
-.help-note {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding: 10px 14px;
-  border: 1px solid #bfdbfe;
-  border-radius: 8px;
-  background: #eff6ff;
-  color: #1e40af;
-  font-size: .8rem;
-}
-
-.help-note .pi {
-  margin-top: 2px;
-  flex-shrink: 0;
-}
-
-@media (max-width: 900px) {
-  .help-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .help-toc {
-    position: static;
-  }
-}
+.help-page { width: min(1540px, 100%); margin: 0 auto; }
+.help-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 24px; align-items: start; }
+.help-toc { position: sticky; top: 86px; display: grid; gap: .2rem; padding: .8rem; border: 1px solid var(--surface-border); border-radius: 10px; background: var(--surface-card); }
+.help-toc a { padding: .55rem .7rem; border-radius: 6px; color: var(--text-color); text-decoration: none; } .help-toc a:hover { background: var(--surface-hover); color: var(--primary-color); }
+.help-body { min-width: 0; } .help-section { scroll-margin-top: 90px; margin-bottom: 1rem; padding: 1.2rem 1.4rem; border: 1px solid var(--surface-border); border-radius: 10px; background: var(--surface-card); }
+.help-section h2 { margin-top: 0; } .help-flow, .help-list { display: grid; gap: .5rem; line-height: 1.55; }
+.help-table { width: 100%; border-collapse: collapse; } .help-table th, .help-table td { padding: .65rem; border: 1px solid var(--surface-border); text-align: left; } .help-table th { background: var(--surface-100); }
+@media (max-width: 850px) { .help-layout { grid-template-columns: 1fr; } .help-toc { position: static; grid-template-columns: repeat(2, 1fr); } }
 </style>

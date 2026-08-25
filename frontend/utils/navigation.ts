@@ -30,8 +30,7 @@ export const appNavigation: AppNavigationItem[] = [
   { key: 'reports', label: 'Reports', icon: 'pi pi-chart-bar', to: '/reports', enabled: true },
   { key: 'assurance', label: 'Assurance', icon: 'pi pi-shield', to: '/assurance', enabled: true },
   { key: 'audit', label: 'Audit Log', icon: 'pi pi-history', to: '/audit', enabled: true },
-  { key: 'administration', label: 'Administration', icon: 'pi pi-cog', to: '/administration/enterprise', enabled: true },
-  { key: 'dropdown-sources', label: 'Dropdown Sources', icon: 'pi pi-sliders-h', to: '/administration/dropdowns', enabled: true },
+  { key: 'dropdown-sources', label: 'Administration', icon: 'pi pi-sliders-h', to: '/administration/dropdowns', enabled: true },
   { key: 'help', label: 'Help', icon: 'pi pi-question-circle', to: '/help', enabled: true },
 ]
 
@@ -43,7 +42,7 @@ const GROUPS: { key: string, label: string, keys: string[] }[] = [
   { key: 'foundation', label: 'Master Data', keys: ['master-data'] },
   { key: 'planning', label: 'Planning', keys: ['afe', 'afe-cost-estimates'] },
   { key: 'execution', label: 'Execution', keys: ['daily-cost', 'well-activities', 'cost-analytics', 'cost-control', 'reports', 'assurance', 'audit'] },
-  { key: 'configuration', label: 'Configuration', keys: ['administration', 'dropdown-sources'] },
+  { key: 'configuration', label: 'Configuration', keys: ['dropdown-sources'] },
   { key: 'support', label: 'Support', keys: ['help'] },
 ]
 

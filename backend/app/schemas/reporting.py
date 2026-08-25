@@ -1,80 +1,53 @@
-"""Phase 9 reporting filters, pending summaries, and shared-dimension drill-through."""
+"""Operational report contracts sourced from the active well-costing workflow."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-CostStateFilter = Literal["field_estimate", "commitment", "accrual", "actual", "forecast"]
+ReportType = Literal[
+    "afe_register",
+    "afe_cost_estimate",
+    "daily_cost",
+    "cost_performance",
+    "well_activities",
+]
+ReportCell = str | int | float | Decimal | date | datetime | None
 
 
-class CostReportFilters(BaseModel):
-    project_code: str | None = None
-    well_code: str | None = None
-    afe_code: str | None = None
-    estimate_code: str | None = None
-    afe_number: str | None = None
-    cost_state: CostStateFilter | None = None
+class ReportFilters(BaseModel):
+    report_type: ReportType = "afe_register"
+    project_id: UUID | None = None
+    well_id: UUID | None = None
+    afe_id: UUID | None = None
     date_from: date | None = None
     date_to: date | None = None
-    cost_code: str | None = None
-    cost_category_code: str | None = None
-    item_nature: str | None = None
-    vendor_code: str | None = None
-    currency_code: str | None = None
-    source_document_reference: str | None = None
 
 
-class ReportingDimension(BaseModel):
+class ReportColumn(BaseModel):
     key: str
     label: str
-    available: bool
+    format: Literal["text", "number", "money", "date", "status"] = "text"
 
 
-class PendingStateSummary(BaseModel):
-    cost_state: str
-    transaction_count: int
-    amount: Decimal | None
-    currency_code: str | None
+class ReportSummary(BaseModel):
+    key: str
+    label: str
+    value: ReportCell
+    format: Literal["text", "number", "money"] = "text"
 
 
-class CostDrillThroughRow(BaseModel):
-    transaction_id: UUID
-    posting_reference: str
-    project_code: str
-    well_code: str
-    afe_code: str
-    estimate_code: str
-    estimate_version_number: int
-    afe_number: str
-    cost_state: str
-    transaction_date: date
-    cost_category_code: str | None
-    cost_code: str
-    item_nature: str | None
-    vendor_code: str | None
-    currency_code: str
-    amount: Decimal
-    source_document_type: str
-    source_document_reference: str
-    external_transaction_id: str | None
-    correction_kind: str
-    reverses_transaction_id: UUID | None
-
-
-class CostOverviewReport(BaseModel):
-    report_code: str
-    policy_version: str
-    metric_status: str
-    filters: CostReportFilters
-    dimensions: list[ReportingDimension]
-    state_summaries: list[PendingStateSummary]
-    variance_to_afe: Decimal | None
-    forecast_at_completion: Decimal | None
-    drill_through: list[CostDrillThroughRow]
-    pending_metrics: list[str]
+class GeneratedReport(BaseModel):
+    report_type: ReportType
+    title: str
+    description: str
+    generated_at: datetime
+    filters: ReportFilters
+    columns: list[ReportColumn] = Field(default_factory=lambda: list[ReportColumn]())
+    rows: list[dict[str, ReportCell]] = Field(default_factory=lambda: list[dict[str, ReportCell]]())
+    summaries: list[ReportSummary] = Field(default_factory=lambda: list[ReportSummary]())
 
 
 class ReportingContractView(BaseModel):
@@ -90,4 +63,4 @@ class ReportingContractRead(BaseModel):
     direct_grants_status: str
     transactional_schema_public: bool
     views: list[ReportingContractView]
-    pending_metrics: list[str]
+    pending_metrics: list[str] = Field(default_factory=lambda: list[str]())

@@ -36,8 +36,8 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]  # app/db/schema.py -> backend
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
 ALEMBIC_SCRIPTS = BACKEND_DIR / "alembic"
 
-# The planning chain every list endpoint reads. If any of these tables or
-# columns is missing the AFE/well/project/estimate pages all fail together.
+# The active source chain. If any table/column is missing, planning, Daily
+# Cost, Cost Control and reporting cannot remain traceable.
 CRITICAL_SCHEMA: dict[str, tuple[str, ...]] = {
     "projects": ("code", "name", "is_active"),
     "wells": ("code", "name", "status", "rates_locked_at", "rate_lock_reference"),
@@ -62,6 +62,7 @@ CRITICAL_SCHEMA: dict[str, tuple[str, ...]] = {
         "afe_id",
         "line_number",
         "catalog_item_id",
+        "secondary_category_id",
         "cost_code_id",
         "unit_id",
         "hole_section_id",
@@ -75,13 +76,14 @@ CRITICAL_SCHEMA: dict[str, tuple[str, ...]] = {
     "audit_logs": ("actor_id", "action", "entity_type", "created_at"),
     "drilling_phases": ("code", "name", "sequence"),
     "daily_cost_entries": ("well_id", "afe_id", "entry_date", "cumulative_cost", "sub_activity_id"),
+    "daily_cost_service_lines": ("daily_cost_entry_id", "afe_line_id", "amount"),
+    "daily_cost_consumable_lines": ("daily_cost_entry_id", "afe_line_id", "amount"),
     "primary_categories": ("code", "name", "is_active"),
     "secondary_categories": ("code", "name", "primary_category_id", "is_active"),
     "tertiary_categories": ("code", "name", "secondary_category_id", "is_active"),
     "activities": ("code", "name", "sequence", "is_active"),
     "well_activities": ("well_id", "activity_id", "name", "is_active"),
     "afe_cost_estimate_lines": ("afe_id", "afe_line_id", "unit_rate", "is_active"),
-    "cost_estimates": ("afe_id", "code", "title", "currency_id"),
 }
 
 REMEDIATION = (

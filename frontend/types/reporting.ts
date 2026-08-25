@@ -1,6 +1,49 @@
-import type { CostState } from '~/types/costControl'
-export interface ReportFilters { project_code?: string; well_code?: string; afe_code?: string; estimate_code?: string; afe_number?: string; cost_state?: CostState; date_from?: string; date_to?: string; cost_code?: string; vendor_code?: string; currency_code?: string }
-export interface StateSummary { cost_state: CostState; transaction_count: number; amount: string | null; currency_code: string | null }
-export interface DrillRow { transaction_id: string; posting_reference: string; project_code: string; well_code: string; afe_code: string; estimate_code: string; estimate_version_number: number; afe_number: string; cost_state: CostState; transaction_date: string; cost_category_code: string | null; cost_code: string; item_nature: string | null; vendor_code: string | null; currency_code: string; amount: string; source_document_type: string; source_document_reference: string; correction_kind: string }
-export interface CostOverviewReport { report_code: string; policy_version: string; metric_status: string; filters: ReportFilters; dimensions: Array<{ key: string, label: string, available: boolean }>; state_summaries: StateSummary[]; variance_to_afe: string | null; forecast_at_completion: string | null; drill_through: DrillRow[]; pending_metrics: string[] }
-export interface ReportingContract { contract_version: string; contract_status: string; schema_name: string; direct_grants_status: string; transactional_schema_public: boolean; views: Array<{ name: string, kind: string, description: string }>; pending_metrics: string[] }
+export type ReportType =
+  | 'afe_register'
+  | 'afe_cost_estimate'
+  | 'daily_cost'
+  | 'cost_performance'
+  | 'well_activities'
+
+export interface ReportFilters {
+  report_type: ReportType
+  project_id?: string | undefined
+  well_id?: string | undefined
+  afe_id?: string | undefined
+  date_from?: string | undefined
+  date_to?: string | undefined
+}
+
+export interface ReportColumn {
+  key: string
+  label: string
+  format: 'text' | 'number' | 'money' | 'date' | 'status'
+}
+
+export interface ReportSummary {
+  key: string
+  label: string
+  value: string | number | null
+  format: 'text' | 'number' | 'money'
+}
+
+export interface GeneratedReport {
+  report_type: ReportType
+  title: string
+  description: string
+  generated_at: string
+  filters: ReportFilters
+  columns: ReportColumn[]
+  rows: Array<Record<string, string | number | null>>
+  summaries: ReportSummary[]
+}
+
+export interface ReportingContract {
+  contract_version: string
+  contract_status: string
+  schema_name: string
+  direct_grants_status: string
+  transactional_schema_public: boolean
+  views: Array<{ name: string, kind: string, description: string }>
+  pending_metrics: string[]
+}

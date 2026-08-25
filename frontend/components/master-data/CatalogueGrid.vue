@@ -17,7 +17,7 @@ import EnterpriseGrid from '~/components/data-grid/EnterpriseGrid.vue'
 import type { EditableRow, GridColumn, GridFilterDefinition, GridSelectOption } from '~/types/grid'
 import type { DeleteImpact, MasterDataRecord, PageResponse } from '~/types/masterData'
 import { SLOT } from '~/types/reference'
-import { RATE_BASES } from '~/types/wellCosting'
+import { SERVICE_RATE_BASES as RATE_BASES } from '~/types/afe'
 import { DeleteCancelledError } from '~/utils/deleteCancelled'
 
 const props = defineProps<{

@@ -2,6 +2,25 @@
 
 All notable project changes are documented here.
 
+## 2026-08-25 — Active AFE-to-Daily-Cost reporting chain
+
+### Changed
+
+- AFE Cost Estimates no longer infer or display hard-coded service/tangible/other types. They show the Primary and Secondary classifications configured by the user, and calculation behaviour comes from the selected rate basis.
+- Daily Cost lines now retain a direct AFE-line reference and the backend resolves their default rate from AFE Cost Estimates, including classification-only AFE lines with no legacy catalogue item.
+- Cost Control, Cost Analytics, the Dashboard and Reports read AFE, AFE Cost Estimates, Daily Cost and Well Activities directly. Retired Cost Builder, estimate snapshot, workflow and staging APIs are no longer registered in the active API router.
+- Reports now generates AFE Register, AFE Cost Estimate Detail, Daily Cost Register, Cost Performance, and Well Activities & Accountability reports with live filters, print and Excel export.
+- Audit Log now prints and exports the complete filtered result. Assurance checks the active source chain.
+
+### Removed
+
+- Retired Cost Library/Cost Builder frontend pages, components, services, stores and navigation; the old Enterprise Setup page is also removed from the released shell.
+- Obsolete Cost Builder, staging, pending-report and enterprise-setup styles.
+
+### Migration
+
+- `20260825_0027` links operational and quantity Daily Cost lines to `afe_lines` and makes historical catalogue-item references optional.
+
 ## 2026-08-24 — Section-phase planning, all-sections rates, and full AFE print
 
 ### Added

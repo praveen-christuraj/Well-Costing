@@ -79,7 +79,7 @@ async function submit(): Promise<void> {
       <div class="login-card__intro">
         <p class="page-header__eyebrow">Secure workspace</p>
         <h1>Sign in</h1>
-        <p>Use your drilling costing account to manage the cost library and enterprise setup.</p>
+        <p>Use your well-costing account to manage Master Data, AFEs, estimates and Daily Cost.</p>
       </div>
       <Message v-if="showRedirectMessage" severity="info" :closable="false">
         Sign in to continue to your requested page.

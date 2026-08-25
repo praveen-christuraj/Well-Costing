@@ -1,13 +1,19 @@
-/** AFE Cost Estimates — well-scoped unit rates priced against AFE lines. */
+/** AFE Cost Estimates — well-scoped rates priced against configured AFE lines. */
 
 export interface AfeCostEstimateLine {
   afe_line_id: string
   estimate_line_id: string | null
   line_number: number
+  /** Historical catalogue identity, when the line predates direct classification. */
   catalog_item_id: string | null
   catalog_item_code: string | null
   catalog_item_name: string | null
-  item_type: string | null
+  primary_category_id: string | null
+  primary_category_code: string | null
+  primary_category_name: string | null
+  secondary_category_id: string | null
+  secondary_category_code: string | null
+  secondary_category_name: string | null
   cost_code_id: string
   cost_code: string | null
   hole_section_id: string | null
@@ -53,12 +59,11 @@ export interface AfeCostEstimate {
   priced_line_count: number
   unpriced_line_count: number
   estimated_total: string | number
-  services_total: string | number
-  consumables_total: string | number
   variance_to_budget: string | number
   lines: AfeCostEstimateLine[]
   totals_by_section: AfeCostEstimateGroupTotal[]
-  totals_by_item_type: AfeCostEstimateGroupTotal[]
+  totals_by_primary_category: AfeCostEstimateGroupTotal[]
+  totals_by_secondary_category: AfeCostEstimateGroupTotal[]
   totals_by_cost_code: AfeCostEstimateGroupTotal[]
   totals_by_rate_basis: AfeCostEstimateGroupTotal[]
 }

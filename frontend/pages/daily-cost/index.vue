@@ -3,9 +3,10 @@
  * Daily Cost Entry & Operational AFE Analysis.
  *
  * Daily operational data entry:
- * 1. Services utilized: service hours / 24 = operating days, multiplied by
- *    daily rate or charged per section, per service, or fixed.
- * 2. Chemicals and additives consumed: quantity multiplied by unit rate.
+ * 1. Operational/time or fixed charges: hours / 24 = operating days,
+ *    multiplied by the estimate rate (or charged per section/service/fixed).
+ * 2. Quantity charges: used quantity multiplied by the estimate unit rate.
+ * The user-selected AFE rate basis decides which calculation applies.
  *
  * Live comparative analytics:
  * - Compares daily & cumulative spend against the AFE budget
@@ -211,7 +212,8 @@ const totalDailyCost = computed(() => totalDailyServices.value + totalDailyConsu
 function addServiceLine(): void {
   const defaultSvc = refServices.value[0]
   serviceLines.value.push({
-    service_id: defaultSvc?.service_id ?? '',
+    afe_line_id: defaultSvc?.afe_line_id ?? '',
+    service_id: defaultSvc?.service_id ?? null,
     service_code: defaultSvc?.service_code ?? '',
     service_name: defaultSvc?.service_name ?? '',
     cost_code_id: defaultSvc?.cost_code_id ?? (costCodes.value[0]?.id ?? ''),
@@ -232,10 +234,13 @@ function addServiceLine(): void {
 }
 
 function onServiceSelect(line: DailyCostServiceLine): void {
-  const match = refServices.value.find(s => s.service_id === line.service_id)
+  const match = refServices.value.find(item => item.afe_line_id === line.afe_line_id)
   if (match) {
+    line.service_id = match.service_id
     line.service_code = match.service_code
     line.service_name = match.service_name
+    line.primary_category_name = match.primary_category_name ?? null
+    line.secondary_category_name = match.secondary_category_name ?? null
     line.cost_code_id = match.cost_code_id
     line.cost_code = match.cost_code
     line.vendor_id = match.vendor_id ?? null
@@ -262,7 +267,8 @@ function removeServiceLine(index: number): void {
 function addConsumableLine(): void {
   const defaultCon = refConsumables.value[0]
   consumableLines.value.push({
-    consumable_id: defaultCon?.consumable_id ?? '',
+    afe_line_id: defaultCon?.afe_line_id ?? '',
+    consumable_id: defaultCon?.consumable_id ?? null,
     consumable_code: defaultCon?.consumable_code ?? '',
     consumable_name: defaultCon?.consumable_name ?? '',
     cost_code_id: defaultCon?.cost_code_id ?? (costCodes.value[0]?.id ?? ''),
@@ -277,10 +283,13 @@ function addConsumableLine(): void {
 }
 
 function onConsumableSelect(line: DailyCostConsumableLine): void {
-  const match = refConsumables.value.find(c => c.consumable_id === line.consumable_id)
+  const match = refConsumables.value.find(item => item.afe_line_id === line.afe_line_id)
   if (match) {
+    line.consumable_id = match.consumable_id
     line.consumable_code = match.consumable_code
     line.consumable_name = match.consumable_name
+    line.primary_category_name = match.primary_category_name ?? null
+    line.secondary_category_name = match.secondary_category_name ?? null
     line.cost_code_id = match.cost_code_id
     line.cost_code = match.cost_code
     line.unit_id = match.unit_id
@@ -299,59 +308,59 @@ function removeConsumableLine(index: number): void {
 }
 
 function quickLoadAfeItems(): void {
-  if (!activeAfe.value || !activeAfe.value.items?.length) {
-    error.value = 'No AFE lines found on the active AFE to load.'
+  if (!refServices.value.length && !refConsumables.value.length) {
+    error.value = 'No priced AFE lines are available. Configure the AFE scope and save its estimate rates first.'
     return
   }
-  for (const item of activeAfe.value.items) {
-    // Classification-only AFE lines do not map to a service/consumable rate-book item.
-    if (!item.catalog_item_id) continue
-    if (item.item_type === 'service') {
-      const matchRef = refServices.value.find(s => s.service_id === item.catalog_item_id)
-      const existing = serviceLines.value.find(s => s.service_id === item.catalog_item_id)
-      if (!existing) {
-        serviceLines.value.push({
-          service_id: item.catalog_item_id,
-          service_code: item.catalog_item_code,
-          service_name: item.catalog_item_name,
-          cost_code_id: item.cost_code_id,
-          cost_code: item.cost_code,
-          hole_section_id: item.hole_section_id || entryHoleSectionId.value,
-          sub_activity_id: null,
-          service_type: 'operation',
-          service_hours: 24.0,
-          operating_days: 1.0,
-          rate_basis: (item.rate_basis as DailyCostServiceLine['rate_basis']) || 'daily',
-          unit_rate: matchRef?.operating_rate ?? 0,
-          override_rate: null,
-          amount: matchRef?.operating_rate ?? 0,
-          remarks: item.notes ?? '',
-        })
-      }
-    }
-    else {
-      const matchCon = refConsumables.value.find(c => c.consumable_id === item.catalog_item_id)
-      const existing = consumableLines.value.find(c => c.consumable_id === item.catalog_item_id)
-      if (!existing) {
-        const qty = Number(item.daily_consumption) || Number(item.quantity) || 1
-        const rate = matchCon?.unit_rate ?? 0
-        consumableLines.value.push({
-          consumable_id: item.catalog_item_id,
-          consumable_code: item.catalog_item_code,
-          consumable_name: item.catalog_item_name,
-          cost_code_id: item.cost_code_id,
-          cost_code: item.cost_code,
-          quantity: qty,
-          unit_id: item.unit_id,
-          unit_code: item.unit_code,
-          unit_rate: rate,
-          amount: qty * rate,
-          remarks: item.notes ?? '',
-        })
-      }
-    }
+  for (const item of refServices.value) {
+    if (serviceLines.value.some(line => line.afe_line_id === item.afe_line_id)) continue
+    serviceLines.value.push({
+      afe_line_id: item.afe_line_id,
+      service_id: item.service_id,
+      service_code: item.service_code,
+      service_name: item.service_name,
+      primary_category_name: item.primary_category_name ?? null,
+      secondary_category_name: item.secondary_category_name ?? null,
+      cost_code_id: item.cost_code_id,
+      cost_code: item.cost_code,
+      vendor_id: item.vendor_id ?? null,
+      vendor_name: item.vendor_name ?? null,
+      hole_section_id: entryHoleSectionId.value,
+      sub_activity_id: null,
+      service_type: 'operation',
+      service_hours: 24,
+      operating_days: 1,
+      rate_basis: item.rate_basis,
+      unit_rate: item.operating_rate,
+      override_rate: null,
+      amount: item.operating_rate,
+      remarks: '',
+    })
   }
-  success.value = 'Loaded services and consumables from AFE scope.'
+  for (const item of refConsumables.value) {
+    if (consumableLines.value.some(line => line.afe_line_id === item.afe_line_id)) continue
+    consumableLines.value.push({
+      afe_line_id: item.afe_line_id,
+      consumable_id: item.consumable_id,
+      consumable_code: item.consumable_code,
+      consumable_name: item.consumable_name,
+      primary_category_name: item.primary_category_name ?? null,
+      secondary_category_name: item.secondary_category_name ?? null,
+      cost_code_id: item.cost_code_id,
+      cost_code: item.cost_code,
+      vendor_id: item.vendor_id ?? null,
+      vendor_name: item.vendor_name ?? null,
+      sub_activity_id: null,
+      quantity: 0,
+      unit_id: item.unit_id,
+      unit_code: item.unit_code,
+      unit_rate: item.unit_rate,
+      override_rate: null,
+      amount: 0,
+      remarks: '',
+    })
+  }
+  success.value = 'Loaded the configured AFE lines and rates from AFE Cost Estimates.'
 }
 
 async function loadDeletedEntries(): Promise<void> {
@@ -445,7 +454,8 @@ async function saveDailyCost(): Promise<void> {
       daily_progress: dailyProgress.value !== null ? Number(dailyProgress.value) : null,
       operational_summary: operationalSummary.value || null,
       services: serviceLines.value.map(s => ({
-        service_id: s.service_id,
+        afe_line_id: s.afe_line_id,
+        service_id: s.service_id || null,
         cost_code_id: s.cost_code_id,
         vendor_id: s.vendor_id || null,
         hole_section_id: s.hole_section_id || entryHoleSectionId.value || null,
@@ -458,7 +468,8 @@ async function saveDailyCost(): Promise<void> {
         remarks: s.remarks || null,
       })),
       consumables: consumableLines.value.map(c => ({
-        consumable_id: c.consumable_id,
+        afe_line_id: c.afe_line_id,
+        consumable_id: c.consumable_id || null,
         cost_code_id: c.cost_code_id,
         vendor_id: c.vendor_id || null,
         sub_activity_id: c.sub_activity_id || entrySubActivityId.value || null,
@@ -559,18 +570,18 @@ function printDayReport(): void {
     <h1>DAILY COST REPORT</h1>
     <p class="doc-subtitle">Unit rates are read from the AFE Cost Estimates${ratesAfeCode.value ? ` of AFE ${escapeHtml(ratesAfeCode.value)}` : ''}; overrides are shown where applied.</p>
     <div class="meta-grid">${metaHtml}</div>
-    <h2>Services utilised</h2>
+    <h2>Operational / time charges</h2>
     <table>
       <thead><tr><th>Service</th><th>Type</th><th class="num">Hours</th><th class="num">Days</th><th>Rate basis</th><th class="num">Unit rate</th><th class="num">Override</th><th class="num">Amount</th><th>Remarks</th></tr></thead>
       <tbody>${serviceRows || '<tr><td colspan="9">No services recorded.</td></tr>'}
-        <tr class="total-row"><td colspan="7">Total services</td><td class="num">${formatMoneyCell(totalDailyServices.value)}</td><td></td></tr>
+        <tr class="total-row"><td colspan="7">Total operational charges</td><td class="num">${formatMoneyCell(totalDailyServices.value)}</td><td></td></tr>
       </tbody>
     </table>
-    <h2>Chemicals &amp; consumables</h2>
+    <h2>Quantity charges</h2>
     <table>
       <thead><tr><th>Consumable</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit rate</th><th class="num">Override</th><th class="num">Amount</th><th>Remarks</th></tr></thead>
       <tbody>${consumableRows || '<tr><td colspan="7">No consumables recorded.</td></tr>'}
-        <tr class="total-row"><td colspan="5">Total consumables</td><td class="num">${formatMoneyCell(totalDailyConsumables.value)}</td><td></td></tr>
+        <tr class="total-row"><td colspan="5">Total quantity charges</td><td class="num">${formatMoneyCell(totalDailyConsumables.value)}</td><td></td></tr>
         <tr class="total-row"><td colspan="5">Total daily cost</td><td class="num">${formatMoneyCell(totalDailyCost.value)}</td><td></td></tr>
       </tbody>
     </table>
@@ -690,7 +701,7 @@ function renderCharts(): void {
         axisPointer: { type: 'cross' },
       },
       legend: {
-        data: ['Services ($)', 'Chemicals ($)', 'Cumulative ($)'],
+        data: ['Operational ($)', 'Quantity ($)', 'Cumulative ($)'],
         top: 0,
       },
       grid: { left: '3%', right: '4%', bottom: '8%', containLabel: true },
@@ -713,14 +724,14 @@ function renderCharts(): void {
       ],
       series: [
         {
-          name: 'Services ($)',
+          name: 'Operational ($)',
           type: 'bar',
           stack: 'Daily',
           itemStyle: { color: '#3b82f6' },
           data: servicesSpend,
         },
         {
-          name: 'Chemicals ($)',
+          name: 'Quantity ($)',
           type: 'bar',
           stack: 'Daily',
           itemStyle: { color: '#10b981' },
@@ -760,7 +771,7 @@ function renderCharts(): void {
       },
       series: [
         {
-          name: 'Services Spend',
+          name: 'Operational Spend',
           type: 'pie',
           radius: ['40%', '70%'],
           center: ['65%', '50%'],
@@ -914,7 +925,7 @@ onMounted(() => void loadAll())
       <div class="kpi-card">
         <span class="kpi-label">Today's Cost ({{ formattedDate }})</span>
         <span class="kpi-value text-primary">${{ totalDailyCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
-        <small class="kpi-sub">Services: ${{ totalDailyServices.toFixed(0) }} · Chem: ${{ totalDailyConsumables.toFixed(0) }}</small>
+        <small class="kpi-sub">Operational: ${{ totalDailyServices.toFixed(0) }} · Quantity: ${{ totalDailyConsumables.toFixed(0) }}</small>
       </div>
 
       <div class="kpi-card">
@@ -997,14 +1008,14 @@ onMounted(() => void loadAll())
       </div>
     </section>
 
-    <!-- Data Entry Tabs: Services & Chemicals -->
+    <!-- Data entry tabs follow the AFE line rate basis. -->
     <Tabs v-model:value="activeTab" class="dc-tabs">
       <TabList>
         <Tab value="services">
-          <i class="pi pi-cog" /> Services Used ({{ serviceLines.length }})
+          <i class="pi pi-cog" /> Operational Charges ({{ serviceLines.length }})
         </Tab>
         <Tab value="chemicals">
-          <i class="pi pi-box" /> Chemicals & Additives ({{ consumableLines.length }})
+          <i class="pi pi-box" /> Quantity Charges ({{ consumableLines.length }})
         </Tab>
         <Tab value="summary">
           <i class="pi pi-align-left" /> Operations Log
@@ -1020,7 +1031,7 @@ onMounted(() => void loadAll())
           <section class="afe-section bulk-grid-panel">
             <div class="grid-toolbar">
               <div>
-                <strong>Services Used Today</strong>
+                <strong>AFE Operational Charges Today</strong>
                 <small class="toolbar-note">Enter service hours. Divided by 24 to compute operating days. Calculated against daily, per-section, per-service, or fixed rates.</small>
               </div>
               <div class="grid-toolbar__actions">
@@ -1029,17 +1040,17 @@ onMounted(() => void loadAll())
               </div>
             </div>
 
-            <DataTable :value="serviceLines" data-key="service_id" striped-rows show-gridlines size="small" class="dc-table">
+            <DataTable :value="serviceLines" data-key="afe_line_id" striped-rows show-gridlines size="small" class="dc-table">
               <Column header="#" style="width: 40px">
                 <template #body="{ index }">{{ index + 1 }}</template>
               </Column>
-              <Column header="Service Item" style="min-width: 220px">
+              <Column header="AFE operational charge" style="min-width: 220px">
                 <template #body="{ data }">
                   <Select
-                    v-model="data.service_id"
+                    v-model="data.afe_line_id"
                     :options="refServices"
                     option-label="service_name"
-                    option-value="service_id"
+                    option-value="afe_line_id"
                     filter
                     fluid
                     size="small"
@@ -1168,7 +1179,7 @@ onMounted(() => void loadAll())
                 </template>
               </Column>
               <template #empty>
-                <div class="empty-hint">No services added for today. Click "Add Service" or "Load from AFE Scope".</div>
+                <div class="empty-hint">No operational charges added. Load the priced AFE scope or add a line.</div>
               </template>
             </DataTable>
           </section>
@@ -1179,26 +1190,26 @@ onMounted(() => void loadAll())
           <section class="afe-section bulk-grid-panel">
             <div class="grid-toolbar">
               <div>
-                <strong>Chemicals & Additives Consumed Today</strong>
-                <small class="toolbar-note">Select mud chemicals and cement additives. Multiplies usage quantity by unit price.</small>
+                <strong>AFE Quantity Charges Used Today</strong>
+                <small class="toolbar-note">Per-unit and daily-consumption AFE lines. Used quantity is multiplied by the AFE Cost Estimate rate.</small>
               </div>
               <div class="grid-toolbar__actions">
                 <Button label="Load from AFE Scope" icon="pi pi-download" text size="small" @click="quickLoadAfeItems" />
-                <Button label="Add Chemical / Additive" icon="pi pi-plus" size="small" @click="addConsumableLine" />
+                <Button label="Add AFE quantity charge" icon="pi pi-plus" size="small" @click="addConsumableLine" />
               </div>
             </div>
 
-            <DataTable :value="consumableLines" data-key="consumable_id" striped-rows show-gridlines size="small" class="dc-table">
+            <DataTable :value="consumableLines" data-key="afe_line_id" striped-rows show-gridlines size="small" class="dc-table">
               <Column header="#" style="width: 40px">
                 <template #body="{ index }">{{ index + 1 }}</template>
               </Column>
-              <Column header="Chemical / Additive" style="min-width: 220px">
+              <Column header="AFE quantity charge" style="min-width: 220px">
                 <template #body="{ data }">
                   <Select
-                    v-model="data.consumable_id"
+                    v-model="data.afe_line_id"
                     :options="refConsumables"
                     option-label="consumable_name"
-                    option-value="consumable_id"
+                    option-value="afe_line_id"
                     filter
                     fluid
                     size="small"
@@ -1372,9 +1383,9 @@ onMounted(() => void loadAll())
               </div>
 
               <div class="analytics-table-col">
-                <strong>Chemical & Additive Consumption Summary</strong>
+                <strong>AFE Quantity Charge Summary</strong>
                 <DataTable :value="analytics?.consumables_breakdown || []" size="small" striped-rows show-gridlines class="mt-2">
-                  <Column field="consumable_name" header="Chemical / Additive" />
+                  <Column field="consumable_name" header="AFE quantity charge" />
                   <Column header="Quantity">
                     <template #body="{ data }">{{ Number(data.total_quantity).toFixed(1) }} {{ data.unit_code }}</template>
                   </Column>
@@ -1397,7 +1408,7 @@ onMounted(() => void loadAll())
       sub-activities beneath them belong to a single well and are set up here,
       at the moment the day's costs are being recorded.
     -->
-    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="subActivityDialog" modal header="Configure a sub-activity" :style="{ width: '520px' }">
+    <Dialog v-model:visible="subActivityDialog" :dismissable-mask="false" :close-on-escape="false" modal header="Configure a sub-activity" :style="{ width: '520px' }">
       <p class="dc-dialog-note">
         Sub-activities are scoped to this well and roll up to a master activity — Planned, NPT, or
         UPA — so costs posted against them are accounted to the responsible party.
