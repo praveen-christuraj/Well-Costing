@@ -68,8 +68,6 @@ const servicesTotal = computed(() =>
   rows.value.filter(row => row.item_type === 'service').reduce((sum, row) => sum + lineAmount(row), 0))
 const consumablesTotal = computed(() => estimatedTotal.value - servicesTotal.value)
 const pricedCount = computed(() => rows.value.filter(row => Number(row._rate) > 0).length)
-const budget = computed(() => Number(estimate.value?.budget_amount ?? 0))
-const varianceToBudget = computed(() => budget.value - estimatedTotal.value)
 
 function groupTotals(dimension: 'section' | 'item_type' | 'cost_code'): AfeCostEstimateGroupTotal[] {
   const buckets = new Map<string, AfeCostEstimateGroupTotal>()
@@ -211,7 +209,6 @@ function printEstimate(): void {
     ['AFE', `${detail.afe_code} (rev ${detail.revision_number})`],
     ['Title', detail.afe_title],
     ['Status', detail.afe_status],
-    ['AFE budget', money(detail.budget_amount)],
     ['Planned days', String(Number(detail.total_planned_days))],
   ]
   const metaHtml = meta
@@ -243,8 +240,6 @@ function printEstimate(): void {
       <thead><tr><th class="num">#</th><th>Item</th><th>Type</th><th>Cost code</th><th>Section</th><th>Rate basis</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit rate</th><th class="num">Estimated amount</th></tr></thead>
       <tbody>${lineRows}
         <tr class="total-row"><td colspan="9">Estimated total</td><td class="num">${money(estimatedTotal.value)}</td></tr>
-        <tr class="total-row"><td colspan="9">AFE budget</td><td class="num">${money(budget.value)}</td></tr>
-        <tr class="total-row"><td colspan="9">Variance to budget</td><td class="num">${money(varianceToBudget.value)}</td></tr>
       </tbody>
     </table>
     ${summaryTable('Totals by hole section', sectionTotals.value)}
@@ -339,19 +334,14 @@ onMounted(() => {
 
     <section v-if="estimate" class="est-kpi-grid">
       <div class="kpi-card">
-        <span class="kpi-label">AFE Budget</span>
-        <span class="kpi-value">${{ money(budget) }}</span>
+        <span class="kpi-label">AFE Scope</span>
+        <span class="kpi-value">{{ rows.length }} lines</span>
         <small class="kpi-sub">Planned days: {{ Number(estimate.total_planned_days).toFixed(1) }}</small>
       </div>
       <div class="kpi-card">
         <span class="kpi-label">Estimated Total</span>
         <span class="kpi-value text-primary">${{ money(estimatedTotal) }}</span>
         <small class="kpi-sub">Services ${{ money(servicesTotal) }} · Consumables ${{ money(consumablesTotal) }}</small>
-      </div>
-      <div class="kpi-card">
-        <span class="kpi-label">Variance to Budget</span>
-        <span class="kpi-value" :class="varianceToBudget >= 0 ? 'text-success' : 'text-danger'">${{ money(varianceToBudget) }}</span>
-        <small class="kpi-sub">{{ varianceToBudget >= 0 ? 'Within budget' : 'Over budget' }}</small>
       </div>
       <div class="kpi-card">
         <span class="kpi-label">Pricing Progress</span>

@@ -1592,7 +1592,6 @@ onMounted(() => void loadAll())
         </div>
         <label>Title<InputText v-model="afeForm.title" fluid placeholder="e.g. W101 Drilling & Completion Scope" /></label>
         <div class="form-row">
-          <label>Budget Amount ($)<InputNumber v-model="afeForm.budget_amount" :min="0" :max-fraction-digits="2" fluid placeholder="Total authorised budget" /></label>
           <label>Depth Unit<Select v-model="afeForm.depth_unit_id" :options="units" option-label="code" option-value="id" placeholder="Select unit" fluid /></label>
         </div>
         <label>Description<Textarea v-model="afeForm.description" rows="2" fluid placeholder="AFE scope description and technical summary" /></label>
