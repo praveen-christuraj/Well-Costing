@@ -1,7 +1,7 @@
 /**
  * Print helper: opens a dedicated window with a clean, record-quality layout
- * and triggers the browser's print dialog. Used for the well-scoped AFE,
- * AFE Cost Estimate, and Daily Cost report printouts kept for records.
+ * and triggers the browser's print dialog. Used for AFE, AFE Cost Estimate,
+ * Daily Cost, Cost Control, generated reports and Audit Log records.
  */
 
 const PRINT_STYLES = `

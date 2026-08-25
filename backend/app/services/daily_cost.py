@@ -13,7 +13,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BusinessValidationError, ConflictError, NotFoundError
-from app.models.afe import Afe, Well
+from app.models.afe import Afe, AfeLine, Well
 from app.models.afe_estimates import AfeCostEstimateLine
 from app.models.categories import WellActivity
 from app.models.daily_cost import (
@@ -157,6 +157,16 @@ class DailyCostService:
                 .order_by(Afe.status.desc(), Afe.revision_number.desc())
             )
             afe_id = active_afe.id if active_afe else None
+        if afe_id is not None:
+            selected_afe = self.session.get(Afe, afe_id)
+            if (
+                selected_afe is None
+                or not selected_afe.is_active
+                or selected_afe.well_id != well_id
+            ):
+                raise BusinessValidationError(
+                    "The selected AFE is not active or does not belong to this well."
+                )
 
         # The database allows one log per well/date/sub-activity. Match on the
         # activity as well; otherwise saving a second activity for the same day
@@ -222,13 +232,65 @@ class DailyCostService:
             )
             self.session.flush()
 
+        # Resolve every modern Daily Cost line back to the selected AFE line and
+        # its saved estimate rate. Client-supplied rates are accepted only for
+        # historical catalogue-only rows; current rows cannot bypass the AFE
+        # Cost Estimate source of truth.
+        source_ids = {
+            line.afe_line_id
+            for line in [*payload.services, *payload.consumables]
+            if line.afe_line_id is not None
+        }
+        source_lines = (
+            {
+                line.id: line
+                for line in self.session.scalars(
+                    select(AfeLine).where(AfeLine.id.in_(source_ids), AfeLine.is_active.is_(True))
+                ).all()
+            }
+            if source_ids
+            else {}
+        )
+        if source_ids - set(source_lines):
+            raise BusinessValidationError(
+                "A Daily Cost line references an inactive or missing AFE line."
+            )
+        if any(line.afe_id != afe_id for line in source_lines.values()):
+            raise BusinessValidationError(
+                "Every Daily Cost line must belong to the governing AFE for this well."
+            )
+        estimate_rates = (
+            {
+                rate.afe_line_id: rate
+                for rate in self.session.scalars(
+                    select(AfeCostEstimateLine).where(
+                        AfeCostEstimateLine.afe_line_id.in_(source_ids),
+                        AfeCostEstimateLine.is_active.is_(True),
+                    )
+                ).all()
+            }
+            if source_ids
+            else {}
+        )
+
         total_services = Decimal("0")
         for s_input in payload.services:
             hours = Decimal(str(s_input.service_hours))
             if hours < 0 or hours > 24:
-                raise BusinessValidationError("Service hours must be between 0 and 24")
+                raise BusinessValidationError("Operational charge hours must be between 0 and 24")
             operating_days = hours / Decimal("24.0")
-            base_rate = Decimal(str(s_input.unit_rate))
+            source = source_lines.get(s_input.afe_line_id) if s_input.afe_line_id else None
+            if source is not None and source.rate_basis in {"per_unit", "daily_consumption"}:
+                raise BusinessValidationError(
+                    "Per-unit and daily-consumption AFE lines must be entered as quantity charges."
+                )
+            estimate_rate = estimate_rates.get(s_input.afe_line_id) if s_input.afe_line_id else None
+            base_rate = (
+                Decimal(estimate_rate.unit_rate)
+                if estimate_rate is not None
+                else (Decimal("0") if source is not None else Decimal(str(s_input.unit_rate)))
+            )
+            rate_basis = source.rate_basis if source is not None else s_input.rate_basis
             override = s_input.override_rate
             # Override rate takes precedence if present and positive
             effective_rate = (
@@ -236,7 +298,7 @@ class DailyCostService:
                 if override is not None and Decimal(str(override)) > 0
                 else base_rate
             )
-            if s_input.rate_basis == "daily":
+            if rate_basis == "daily":
                 line_amount = operating_days * effective_rate
             else:
                 line_amount = effective_rate
@@ -244,15 +306,20 @@ class DailyCostService:
 
             s_line = DailyCostServiceLine(
                 daily_cost_entry_id=entry.id,
+                afe_line_id=s_input.afe_line_id,
                 service_id=s_input.service_id,
-                cost_code_id=s_input.cost_code_id,
-                vendor_id=s_input.vendor_id,
+                cost_code_id=source.cost_code_id if source is not None else s_input.cost_code_id,
+                vendor_id=(
+                    estimate_rate.vendor_id
+                    if estimate_rate is not None and estimate_rate.vendor_id is not None
+                    else s_input.vendor_id
+                ),
                 hole_section_id=s_input.hole_section_id or payload.hole_section_id,
                 sub_activity_id=s_input.sub_activity_id,
                 service_type=s_input.service_type,
                 service_hours=hours,
                 operating_days=operating_days,
-                rate_basis=s_input.rate_basis,
+                rate_basis=rate_basis,
                 unit_rate=base_rate,
                 override_rate=Decimal(str(override)) if override is not None else None,
                 amount=line_amount,
@@ -265,7 +332,18 @@ class DailyCostService:
         total_consumables = Decimal("0")
         for c_input in payload.consumables:
             qty = Decimal(str(c_input.quantity))
-            base_rate = Decimal(str(c_input.unit_rate))
+            source = source_lines.get(c_input.afe_line_id) if c_input.afe_line_id else None
+            if source is not None and source.rate_basis not in {"per_unit", "daily_consumption"}:
+                raise BusinessValidationError(
+                    "Daily, section, service and fixed AFE lines must be entered "
+                    "as operational charges."
+                )
+            estimate_rate = estimate_rates.get(c_input.afe_line_id) if c_input.afe_line_id else None
+            base_rate = (
+                Decimal(estimate_rate.unit_rate)
+                if estimate_rate is not None
+                else (Decimal("0") if source is not None else Decimal(str(c_input.unit_rate)))
+            )
             override = c_input.override_rate
             effective_rate = (
                 Decimal(str(override))
@@ -277,12 +355,17 @@ class DailyCostService:
 
             c_line = DailyCostConsumableLine(
                 daily_cost_entry_id=entry.id,
+                afe_line_id=c_input.afe_line_id,
                 consumable_id=c_input.consumable_id,
-                cost_code_id=c_input.cost_code_id,
-                vendor_id=c_input.vendor_id,
+                cost_code_id=source.cost_code_id if source is not None else c_input.cost_code_id,
+                vendor_id=(
+                    estimate_rate.vendor_id
+                    if estimate_rate is not None and estimate_rate.vendor_id is not None
+                    else c_input.vendor_id
+                ),
                 sub_activity_id=c_input.sub_activity_id,
                 quantity=qty,
-                unit_id=c_input.unit_id,
+                unit_id=source.unit_id if source is not None else c_input.unit_id,
                 unit_rate=base_rate,
                 override_rate=Decimal(str(override)) if override is not None else None,
                 amount=line_amount,
@@ -406,12 +489,12 @@ class DailyCostService:
         )
 
     def get_reference_rates(self, well_id: UUID) -> dict[str, Any]:
-        """Unit rates for daily cost entry, sourced from the AFE Cost Estimates only.
+        """Return Daily Cost choices from the governing AFE Cost Estimate.
 
-        The daily cost picker offers exactly what the AFE planned for the well
-        (services, chemicals, additives, tangibles), each priced with the
-        well-scoped unit rate saved on the AFE Cost Estimates page. Per-line
-        overrides at entry time remain available and are stored on the entry.
+        The user-selected rate basis controls which entry grid and calculation
+        applies: per-unit/daily-consumption lines are quantity charges; all
+        other bases are operational/time or fixed charges. No item type is
+        inferred from category names.
         """
         well = self.session.get(Well, well_id)
         if not well or not well.is_active:
@@ -439,9 +522,8 @@ class DailyCostService:
                 )
             )
         }
-
-        ref_services: dict[UUID, ReferenceServiceRate] = {}
-        ref_consumables: dict[UUID, ReferenceConsumableRate] = {}
+        operational: list[ReferenceServiceRate] = []
+        quantity: list[ReferenceConsumableRate] = []
         priced = 0
         unpriced = 0
 
@@ -450,43 +532,62 @@ class DailyCostService:
                 continue
             rate_row = rate_rows.get(line.id)
             unit_rate = Decimal(rate_row.unit_rate) if rate_row else Decimal("0")
-            if unit_rate > 0:
-                priced += 1
-            else:
-                unpriced += 1
-            item = line.catalog_item
-            if item.item_type == "service":
-                existing = ref_services.get(item.id)
-                # A service can appear on several AFE lines (per section);
-                # keep the first priced line's rate for the day-entry default.
-                if existing is not None and existing.operating_rate > 0:
-                    continue
-                ref_services[item.id] = ReferenceServiceRate(
-                    service_id=item.id,
-                    service_code=item.code,
-                    service_name=item.name,
-                    cost_code_id=line.cost_code_id,
-                    cost_code=line.cost_code.code if line.cost_code else "UNKNOWN",
-                    vendor_id=rate_row.vendor_id if rate_row else None,
-                    vendor_name=rate_row.vendor.name if rate_row and rate_row.vendor else None,
-                    rate_basis=line.rate_basis,
-                    operating_rate=unit_rate,
-                    unit_code=line.unit.code if line.unit else "DAY",
+            priced += int(unit_rate > 0)
+            unpriced += int(unit_rate <= 0)
+            secondary = line.secondary_category
+            primary = secondary.primary_category if secondary else None
+            catalog = line.catalog_item
+            code = (
+                catalog.code
+                if catalog
+                else (secondary.code if secondary else f"LINE-{line.line_number}")
+            )
+            name = (
+                catalog.name
+                if catalog
+                else (secondary.name if secondary else f"AFE line {line.line_number}")
+            )
+            if line.rate_basis in {"per_unit", "daily_consumption"}:
+                quantity.append(
+                    ReferenceConsumableRate(
+                        afe_line_id=line.id,
+                        consumable_id=catalog.id if catalog else None,
+                        consumable_code=code,
+                        consumable_name=name,
+                        primary_category_name=primary.name if primary else None,
+                        secondary_category_name=secondary.name if secondary else None,
+                        cost_code_id=line.cost_code_id,
+                        cost_code=line.cost_code.code if line.cost_code else "UNKNOWN",
+                        vendor_id=rate_row.vendor_id if rate_row else None,
+                        vendor_name=(
+                            rate_row.vendor.name if rate_row and rate_row.vendor else None
+                        ),
+                        rate_basis=line.rate_basis,
+                        unit_id=line.unit_id,
+                        unit_code=line.unit.code if line.unit else "EA",
+                        unit_rate=unit_rate,
+                    )
                 )
             else:
-                existing_consumable = ref_consumables.get(item.id)
-                if existing_consumable is not None and existing_consumable.unit_rate > 0:
-                    continue
-                ref_consumables[item.id] = ReferenceConsumableRate(
-                    consumable_id=item.id,
-                    consumable_code=item.code,
-                    consumable_name=item.name,
-                    item_type=item.item_type,
-                    cost_code_id=line.cost_code_id,
-                    cost_code=line.cost_code.code if line.cost_code else "UNKNOWN",
-                    unit_id=line.unit_id,
-                    unit_code=line.unit.code if line.unit else "EA",
-                    unit_rate=unit_rate,
+                operational.append(
+                    ReferenceServiceRate(
+                        afe_line_id=line.id,
+                        service_id=catalog.id if catalog else None,
+                        service_code=code,
+                        service_name=name,
+                        primary_category_name=primary.name if primary else None,
+                        secondary_category_name=secondary.name if secondary else None,
+                        cost_code_id=line.cost_code_id,
+                        cost_code=line.cost_code.code if line.cost_code else "UNKNOWN",
+                        vendor_id=rate_row.vendor_id if rate_row else None,
+                        vendor_name=(
+                            rate_row.vendor.name if rate_row and rate_row.vendor else None
+                        ),
+                        rate_basis=line.rate_basis,
+                        unit_id=line.unit_id,
+                        unit_code=line.unit.code if line.unit else "EA",
+                        operating_rate=unit_rate,
+                    )
                 )
 
         return {
@@ -496,8 +597,8 @@ class DailyCostService:
             "rates_source": "afe_cost_estimate",
             "priced_line_count": priced,
             "unpriced_line_count": unpriced,
-            "services": [s.model_dump() for s in ref_services.values()],
-            "consumables": [c.model_dump() for c in ref_consumables.values()],
+            "services": [item.model_dump() for item in operational],
+            "consumables": [item.model_dump() for item in quantity],
         }
 
     def get_analytics(self, well_id: UUID) -> DailyCostAnalyticsRead:
@@ -543,32 +644,58 @@ class DailyCostService:
                     current_depth=e.current_depth,
                 )
             )
-            for s in e.services:
-                if s.service_id not in services_dict:
-                    services_dict[s.service_id] = {
-                        "service_id": s.service_id,
-                        "service_code": s.service.code if s.service else "SVC",
-                        "service_name": s.service.name if s.service else "Service",
+            for service_line in e.services:
+                key = service_line.afe_line_id or service_line.service_id
+                if key is None:
+                    continue
+                afe_line = service_line.afe_line
+                secondary = afe_line.secondary_category if afe_line else None
+                if key not in services_dict:
+                    services_dict[key] = {
+                        "service_id": key,
+                        "service_code": (
+                            service_line.service.code
+                            if service_line.service
+                            else (secondary.code if secondary else "AFE-LINE")
+                        ),
+                        "service_name": (
+                            service_line.service.name
+                            if service_line.service
+                            else (secondary.name if secondary else "Configured AFE charge")
+                        ),
                         "total_hours": Decimal("0"),
                         "total_days": Decimal("0"),
                         "total_cost": Decimal("0"),
                     }
-                services_dict[s.service_id]["total_hours"] += s.service_hours
-                services_dict[s.service_id]["total_days"] += s.operating_days
-                services_dict[s.service_id]["total_cost"] += s.amount
+                services_dict[key]["total_hours"] += service_line.service_hours
+                services_dict[key]["total_days"] += service_line.operating_days
+                services_dict[key]["total_cost"] += service_line.amount
 
-            for c in e.consumables:
-                if c.consumable_id not in consumables_dict:
-                    consumables_dict[c.consumable_id] = {
-                        "consumable_id": c.consumable_id,
-                        "consumable_code": c.consumable.code if c.consumable else "CHEM",
-                        "consumable_name": c.consumable.name if c.consumable else "Consumable",
-                        "unit_code": c.unit.code if c.unit else "UOM",
+            for quantity_line in e.consumables:
+                key = quantity_line.afe_line_id or quantity_line.consumable_id
+                if key is None:
+                    continue
+                afe_line = quantity_line.afe_line
+                secondary = afe_line.secondary_category if afe_line else None
+                if key not in consumables_dict:
+                    consumables_dict[key] = {
+                        "consumable_id": key,
+                        "consumable_code": (
+                            quantity_line.consumable.code
+                            if quantity_line.consumable
+                            else (secondary.code if secondary else "AFE-LINE")
+                        ),
+                        "consumable_name": (
+                            quantity_line.consumable.name
+                            if quantity_line.consumable
+                            else (secondary.name if secondary else "Configured AFE quantity charge")
+                        ),
+                        "unit_code": quantity_line.unit.code if quantity_line.unit else "UOM",
                         "total_quantity": Decimal("0"),
                         "total_cost": Decimal("0"),
                     }
-                consumables_dict[c.consumable_id]["total_quantity"] += c.quantity
-                consumables_dict[c.consumable_id]["total_cost"] += c.amount
+                consumables_dict[key]["total_quantity"] += quantity_line.quantity
+                consumables_dict[key]["total_cost"] += quantity_line.amount
 
         days_elapsed = len(entries)
         burn_rate = (
@@ -915,12 +1042,12 @@ class DailyCostService:
             row_index += 1
 
         row_index += 1
-        sheet.cell(row_index, 1, "Services utilised").font = REPORT_TITLE_FONT
+        sheet.cell(row_index, 1, "Operational / time charges").font = REPORT_TITLE_FONT
         row_index = self._write_table(
             sheet,
             row_index + 1,
             [
-                "Service",
+                "AFE charge",
                 "Type",
                 "Hours",
                 "Days",
@@ -934,7 +1061,16 @@ class DailyCostService:
             ],
             [
                 [
-                    f"{s.service.code} — {s.service.name}" if s.service else "",
+                    (
+                        f"{s.service.code} — {s.service.name}"
+                        if s.service
+                        else (
+                            f"{s.afe_line.secondary_category.code} — "
+                            f"{s.afe_line.secondary_category.name}"
+                            if s.afe_line
+                            else ""
+                        )
+                    ),
                     s.service_type,
                     float(s.service_hours),
                     float(s.operating_days),
@@ -951,12 +1087,12 @@ class DailyCostService:
         )
 
         row_index += 1
-        sheet.cell(row_index, 1, "Chemicals & consumables").font = REPORT_TITLE_FONT
+        sheet.cell(row_index, 1, "Quantity charges").font = REPORT_TITLE_FONT
         row_index = self._write_table(
             sheet,
             row_index + 1,
             [
-                "Consumable",
+                "AFE quantity charge",
                 "Quantity",
                 "Unit",
                 "Unit rate",
@@ -967,7 +1103,16 @@ class DailyCostService:
             ],
             [
                 [
-                    f"{c.consumable.code} — {c.consumable.name}" if c.consumable else "",
+                    (
+                        f"{c.consumable.code} — {c.consumable.name}"
+                        if c.consumable
+                        else (
+                            f"{c.afe_line.secondary_category.code} — "
+                            f"{c.afe_line.secondary_category.name}"
+                            if c.afe_line
+                            else ""
+                        )
+                    ),
                     float(c.quantity),
                     c.unit.code if c.unit else "",
                     float(c.unit_rate),
@@ -982,8 +1127,8 @@ class DailyCostService:
 
         row_index += 1
         for label, value in [
-            ("Total services cost", float(entry.total_services_cost)),
-            ("Total consumables cost", float(entry.total_consumables_cost)),
+            ("Total operational charges", float(entry.total_services_cost)),
+            ("Total quantity charges", float(entry.total_consumables_cost)),
             ("Total daily cost", float(entry.total_daily_cost)),
             ("Cumulative well cost", float(entry.cumulative_cost)),
         ]:
@@ -1027,8 +1172,8 @@ class DailyCostService:
                 "Activity type",
                 "Depth",
                 "Progress",
-                "Services cost",
-                "Consumables cost",
+                "Operational charges",
+                "Quantity charges",
                 "Total daily cost",
                 "Cumulative cost",
                 "Summary",
@@ -1051,14 +1196,14 @@ class DailyCostService:
             ],
         )
 
-        services_sheet = workbook.create_sheet("Service lines")
+        services_sheet = workbook.create_sheet("Operational charges")
         self._write_table(
             services_sheet,
             1,
             [
                 "Date",
-                "Service code",
-                "Service name",
+                "AFE charge code",
+                "AFE charge name",
                 "Type",
                 "Hours",
                 "Days",
@@ -1074,8 +1219,16 @@ class DailyCostService:
             [
                 [
                     str(e.entry_date),
-                    s.service.code if s.service else "",
-                    s.service.name if s.service else "",
+                    (
+                        s.service.code
+                        if s.service
+                        else (s.afe_line.secondary_category.code if s.afe_line else "")
+                    ),
+                    (
+                        s.service.name
+                        if s.service
+                        else (s.afe_line.secondary_category.name if s.afe_line else "")
+                    ),
                     s.service_type,
                     float(s.service_hours),
                     float(s.operating_days),
@@ -1093,7 +1246,7 @@ class DailyCostService:
             ],
         )
 
-        consumables_sheet = workbook.create_sheet("Consumable lines")
+        consumables_sheet = workbook.create_sheet("Quantity charges")
         self._write_table(
             consumables_sheet,
             1,
@@ -1113,8 +1266,16 @@ class DailyCostService:
             [
                 [
                     str(e.entry_date),
-                    c.consumable.code if c.consumable else "",
-                    c.consumable.name if c.consumable else "",
+                    (
+                        c.consumable.code
+                        if c.consumable
+                        else (c.afe_line.secondary_category.code if c.afe_line else "")
+                    ),
+                    (
+                        c.consumable.name
+                        if c.consumable
+                        else (c.afe_line.secondary_category.name if c.afe_line else "")
+                    ),
                     float(c.quantity),
                     c.unit.code if c.unit else "",
                     float(c.unit_rate),
@@ -1150,8 +1311,8 @@ class DailyCostService:
                 "Phase",
                 "Section",
                 "Activity",
-                "Services cost",
-                "Consumables cost",
+                "Operational charges",
+                "Quantity charges",
                 "Daily cost",
                 "Cumulative",
                 "Planned cumulative",
@@ -1195,8 +1356,8 @@ class DailyCostService:
                     "Activity",
                     "Responsible party",
                     "Entries",
-                    "Services cost",
-                    "Consumables cost",
+                    "Operational charges",
+                    "Quantity charges",
                     "Total cost",
                     "Planned cost",
                     "Variance",
@@ -1256,9 +1417,24 @@ class DailyCostService:
             DailyCostServiceLineRead(
                 id=s.id,
                 daily_cost_entry_id=s.daily_cost_entry_id,
+                afe_line_id=s.afe_line_id,
                 service_id=s.service_id,
-                service_code=s.service.code if s.service else None,
-                service_name=s.service.name if s.service else None,
+                service_code=(
+                    s.service.code
+                    if s.service
+                    else (s.afe_line.secondary_category.code if s.afe_line else None)
+                ),
+                service_name=(
+                    s.service.name
+                    if s.service
+                    else (s.afe_line.secondary_category.name if s.afe_line else None)
+                ),
+                primary_category_name=(
+                    s.afe_line.secondary_category.primary_category.name if s.afe_line else None
+                ),
+                secondary_category_name=(
+                    s.afe_line.secondary_category.name if s.afe_line else None
+                ),
                 cost_code_id=s.cost_code_id,
                 cost_code=s.cost_code.code if s.cost_code else None,
                 vendor_id=s.vendor_id,
@@ -1284,9 +1460,24 @@ class DailyCostService:
             DailyCostConsumableLineRead(
                 id=c.id,
                 daily_cost_entry_id=c.daily_cost_entry_id,
+                afe_line_id=c.afe_line_id,
                 consumable_id=c.consumable_id,
-                consumable_code=c.consumable.code if c.consumable else None,
-                consumable_name=c.consumable.name if c.consumable else None,
+                consumable_code=(
+                    c.consumable.code
+                    if c.consumable
+                    else (c.afe_line.secondary_category.code if c.afe_line else None)
+                ),
+                consumable_name=(
+                    c.consumable.name
+                    if c.consumable
+                    else (c.afe_line.secondary_category.name if c.afe_line else None)
+                ),
+                primary_category_name=(
+                    c.afe_line.secondary_category.primary_category.name if c.afe_line else None
+                ),
+                secondary_category_name=(
+                    c.afe_line.secondary_category.name if c.afe_line else None
+                ),
                 cost_code_id=c.cost_code_id,
                 cost_code=c.cost_code.code if c.cost_code else None,
                 vendor_id=c.vendor_id,

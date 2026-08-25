@@ -1,9 +1,9 @@
 """AFE Cost Estimate services.
 
-The AFE Cost Estimates page prices the AFE: every AFE line (service,
-chemical, additive, tangible, …) receives a well-scoped unit rate here.
-The saved rates are the single source of unit rates for daily cost entry
-(where a per-line override is still available and recorded).
+The AFE Cost Estimates page prices every configured AFE line with a
+well-scoped unit rate. User-configured primary/secondary classifications are
+shown as entered; no service/tangible/other type is inferred. The line's rate
+basis is the explicit calculation method used downstream.
 """
 
 from datetime import UTC, datetime
@@ -132,9 +132,8 @@ class AfeEstimateService:
         row_index += 1
         headers = [
             "#",
-            "Item code",
-            "Item name",
-            "Type",
+            "Primary category",
+            "Secondary category",
             "Cost code",
             "Hole section",
             "Rate basis",
@@ -155,12 +154,11 @@ class AfeEstimateService:
             row_index += 1
             values: list[Any] = [
                 line.line_number,
-                line.catalog_item_code,
-                line.catalog_item_name,
-                (line.item_type or "").replace("_", " "),
+                line.primary_category_name or line.primary_category_code,
+                line.secondary_category_name or line.secondary_category_code,
                 line.cost_code,
-                line.hole_section_code,
-                line.rate_basis,
+                "All sections" if line.applies_to_all_sections else line.hole_section_code,
+                line.rate_basis.replace("_", " "),
                 float(line.quantity),
                 line.unit_code,
                 float(line.unit_rate),
@@ -172,20 +170,26 @@ class AfeEstimateService:
                 cell = sheet.cell(row_index, column, value)
                 cell.border = THIN_BORDER
         row_index += 1
-        total_cell = sheet.cell(row_index, 10, "Estimated total")
+        total_cell = sheet.cell(row_index, 9, "Estimated total")
         total_cell.font = LABEL_FONT
-        amount_cell = sheet.cell(row_index, 11, float(estimate.estimated_total))
+        amount_cell = sheet.cell(row_index, 10, float(estimate.estimated_total))
         amount_cell.font = LABEL_FONT
         if estimate.lines:
             sheet.freeze_panes = sheet.cell(first_data_row, 1).coordinate
-        for column, width in enumerate([6, 16, 34, 14, 12, 14, 12, 12, 8, 14, 16, 20, 24], start=1):
+        for column, width in enumerate([6, 24, 30, 14, 14, 16, 12, 8, 14, 16, 20, 24], start=1):
             sheet.column_dimensions[get_column_letter(column)].width = width
 
         summary = workbook.create_sheet("Summaries")
         self._write_summary_block(summary, 1, "By hole section", estimate.totals_by_section)
         offset = 4 + len(estimate.totals_by_section)
-        self._write_summary_block(summary, offset, "By item type", estimate.totals_by_item_type)
-        offset += 3 + len(estimate.totals_by_item_type)
+        self._write_summary_block(
+            summary, offset, "By primary category", estimate.totals_by_primary_category
+        )
+        offset += 3 + len(estimate.totals_by_primary_category)
+        self._write_summary_block(
+            summary, offset, "By secondary category", estimate.totals_by_secondary_category
+        )
+        offset += 3 + len(estimate.totals_by_secondary_category)
         self._write_summary_block(summary, offset, "By cost code", estimate.totals_by_cost_code)
         offset += 3 + len(estimate.totals_by_cost_code)
         self._write_summary_block(summary, offset, "By rate basis", estimate.totals_by_rate_basis)
@@ -242,70 +246,53 @@ class AfeEstimateService:
         return Decimal("0")
 
     @staticmethod
-    def _line_item_identity(item: AfeLine) -> tuple[str | None, str | None, str | None]:
-        if item.catalog_item is not None:
-            return item.catalog_item.code, item.catalog_item.name, item.catalog_item.item_type
+    def _classification(
+        item: AfeLine,
+    ) -> tuple[UUID | None, str | None, str | None, UUID | None, str | None, str | None]:
+        """Return exactly the classification configured in Master Data/AFE.
+
+        There is intentionally no fallback that guesses a type from category
+        names or rate bases. Historical catalogue identity remains available as
+        a display fallback only.
+        """
         secondary = item.secondary_category
         primary = secondary.primary_category if secondary else None
         return (
+            primary.id if primary else None,
+            primary.code if primary else None,
+            primary.name if primary else None,
+            secondary.id if secondary else None,
             secondary.code if secondary else None,
             secondary.name if secondary else None,
-            AfeEstimateService._infer_item_type(
-                primary.code if primary else None,
-                primary.name if primary else None,
-                item.rate_basis,
-            ),
         )
-
-    @staticmethod
-    def _infer_item_type(
-        primary_code: str | None,
-        primary_name: str | None,
-        rate_basis: str | None,
-    ) -> str | None:
-        mapping = {
-            "SERVICE": "service",
-            "SERVICES": "service",
-            "TANGIBLE": "tangible",
-            "TANGIBLES": "tangible",
-            "MATERIAL": "material",
-            "MATERIALS": "material",
-            "EQUIPMENT": "equipment",
-            "MUDCHEMICAL": "mud_chemical",
-            "MUDCHEMICALS": "mud_chemical",
-            "CEMENTADDITIVE": "cement_additive",
-            "CEMENTADDITIVES": "cement_additive",
-        }
-        for candidate in (primary_code, primary_name):
-            key = AfeEstimateService._normalise_item_scope(candidate)
-            if key in mapping:
-                return mapping[key]
-        if rate_basis in {"daily", "per_service", "per_section"}:
-            return "service"
-        if rate_basis == "daily_consumption":
-            return "mud_chemical"
-        if rate_basis == "per_unit":
-            return "tangible"
-        return None
-
-    @staticmethod
-    def _normalise_item_scope(value: str | None) -> str:
-        return "".join(character for character in (value or "").upper() if character.isalnum())
 
     def _read_line(
         self, item: AfeLine, rate: AfeCostEstimateLine | None
     ) -> AfeCostEstimateLineRead:
         quantity = self.effective_quantity(item)
         unit_rate = Decimal(rate.unit_rate) if rate else Decimal("0")
-        catalog_item_code, catalog_item_name, item_type = self._line_item_identity(item)
+        (
+            primary_id,
+            primary_code,
+            primary_name,
+            secondary_id,
+            secondary_code,
+            secondary_name,
+        ) = self._classification(item)
+        catalog_item = item.catalog_item
         return AfeCostEstimateLineRead(
             afe_line_id=item.id,
             estimate_line_id=rate.id if rate else None,
             line_number=item.line_number,
             catalog_item_id=item.catalog_item_id,
-            catalog_item_code=catalog_item_code,
-            catalog_item_name=catalog_item_name,
-            item_type=item_type,
+            catalog_item_code=catalog_item.code if catalog_item else None,
+            catalog_item_name=catalog_item.name if catalog_item else None,
+            primary_category_id=primary_id,
+            primary_category_code=primary_code,
+            primary_category_name=primary_name,
+            secondary_category_id=secondary_id,
+            secondary_category_code=secondary_code,
+            secondary_category_name=secondary_name,
             cost_code_id=item.cost_code_id,
             cost_code=item.cost_code.code if item.cost_code else None,
             hole_section_id=item.hole_section_id,
@@ -326,10 +313,6 @@ class AfeEstimateService:
 
     def _build_read(self, afe: Afe, lines: list[AfeCostEstimateLineRead]) -> AfeCostEstimateRead:
         estimated_total = sum((line.estimated_amount for line in lines), Decimal("0"))
-        services_total = sum(
-            (line.estimated_amount for line in lines if line.item_type == "service"),
-            Decimal("0"),
-        )
         priced = sum(1 for line in lines if line.unit_rate > 0)
         well = afe.well
         return AfeCostEstimateRead(
@@ -352,12 +335,11 @@ class AfeEstimateService:
             priced_line_count=priced,
             unpriced_line_count=len(lines) - priced,
             estimated_total=estimated_total,
-            services_total=services_total,
-            consumables_total=estimated_total - services_total,
             variance_to_budget=Decimal(afe.budget_amount or 0) - estimated_total,
             lines=lines,
             totals_by_section=self._group(lines, "section"),
-            totals_by_item_type=self._group(lines, "item_type"),
+            totals_by_primary_category=self._group(lines, "primary_category"),
+            totals_by_secondary_category=self._group(lines, "secondary_category"),
             totals_by_cost_code=self._group(lines, "cost_code"),
             totals_by_rate_basis=self._group(lines, "rate_basis"),
         )
@@ -369,11 +351,15 @@ class AfeEstimateService:
         buckets: dict[str, AfeCostEstimateGroupTotal] = {}
         for line in lines:
             if dimension == "section":
-                key = "All sections" if line.applies_to_all_sections else (
-                    line.hole_section_code or "Unassigned"
+                key = (
+                    "All sections"
+                    if line.applies_to_all_sections
+                    else (line.hole_section_code or "Unassigned")
                 )
-            elif dimension == "item_type":
-                key = (line.item_type or "other").replace("_", " ").title()
+            elif dimension == "primary_category":
+                key = line.primary_category_name or line.primary_category_code or "Unassigned"
+            elif dimension == "secondary_category":
+                key = line.secondary_category_name or line.secondary_category_code or "Unassigned"
             elif dimension == "cost_code":
                 key = line.cost_code or "Unassigned"
             else:

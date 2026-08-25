@@ -16,18 +16,43 @@ export interface AuditLogRecord {
   updated_at: string
 }
 
+export interface AuditFilters {
+  search?: string | undefined
+  action?: string | undefined
+  entity_type?: string | undefined
+  actor_id?: string | undefined
+}
+
+function query(params: AuditFilters & { page?: number, page_size?: number }): string {
+  const search = new URLSearchParams()
+  if (params.page) search.set('page', String(params.page))
+  if (params.page_size) search.set('page_size', String(params.page_size))
+  if (params.search) search.set('search', params.search)
+  if (params.action) search.set('action', params.action)
+  if (params.entity_type) search.set('entity_type', params.entity_type)
+  if (params.actor_id) search.set('actor_id', params.actor_id)
+  return search.toString()
+}
+
 export class AuditApi {
   constructor(private readonly api: ApiClient) {}
 
-  list(params: Record<string, string | number | boolean | undefined> = {}): Promise<PageResponse<AuditLogRecord>> {
-    const query = new URLSearchParams()
-    query.set('page', String(params.page ?? 1))
-    query.set('page_size', String(params.page_size ?? 25))
-    if (params.search) query.set('search', String(params.search))
-    if (params.action) query.set('action', String(params.action))
-    if (params.entity_type) query.set('entity_type', String(params.entity_type))
-    if (params.actor_id) query.set('actor_id', String(params.actor_id))
-    return this.api.get(`/audit-logs?${query}`)
+  list(params: AuditFilters & { page?: number, page_size?: number } = {}): Promise<PageResponse<AuditLogRecord>> {
+    return this.api.get(`/audit-logs?${query({ page: 1, page_size: 25, ...params })}`)
+  }
+
+  async listAll(filters: AuditFilters = {}): Promise<AuditLogRecord[]> {
+    const first = await this.list({ ...filters, page: 1, page_size: 500 })
+    const rows = [...first.items]
+    for (let page = 2; page <= first.pages; page += 1) {
+      const result = await this.list({ ...filters, page, page_size: 500 })
+      rows.push(...result.items)
+    }
+    return rows
+  }
+
+  export(filters: AuditFilters = {}): Promise<Blob> {
+    return this.api.download(`/audit-logs/export?${query(filters)}`)
   }
 
   get(id: string): Promise<AuditLogRecord> {

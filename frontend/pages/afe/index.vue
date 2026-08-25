@@ -557,7 +557,7 @@ function showAuditHistory(afe: AfeRecord): void {
 }
 
 async function deactivateAfe(record: AfeRecord): Promise<void> {
-  const confirmMsg = `Delete AFE ${record.code} permanently? If it is linked to a Cost Builder estimate, delete that estimate first.`
+  const confirmMsg = `Delete AFE ${record.code} permanently? Its AFE Cost Estimate and daily-cost links must no longer be in use.`
   if (!window.confirm(confirmMsg)) return
   try { await api.deleteAfe(record.id) }
   catch (caught: unknown) {
@@ -864,20 +864,18 @@ function sectionPhasesFor(section: AfeSectionRecord): { phase: string, planned_d
 function lineRowsHtml(
   items: AfeLineRecord[],
   rateMap: Map<string, { unit_rate: number, estimated_amount: number }>,
-  title: 'Service' | 'Item',
 ): string {
-  if (!items.length) return `<tr><td colspan="9">No ${title.toLowerCase()} lines configured.</td></tr>`
+  if (!items.length) return '<tr><td colspan="10">No AFE lines configured.</td></tr>'
   return items.map((item) => {
     const rate = rateMap.get(item.id)
     const unitRate = rate?.unit_rate ?? 0
     const estimated = rate?.estimated_amount ?? (Number(item.quantity) * unitRate)
-    const sectionLabel = item.applies_to_all_sections
-      ? 'All sections'
-      : (item.hole_section_code ?? '—')
+    const sectionLabel = item.applies_to_all_sections ? 'All sections' : (item.hole_section_code ?? '—')
     return `
     <tr>
       <td class="num">${item.line_number}</td>
-      <td>${escapeHtml(item.catalog_item_code)}<br><small>${escapeHtml(item.catalog_item_name)}</small></td>
+      <td>${escapeHtml(item.primary_category_name ?? item.primary_category_code ?? '—')}</td>
+      <td>${escapeHtml(item.secondary_category_name ?? item.secondary_category_code ?? item.catalog_item_name ?? '—')}</td>
       <td>${escapeHtml(item.cost_code ?? '')}</td>
       <td>${escapeHtml(item.rate_basis.replace(/_/g, ' '))}</td>
       <td>${escapeHtml(sectionLabel)}</td>
@@ -898,14 +896,10 @@ async function printAfe(): Promise<void> {
   // Pull well-scoped unit rates and totals from the AFE Cost Estimates so the
   // printout can show unit/fixed rates and estimated costs next to the scope.
   let rateMap = new Map<string, { unit_rate: number, estimated_amount: number }>()
-  let servicesTotal = 0
-  let tangiblesTotal = 0
   let estimatedTotal = 0
   let pricedFootnote = ''
   try {
     const estimate = await estimatesApi.get(afe.id)
-    servicesTotal = Number(estimate.services_total) || 0
-    tangiblesTotal = Number(estimate.consumables_total) || 0
     estimatedTotal = Number(estimate.estimated_total) || 0
     rateMap = new Map(estimate.lines.map(line => [
       line.afe_line_id,
@@ -947,48 +941,34 @@ async function printAfe(): Promise<void> {
     </tr>`).join('')
   }).join('')
 
-  const serviceItems = (afe.items ?? []).filter(item => item.item_type === 'service')
-  const tangibleItems = (afe.items ?? []).filter(item => item.item_type !== 'service')
-  const serviceRows = lineRowsHtml(serviceItems, rateMap, 'Service')
-  const tangibleRows = lineRowsHtml(tangibleItems, rateMap, 'Item')
+  const configuredLineRows = lineRowsHtml(afe.items ?? [], rateMap)
 
   printDocument(`AFE ${afe.code}`, `
     <h1>AUTHORISATION FOR EXPENDITURE</h1>
-    <p class="doc-subtitle">Well-scoped AFE record — sections, phases, services, tangibles, and estimated costs.</p>
+    <p class="doc-subtitle">Well-scoped AFE record using the classifications configured in Master Data.</p>
     <div class="meta-grid">${metaHtml}</div>
 
     <h2>Sections &amp; phases</h2>
     <table>
       <thead><tr><th>Hole section</th><th class="num">Depth from</th><th class="num">Depth to</th><th>Phase</th><th class="num">Planned days</th><th class="num">Section total (days)</th></tr></thead>
       <tbody>${sectionRows || '<tr><td colspan="6">No sections configured.</td></tr>'}</tbody>
-      <tfoot>
-        <tr class="total-row"><td colspan="4">Total planned days</td><td class="num" colspan="2">${Number(afe.total_planned_days || 0).toFixed(1)} days</td></tr>
-      </tfoot>
+      <tfoot><tr class="total-row"><td colspan="4">Total planned days</td><td class="num" colspan="2">${Number(afe.total_planned_days || 0).toFixed(1)} days</td></tr></tfoot>
     </table>
 
-    <h2>Services</h2>
+    <h2>Configured AFE lines</h2>
     <table>
-      <thead><tr><th class="num">#</th><th>Service</th><th>Cost code</th><th>Rate basis</th><th>Section</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit / Fixed rate</th><th class="num">Estimated cost</th></tr></thead>
-      <tbody>${serviceRows}</tbody>
-      <tfoot><tr class="total-row"><td colspan="8">Total service costs</td><td class="num">${money(servicesTotal)}</td></tr></tfoot>
-    </table>
-
-    <h2>Tangibles</h2>
-    <table>
-      <thead><tr><th class="num">#</th><th>Item</th><th>Cost code</th><th>Rate basis</th><th>Section</th><th class="num">Estimated consumption</th><th>Unit</th><th class="num">Unit rate</th><th class="num">Estimated cost</th></tr></thead>
-      <tbody>${tangibleRows}</tbody>
-      <tfoot><tr class="total-row"><td colspan="8">Total tangibles cost</td><td class="num">${money(tangiblesTotal)}</td></tr></tfoot>
+      <thead><tr><th class="num">#</th><th>Primary category</th><th>Secondary category</th><th>Cost code</th><th>Rate basis</th><th>Section</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit rate</th><th class="num">Estimated cost</th></tr></thead>
+      <tbody>${configuredLineRows}</tbody>
+      <tfoot><tr class="total-row"><td colspan="9">Total estimated cost</td><td class="num">${money(estimatedTotal)}</td></tr></tfoot>
     </table>
 
     <h2>Cost summary</h2>
     <table>
       <thead><tr><th>Component</th><th class="num">Amount</th></tr></thead>
       <tbody>
-        <tr><td>Total service costs</td><td class="num">${money(servicesTotal)}</td></tr>
-        <tr><td>Total tangibles cost</td><td class="num">${money(tangiblesTotal)}</td></tr>
-        <tr class="total-row"><td>Total costs</td><td class="num">${money(estimatedTotal)}</td></tr>
+        <tr><td>AFE cost estimate</td><td class="num">${money(estimatedTotal)}</td></tr>
         <tr><td>AFE budget</td><td class="num">${money(afe.budget_amount)}</td></tr>
-        <tr><td>Variance to budget</td><td class="num">${money(Number(afe.budget_amount || 0) - estimatedTotal)}</td></tr>
+        <tr class="total-row"><td>Variance to budget</td><td class="num">${money(Number(afe.budget_amount || 0) - estimatedTotal)}</td></tr>
       </tbody>
     </table>
 
@@ -1551,7 +1531,7 @@ onMounted(() => void loadAll())
     </Tabs>
 
     <!-- Project dialog -->
-    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="projectDialog" modal :header="projectForm.id ? 'Edit project' : 'Add project'" :style="{ width: '480px' }">
+    <Dialog v-model:visible="projectDialog" :dismissable-mask="false" :close-on-escape="false" modal :header="projectForm.id ? 'Edit project' : 'Add project'" :style="{ width: '480px' }">
       <div class="form-stack">
         <label>Code<InputText v-model="projectForm.code" fluid placeholder="e.g. PG-2026-01" /></label>
         <label>Name<InputText v-model="projectForm.name" fluid placeholder="e.g. North Sea Campaign" /></label>
@@ -1564,7 +1544,7 @@ onMounted(() => void loadAll())
     </Dialog>
 
     <!-- Well dialog -->
-    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="wellDialog" modal :header="wellForm.id ? 'Edit well' : 'Add well'" :style="{ width: '520px' }">
+    <Dialog v-model:visible="wellDialog" :dismissable-mask="false" :close-on-escape="false" modal :header="wellForm.id ? 'Edit well' : 'Add well'" :style="{ width: '520px' }">
       <div class="form-stack">
         <label>Project<Select v-model="wellForm.project_id" :options="activeProjectOptions" option-label="code" option-value="id" placeholder="Select project" filter fluid /></label>
         <label>Code<InputText v-model="wellForm.code" fluid placeholder="e.g. W-101" /></label>
@@ -1584,7 +1564,7 @@ onMounted(() => void loadAll())
     </Dialog>
 
     <!-- AFE Dialog with Section & Phase Breakdown -->
-    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="afeDialog" modal :header="afeForm.id ? 'Edit AFE & Well Sections' : 'New AFE & Well Plan'" :style="{ width: '880px' }">
+    <Dialog v-model:visible="afeDialog" :dismissable-mask="false" :close-on-escape="false" modal :header="afeForm.id ? 'Edit AFE & Well Sections' : 'New AFE & Well Plan'" :style="{ width: '880px' }">
       <div class="form-stack">
         <div class="form-row">
           <label>Well<Select v-model="afeForm.well_id" :options="wellOptions" option-label="code" option-value="id" placeholder="Select well" filter fluid /></label>
@@ -1745,7 +1725,7 @@ onMounted(() => void loadAll())
     </Dialog>
 
     <!-- Reopen AFE Dialog -->
-    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="reopenDialog" modal header="Reopen Submitted AFE" :style="{ width: '540px' }">
+    <Dialog v-model:visible="reopenDialog" :dismissable-mask="false" :close-on-escape="false" modal header="Reopen Submitted AFE" :style="{ width: '540px' }">
       <div class="form-stack">
         <Message severity="warn" :closable="false">
           Reopening <strong>{{ reopenTargetAfe?.code }}</strong> will unlock the AFE and allow editing of its section breakdown, items, and well-scoped rates.
@@ -1762,7 +1742,7 @@ onMounted(() => void loadAll())
     </Dialog>
 
     <!-- Audit History Dialog -->
-    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="auditHistoryDialog" modal :header="`AFE Audit History: ${auditTargetAfeTitle}`" :style="{ width: '680px' }">
+    <Dialog v-model:visible="auditHistoryDialog" :dismissable-mask="false" :close-on-escape="false" modal :header="`AFE Audit History: ${auditTargetAfeTitle}`" :style="{ width: '680px' }">
       <DataTable :value="auditHistoryList" data-key="id" striped-rows show-gridlines size="small">
         <Column field="action" header="Action">
           <template #body="{ data }">
@@ -1788,7 +1768,7 @@ onMounted(() => void loadAll())
     </Dialog>
 
     <!-- Removed lines dialog -->
-    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="removedLinesVisible" modal header="Removed lines" :style="{ width: '640px' }">
+    <Dialog v-model:visible="removedLinesVisible" :dismissable-mask="false" :close-on-escape="false" modal header="Removed lines" :style="{ width: '640px' }">
       <p class="afe-paste-hint">
         Lines removed from this draft AFE. Restoring a line brings it back with its original details —
         the action is recorded in the audit trail.

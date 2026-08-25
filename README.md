@@ -4,9 +4,9 @@ A modular-monolith web application replacing an interlinked Excel drilling-cost 
 
 ## Current delivery status
 
-**Enterprise Configuration Foundation.** The assured Phase 0–11 framework now includes a configurable typed enterprise hierarchy, versioned cost breakdown structures, rate books, estimate templates, workflow-profile foundation, reporting mappings, bootstrap-admin write boundary, and Enterprise Setup UI.
+**Active well-costing workflow.** The released application now follows one source chain: Master Data → AFE → AFE Cost Estimates → Daily Cost and Well Activities. Cost Analytics, Cost Control and Reports read this chain directly; retired Cost Builder versions, snapshots and financial staging batches are not connected to user-facing pages.
 
-You can configure the enterprise model one audited record at a time without source workbooks. All financial configuration starts as Draft and cannot silently activate formulas or reinterpret history. Numeric certification and production-policy acceptance remain blocked.
+AFE lines use the Primary → Secondary classification configured in Master Data. AFE Cost Estimates show those exact user-defined values, while the selected rate basis controls calculation behaviour. Report and Audit Log results can be printed and exported.
 
 A free online UAT deployment path is now prepared for **Vercel Nuxt + Render FastAPI + Neon PostgreSQL 16**. It has not yet been provisioned in provider accounts. See the [free UAT deployment runbook](docs/deployment/free-uat-vercel-render-neon.md), including cold-start, quota, data-recovery, and Vercel Hobby eligibility limitations.
 
@@ -172,7 +172,7 @@ permitted sources, and a super administrator repoints them under
 **Administration › Dropdown Sources** — see the
 [dropdown source registry](docs/master-data/dropdown-source-registry.md).
 
-The Cost Library supports spreadsheet-style multi-row editing, selection, duplicate, bulk edit/deactivation, TSV paste from Excel, versioned workbook templates, validation previews, all-or-nothing commits, exports, and import history. The Cost Builder supports versioned estimate grids, Excel round trips, audited recalculation attempts, pending-rule status, nullable total cards, future category/line breakdown views, immutable review notes, and blocked transition traces.
+Master Data supports spreadsheet-style multi-row editing, bulk changes, clipboard paste, validated workbook imports, exports and printable registers. AFE Cost Estimates price the configured AFE scope, Daily Cost records actuals, and Reports generates AFE Register, AFE Cost Estimate Detail, Daily Cost, Cost Performance and Well Activity accountability workbooks.
 
 ## Database migrations
 

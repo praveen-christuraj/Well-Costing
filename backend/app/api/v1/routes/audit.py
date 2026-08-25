@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import CurrentUser
@@ -35,6 +35,28 @@ def list_audit_logs(
         action=action,
         entity_type=entity_type,
         actor_id=actor_id,
+    )
+
+
+@router.get("/export")
+def export_audit_logs(
+    current_user: CurrentUser,
+    session: Annotated[Session, Depends(get_db)],
+    search: str | None = None,
+    action: str | None = None,
+    entity_type: str | None = None,
+    actor_id: UUID | None = None,
+) -> Response:
+    content = AuditService(session, current_user.id, current_user.email).export_workbook(
+        search=search,
+        action=action,
+        entity_type=entity_type,
+        actor_id=actor_id,
+    )
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="audit-log.xlsx"'},
     )
 
 

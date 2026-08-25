@@ -15,7 +15,6 @@ describe('application navigation', () => {
       'reports',
       'assurance',
       'audit',
-      'administration',
       'dropdown-sources',
       'help',
     ])

@@ -2,10 +2,13 @@
 
 import json
 import logging
+from io import BytesIO
 from math import ceil
 from typing import Any
 from uuid import UUID
 
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
 from sqlalchemy.orm import Session
 
 from app.models.audit import AuditLog
@@ -143,6 +146,86 @@ class AuditService:
             total=total,
             pages=ceil(total / page_size) if total else 0,
         )
+
+    def export_workbook(
+        self,
+        *,
+        search: str | None,
+        action: str | None,
+        entity_type: str | None,
+        actor_id: UUID | None,
+    ) -> bytes:
+        """Export every row matching the current audit filters."""
+        records, _ = self.repository.list(
+            page=1,
+            page_size=1_000_000,
+            search=search,
+            action=action,
+            entity_type=entity_type,
+            actor_id=actor_id,
+        )
+        workbook = Workbook()
+        sheet = workbook.active
+        if sheet is None:
+            raise RuntimeError("Workbook did not create a worksheet")
+        sheet.title = "Audit Log"
+        headers = [
+            "Timestamp",
+            "Actor",
+            "Action",
+            "Entity",
+            "Entity code",
+            "Entity ID",
+            "Details",
+            "IP address",
+            "User agent",
+        ]
+        for column, header in enumerate(headers, start=1):
+            cell = sheet.cell(1, column, header)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="0F766E")
+        for row_index, record in enumerate(records, start=2):
+            values = [
+                record.created_at,
+                record.actor_email,
+                record.action,
+                record.entity_type,
+                record.entity_code,
+                str(record.entity_id) if record.entity_id else None,
+                record.details,
+                record.ip_address,
+                record.user_agent,
+            ]
+            for column, value in enumerate(values, start=1):
+                sheet.cell(row_index, column, value)
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = f"A1:I{max(1, len(records) + 1)}"
+        for column, width in {
+            "A": 22,
+            "B": 28,
+            "C": 20,
+            "D": 24,
+            "E": 24,
+            "F": 38,
+            "G": 70,
+            "H": 18,
+            "I": 42,
+        }.items():
+            sheet.column_dimensions[column].width = width
+        stream = BytesIO()
+        workbook.save(stream)
+        content = stream.getvalue()
+        self.log(
+            action="export",
+            entity_type="audit_log",
+            entity_code="filtered-audit-log",
+            details={
+                "row_count": len(records),
+                "filters": {"search": search, "action": action, "entity_type": entity_type},
+            },
+            commit=True,
+        )
+        return content
 
     def get(self, log_id: UUID) -> AuditLogRead:
         from app.core.exceptions import NotFoundError

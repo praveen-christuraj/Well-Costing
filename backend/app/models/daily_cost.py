@@ -18,7 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import AuditMixin, Base, TimestampMixin
-from app.models.afe import Afe, Well
+from app.models.afe import Afe, AfeLine, Well
 from app.models.categories import WellActivity
 from app.models.master_data import CatalogItem, CostCode, HoleSection, Unit, Vendor
 
@@ -114,8 +114,13 @@ class DailyCostServiceLine(TimestampMixin, AuditMixin, Base):
     daily_cost_entry_id: Mapped[UUID] = mapped_column(
         ForeignKey("daily_cost_entries.id", ondelete="CASCADE"), index=True
     )
-    service_id: Mapped[UUID] = mapped_column(
-        ForeignKey("catalog_items.id", ondelete="RESTRICT"), index=True
+    # The configured AFE line is the planning/rate source. ``service_id`` is
+    # nullable because classification-only AFE lines have no catalogue item.
+    afe_line_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("afe_lines.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    service_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("catalog_items.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     cost_code_id: Mapped[UUID] = mapped_column(
         ForeignKey("cost_codes.id", ondelete="RESTRICT"), index=True
@@ -151,7 +156,8 @@ class DailyCostServiceLine(TimestampMixin, AuditMixin, Base):
     remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     entry: Mapped[DailyCostEntry] = relationship(back_populates="services")
-    service: Mapped[CatalogItem] = relationship(lazy="joined")
+    afe_line: Mapped[AfeLine | None] = relationship(lazy="joined")
+    service: Mapped[CatalogItem | None] = relationship(lazy="joined")
     cost_code: Mapped[CostCode] = relationship(lazy="joined")
     vendor: Mapped[Vendor | None] = relationship(lazy="joined")
     hole_section: Mapped[HoleSection | None] = relationship(lazy="joined")
@@ -176,8 +182,13 @@ class DailyCostConsumableLine(TimestampMixin, AuditMixin, Base):
     daily_cost_entry_id: Mapped[UUID] = mapped_column(
         ForeignKey("daily_cost_entries.id", ondelete="CASCADE"), index=True
     )
-    consumable_id: Mapped[UUID] = mapped_column(
-        ForeignKey("catalog_items.id", ondelete="RESTRICT"), index=True
+    # The configured AFE line is the planning/rate source. ``consumable_id``
+    # remains only as an optional historical catalogue reference.
+    afe_line_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("afe_lines.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    consumable_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("catalog_items.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     cost_code_id: Mapped[UUID] = mapped_column(
         ForeignKey("cost_codes.id", ondelete="RESTRICT"), index=True
@@ -202,7 +213,8 @@ class DailyCostConsumableLine(TimestampMixin, AuditMixin, Base):
     remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     entry: Mapped[DailyCostEntry] = relationship(back_populates="consumables")
-    consumable: Mapped[CatalogItem] = relationship(lazy="joined")
+    afe_line: Mapped[AfeLine | None] = relationship(lazy="joined")
+    consumable: Mapped[CatalogItem | None] = relationship(lazy="joined")
     cost_code: Mapped[CostCode] = relationship(lazy="joined")
     vendor: Mapped[Vendor | None] = relationship(lazy="joined")
     unit: Mapped[Unit] = relationship(lazy="joined")

@@ -8,7 +8,9 @@ import Message from 'primevue/message'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import PageHeader from '~/components/design-system/PageHeader.vue'
-import type { AuditLogRecord } from '~/services/audit'
+import type { AuditFilters, AuditLogRecord } from '~/services/audit'
+import { downloadBlob } from '~/utils/download'
+import { escapeHtml, printDocument } from '~/utils/printDocument'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -22,6 +24,8 @@ const search = ref('')
 const actionFilter = ref<string | null>(null)
 const entityFilter = ref<string | null>(null)
 const loading = ref(false)
+const exporting = ref(false)
+const printing = ref(false)
 const error = ref<string | null>(null)
 
 const actionOptions = [
@@ -29,75 +33,45 @@ const actionOptions = [
   { label: 'Login', value: 'login' },
   { label: 'Create', value: 'create' },
   { label: 'Update', value: 'update' },
+  { label: 'Save rates', value: 'save_rates' },
+  { label: 'Submit', value: 'submitted' },
+  { label: 'Reopen', value: 'reopen' },
+  { label: 'Resubmit', value: 'resubmitted' },
   { label: 'Soft delete', value: 'soft_delete' },
   { label: 'Recover', value: 'recover' },
   { label: 'Hard delete', value: 'hard_delete' },
-  { label: 'Submit', value: 'submitted' },
-  { label: 'Reopen', value: 'reopen' },
-  { label: 'Resubmitted', value: 'resubmitted' },
   { label: 'Bulk create', value: 'bulk_create' },
-  { label: 'Save rates', value: 'save_rates' },
-  { label: 'Submit', value: 'submit' },
-  { label: 'Approve', value: 'approve' },
-  { label: 'Reject', value: 'reject' },
-  { label: 'Cancel', value: 'cancel' },
-  { label: 'Export', value: 'export' },
-  { label: 'Calculate', value: 'calculate' },
-  { label: 'Create baseline', value: 'create_baseline' },
-  { label: 'Transition', value: 'transition' },
-  { label: 'Comment', value: 'comment' },
-  { label: 'Post', value: 'post' },
-  { label: 'Lock', value: 'lock' },
   { label: 'Import preview', value: 'import_preview' },
   { label: 'Import commit', value: 'import_commit' },
-  { label: 'Submit (blocked)', value: 'transition_blocked' },
-  { label: 'Transition denied', value: 'transition_denied' },
-  { label: 'Calculate (blocked)', value: 'calculate_blocked' },
-  { label: 'Baseline (blocked)', value: 'create_baseline_blocked' },
-  { label: 'Post (blocked)', value: 'post_blocked' },
+  { label: 'Export', value: 'export' },
 ]
-
 
 const entityOptions = [
   { label: 'All entities', value: null },
   { label: 'User', value: 'user' },
-  { label: 'AFE', value: 'afe' },
-  { label: 'AFE line', value: 'afe_line' },
   { label: 'Project', value: 'project' },
   { label: 'Well', value: 'well' },
-  { label: 'Drilling phase', value: 'drilling_phase' },
-  { label: 'Units', value: 'units' },
-  { label: 'Vendors', value: 'vendors' },
-  { label: 'Services', value: 'services' },
-  { label: 'Tangibles', value: 'tangibles' },
-  { label: 'Hole sections', value: 'hole-sections' },
-  { label: 'Cost codes', value: 'cost-codes' },
-  { label: 'Well activity', value: 'well_activity' },
-  { label: 'Daily cost entry', value: 'daily_cost_entry' },
+  { label: 'AFE', value: 'afe' },
+  { label: 'AFE line', value: 'afe_line' },
   { label: 'AFE cost estimate', value: 'afe_cost_estimate' },
-  { label: 'Well service rate', value: 'well_service_rate' },
-  { label: 'Well tangible rate', value: 'well_tangible_rate' },
-  { label: 'Well rate book', value: 'well_rate_book' },
-  { label: 'Unplanned item', value: 'well_unplanned_item' },
+  { label: 'Daily cost entry', value: 'daily_cost_entry' },
+  { label: 'Well activity', value: 'well_activity' },
+  { label: 'Report', value: 'report' },
+  { label: 'Audit log', value: 'audit_log' },
+  { label: 'Primary category', value: 'primary-categories' },
+  { label: 'Secondary category', value: 'secondary-categories' },
+  { label: 'Tertiary category', value: 'tertiary-categories' },
+  { label: 'Cost category', value: 'cost-categories' },
+  { label: 'Cost code', value: 'cost-codes' },
+  { label: 'Unit', value: 'units' },
+  { label: 'Currency', value: 'currencies' },
+  { label: 'Hole section', value: 'hole-sections' },
+  { label: 'Vendor', value: 'vendors' },
+  { label: 'Catalogue item', value: 'catalog_item' },
+  { label: 'Drilling phase', value: 'drilling_phase' },
   { label: 'Dropdown binding', value: 'dropdown_binding' },
-  { label: 'Cost-control batch', value: 'cost_control_batch' },
-  { label: 'Cost report', value: 'cost_report' },
-  { label: 'Estimate calculation', value: 'estimate_calculation' },
-  { label: 'AFE snapshot', value: 'afe_snapshot' },
-  { label: 'Estimate workflow', value: 'estimate_workflow' },
-  { label: 'Enterprise node type', value: 'enterprise_node_type' },
-  { label: 'Enterprise node', value: 'enterprise_node' },
-  { label: 'Enterprise hierarchy rule', value: 'enterprise_hierarchy_rule' },
-  { label: 'Cost-breakdown structure', value: 'cost_breakdown_structure' },
-  { label: 'Cost-breakdown node', value: 'cost_breakdown_node' },
-  { label: 'Rate book', value: 'rate_book' },
-  { label: 'Rate book entry', value: 'rate_book_entry' },
-  { label: 'Estimate template', value: 'estimate_template' },
-  { label: 'Estimate template line', value: 'estimate_template_line' },
-  { label: 'Reporting mapping', value: 'reporting_mapping' },
   { label: 'Import batch', value: 'import_batch' },
   { label: 'AFE import batch', value: 'afe_import_batch' },
-  { label: 'Estimate import batch', value: 'estimate_import_batch' },
 ]
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
@@ -130,6 +104,44 @@ async function load(): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+function currentFilters(): AuditFilters {
+  return {
+    search: search.value.trim() || undefined,
+    action: actionFilter.value || undefined,
+    entity_type: entityFilter.value || undefined,
+  }
+}
+
+async function exportAudit(): Promise<void> {
+  exporting.value = true
+  error.value = null
+  try {
+    downloadBlob(await audit.export(currentFilters()), 'audit-log.xlsx')
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'Audit log export failed.'
+  }
+  finally { exporting.value = false }
+}
+
+async function printAudit(): Promise<void> {
+  printing.value = true
+  error.value = null
+  try {
+    const records = await audit.listAll(currentFilters())
+    const body = records.map(record => `<tr>
+      <td>${escapeHtml(new Date(record.created_at).toLocaleString())}</td>
+      <td>${escapeHtml(record.actor_email ?? '—')}</td><td>${escapeHtml(record.action)}</td>
+      <td>${escapeHtml(record.entity_type)}</td><td>${escapeHtml(record.entity_code ?? record.entity_id ?? '—')}</td>
+      <td>${escapeHtml(record.details ?? '—')}</td></tr>`).join('')
+    printDocument('Audit Log', `<h1>AUDIT LOG</h1><p class="doc-subtitle">Immutable user-action trail · ${records.length} filtered entries</p><table><thead><tr><th>Timestamp</th><th>Actor</th><th>Action</th><th>Entity</th><th>Entity code</th><th>Details</th></tr></thead><tbody>${body || '<tr><td colspan="6">No entries match the selected filters.</td></tr>'}</tbody></table><p class="print-footer">Printed ${new Date().toLocaleString()}.</p>`)
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'Audit log print data could not be loaded.'
+  }
+  finally { printing.value = false }
 }
 
 function goToPage(target: number): void {
@@ -171,9 +183,11 @@ onMounted(() => void load())
   <div class="library-page">
     <PageHeader
       title="Audit Log"
-      description="Complete immutable trail of every user action — from login through every create, update, submit, reopen, soft-deletion, recovery, and permanent deletion. Use filters to investigate master data and AFE workflows."
+      description="Complete immutable trail across Master Data, AFE, AFE Cost Estimates, Daily Cost, Well Activities and report exports. Print or export the complete filtered result."
     >
       <template #actions>
+        <Button label="Print" icon="pi pi-print" outlined :loading="printing" @click="printAudit" />
+        <Button label="Export Excel" icon="pi pi-file-excel" outlined :loading="exporting" @click="exportAudit" />
         <Button label="Refresh" icon="pi pi-refresh" :loading="loading" @click="load" />
       </template>
     </PageHeader>

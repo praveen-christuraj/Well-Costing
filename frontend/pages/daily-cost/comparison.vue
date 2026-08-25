@@ -110,7 +110,7 @@ function renderDateChart(): void {
   const points = data.by_date
   chart.setOption({
     tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-    legend: { data: ['Services', 'Consumables', 'Cumulative actual', 'Planned cumulative'], top: 0 },
+    legend: { data: ['Operational charges', 'Quantity charges', 'Cumulative actual', 'Planned cumulative'], top: 0 },
     grid: { left: '3%', right: '4%', bottom: '8%', containLabel: true },
     xAxis: { type: 'category', data: points.map(p => p.entry_date), axisLabel: { rotate: 25, fontSize: 11 } },
     yAxis: [
@@ -118,8 +118,8 @@ function renderDateChart(): void {
       { type: 'value', name: 'Cumulative ($)' },
     ],
     series: [
-      { name: 'Services', type: 'bar', stack: 'daily', itemStyle: { color: '#3b82f6' }, data: points.map(p => Number(p.services_cost)) },
-      { name: 'Consumables', type: 'bar', stack: 'daily', itemStyle: { color: '#10b981' }, data: points.map(p => Number(p.consumables_cost)) },
+      { name: 'Operational charges', type: 'bar', stack: 'daily', itemStyle: { color: '#3b82f6' }, data: points.map(p => Number(p.services_cost)) },
+      { name: 'Quantity charges', type: 'bar', stack: 'daily', itemStyle: { color: '#10b981' }, data: points.map(p => Number(p.consumables_cost)) },
       { name: 'Cumulative actual', type: 'line', yAxisIndex: 1, lineStyle: { width: 3 }, itemStyle: { color: '#f59e0b' }, data: points.map(p => Number(p.cumulative_cost)) },
       { name: 'Planned cumulative', type: 'line', yAxisIndex: 1, lineStyle: { width: 2, type: 'dashed' }, itemStyle: { color: '#64748b' }, data: points.map(p => (p.planned_cumulative != null ? Number(p.planned_cumulative) : null)) },
     ],
@@ -131,10 +131,10 @@ function renderBucketBarChart(element: HTMLElement | null, buckets: ComparisonBu
   const chart = chartFor(element)
   if (!chart) return
   const series: object[] = [
-    { name: 'Services', type: 'bar', stack: 'actual', itemStyle: { color: '#3b82f6' }, data: buckets.map(b => Number(b.services_cost)) },
-    { name: 'Consumables', type: 'bar', stack: 'actual', itemStyle: { color: '#10b981' }, data: buckets.map(b => Number(b.consumables_cost)) },
+    { name: 'Operational charges', type: 'bar', stack: 'actual', itemStyle: { color: '#3b82f6' }, data: buckets.map(b => Number(b.services_cost)) },
+    { name: 'Quantity charges', type: 'bar', stack: 'actual', itemStyle: { color: '#10b981' }, data: buckets.map(b => Number(b.consumables_cost)) },
   ]
-  const legend = ['Services', 'Consumables']
+  const legend = ['Operational charges', 'Quantity charges']
   if (withPlanned) {
     series.push({ name: 'Planned', type: 'bar', itemStyle: { color: '#94a3b8' }, data: buckets.map(b => (b.planned_cost != null ? Number(b.planned_cost) : 0)) })
     legend.push('Planned')
@@ -279,8 +279,8 @@ onMounted(() => {
             <Column field="phase" header="Phase" />
             <Column field="hole_section_code" header="Section" />
             <Column field="activity_name" header="Activity" />
-            <Column header="Services"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column>
-            <Column header="Consumables"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column>
+            <Column header="Operational charges"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column>
+            <Column header="Quantity charges"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column>
             <Column header="Daily cost"><template #body="{ data }"><strong>${{ money(data.daily_cost) }}</strong></template></Column>
             <Column header="Cumulative"><template #body="{ data }">${{ money(data.cumulative_cost) }}</template></Column>
             <Column header="Planned cumulative"><template #body="{ data }">{{ data.planned_cumulative != null ? `$${money(data.planned_cumulative)}` : '—' }}</template></Column>
@@ -292,8 +292,8 @@ onMounted(() => {
           <DataTable :value="comparison.by_week" striped-rows show-gridlines class="bulk-grid-panel">
             <Column field="label" header="Week" />
             <Column field="entry_count" header="Days logged" />
-            <Column header="Services"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column>
-            <Column header="Consumables"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column>
+            <Column header="Operational charges"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column>
+            <Column header="Quantity charges"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column>
             <Column header="Total"><template #body="{ data }"><strong>${{ money(data.total_cost) }}</strong></template></Column>
           </DataTable>
         </TabPanel>
@@ -302,8 +302,8 @@ onMounted(() => {
           <DataTable :value="comparison.by_month" striped-rows show-gridlines class="bulk-grid-panel">
             <Column field="label" header="Month" />
             <Column field="entry_count" header="Days logged" />
-            <Column header="Services"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column>
-            <Column header="Consumables"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column>
+            <Column header="Operational charges"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column>
+            <Column header="Quantity charges"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column>
             <Column header="Total"><template #body="{ data }"><strong>${{ money(data.total_cost) }}</strong></template></Column>
           </DataTable>
         </TabPanel>
@@ -313,8 +313,8 @@ onMounted(() => {
             <Column field="label" header="Hole section" />
             <Column header="Planned (estimate)"><template #body="{ data }">{{ data.planned_cost != null ? `$${money(data.planned_cost)}` : '—' }}</template></Column>
             <Column header="Planned days"><template #body="{ data }">{{ data.planned_days != null ? Number(data.planned_days).toFixed(1) : '—' }}</template></Column>
-            <Column header="Actual services"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column>
-            <Column header="Actual consumables"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column>
+            <Column header="Actual operational"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column>
+            <Column header="Actual quantity"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column>
             <Column header="Actual total"><template #body="{ data }"><strong>${{ money(data.total_cost) }}</strong></template></Column>
             <Column header="Variance">
               <template #body="{ data }">
@@ -330,8 +330,8 @@ onMounted(() => {
           <DataTable :value="comparison.by_activity" striped-rows show-gridlines class="bulk-grid-panel">
             <Column field="label" header="Activity" />
             <Column field="activity_code" header="Code" />
-            <Column header="Services"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column>
-            <Column header="Consumables"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column>
+            <Column header="Operational charges"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column>
+            <Column header="Quantity charges"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column>
             <Column header="Total"><template #body="{ data }"><strong>${{ money(data.total_cost) }}</strong></template></Column>
           </DataTable>
           <h3 class="cmp-subhead">By sub-activity (responsible party accountability)</h3>
@@ -339,8 +339,8 @@ onMounted(() => {
             <Column field="label" header="Sub-activity" />
             <Column field="activity_name" header="Activity" />
             <Column field="responsible_party" header="Responsible party" />
-            <Column header="Services"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column>
-            <Column header="Consumables"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column>
+            <Column header="Operational charges"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column>
+            <Column header="Quantity charges"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column>
             <Column header="Total"><template #body="{ data }"><strong>${{ money(data.total_cost) }}</strong></template></Column>
           </DataTable>
         </TabPanel>
@@ -350,8 +350,8 @@ onMounted(() => {
             <Column field="label" header="Phase" />
             <Column header="Planned days"><template #body="{ data }">{{ data.planned_days != null ? Number(data.planned_days).toFixed(1) : '—' }}</template></Column>
             <Column header="Actual days"><template #body="{ data }">{{ data.actual_days != null ? Number(data.actual_days).toFixed(0) : '—' }}</template></Column>
-            <Column header="Services"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column>
-            <Column header="Consumables"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column>
+            <Column header="Operational charges"><template #body="{ data }">${{ money(data.services_cost) }}</template></Column>
+            <Column header="Quantity charges"><template #body="{ data }">${{ money(data.consumables_cost) }}</template></Column>
             <Column header="Total"><template #body="{ data }"><strong>${{ money(data.total_cost) }}</strong></template></Column>
           </DataTable>
         </TabPanel>

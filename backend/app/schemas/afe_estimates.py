@@ -1,4 +1,9 @@
-"""AFE Cost Estimate schemas — well-scoped unit rates priced against AFE lines."""
+"""AFE Cost Estimate schemas — well-scoped rates priced against configured AFE lines.
+
+The estimate exposes the classification selected by the user on the AFE line.
+It deliberately does not expose or infer a hard-coded service/tangible/other
+"type". Calculation behaviour comes from the line's explicit rate basis.
+"""
 
 from datetime import datetime
 from decimal import Decimal
@@ -34,10 +39,17 @@ class AfeCostEstimateLineRead(BaseModel):
     afe_line_id: UUID
     estimate_line_id: UUID | None = None
     line_number: int
+    # Retained for historical lines created from a catalogue item. New lines are
+    # identified by their configured classification below.
     catalog_item_id: UUID | None = None
     catalog_item_code: str | None = None
     catalog_item_name: str | None = None
-    item_type: str | None = None
+    primary_category_id: UUID | None = None
+    primary_category_code: str | None = None
+    primary_category_name: str | None = None
+    secondary_category_id: UUID | None = None
+    secondary_category_code: str | None = None
+    secondary_category_name: str | None = None
     cost_code_id: UUID
     cost_code: str | None = None
     hole_section_id: UUID | None = None
@@ -64,7 +76,7 @@ class AfeCostEstimateGroupTotal(BaseModel):
 
 
 class AfeCostEstimateRead(BaseModel):
-    """The full priced AFE: header, priced lines, and roll-ups."""
+    """The full priced AFE: header, priced lines, and user-configured roll-ups."""
 
     afe_id: UUID
     afe_code: str
@@ -85,8 +97,6 @@ class AfeCostEstimateRead(BaseModel):
     priced_line_count: int = 0
     unpriced_line_count: int = 0
     estimated_total: Decimal = Decimal("0")
-    services_total: Decimal = Decimal("0")
-    consumables_total: Decimal = Decimal("0")
     variance_to_budget: Decimal = Decimal("0")
     lines: list[AfeCostEstimateLineRead] = Field(
         default_factory=lambda: list[AfeCostEstimateLineRead]()
@@ -94,7 +104,10 @@ class AfeCostEstimateRead(BaseModel):
     totals_by_section: list[AfeCostEstimateGroupTotal] = Field(
         default_factory=lambda: list[AfeCostEstimateGroupTotal]()
     )
-    totals_by_item_type: list[AfeCostEstimateGroupTotal] = Field(
+    totals_by_primary_category: list[AfeCostEstimateGroupTotal] = Field(
+        default_factory=lambda: list[AfeCostEstimateGroupTotal]()
+    )
+    totals_by_secondary_category: list[AfeCostEstimateGroupTotal] = Field(
         default_factory=lambda: list[AfeCostEstimateGroupTotal]()
     )
     totals_by_cost_code: list[AfeCostEstimateGroupTotal] = Field(

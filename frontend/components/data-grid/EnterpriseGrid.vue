@@ -23,7 +23,7 @@ import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
 import { useConfirm } from 'primevue/useconfirm'
-import ImportWizard from '~/components/cost-library/ImportWizard.vue'
+import ImportWizard from '~/components/master-data/ImportWizard.vue'
 import { downloadBlob, exportFilename } from '~/utils/download'
 import { parseTsv } from '~/utils/tsv'
 import { NormalizedApiError } from '~/types/api'
@@ -285,7 +285,7 @@ async function removeRow(row: EditableRow): Promise<void> {
       // record inaccessible. Keep everything unchanged and tell the user what
       // must be removed first.
       if (!(caught instanceof NormalizedApiError) || caught.status !== 409) throw caught
-      throw new Error(`${caught.message} Delete the linked record(s) first, then try again.`)
+      throw new Error(`${caught.message} Delete the linked record(s) first, then try again.`, { cause: caught })
     }
     await load()
   }
@@ -887,7 +887,7 @@ defineExpose({ reload: load })
       <p v-if="!rows.length" class="eg__print-empty">No {{ title.toLowerCase() }} matched the current filters.</p>
     </div>
 
-    <Dialog :dismissable-mask="false" :close-on-escape="false" v-model:visible="pasteVisible" modal header="Paste rows from Excel" :style="{ width: '760px' }">
+    <Dialog v-model:visible="pasteVisible" :dismissable-mask="false" :close-on-escape="false" modal header="Paste rows from Excel" :style="{ width: '760px' }">
       <p class="eg__paste-hint">
         Copy cells directly from your workbook. Columns are read in this order:
       </p>
