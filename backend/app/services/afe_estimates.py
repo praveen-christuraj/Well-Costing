@@ -120,10 +120,8 @@ class AfeEstimateService:
             ("AFE", f"{estimate.afe_code} (rev {estimate.revision_number})"),
             ("Title", estimate.afe_title),
             ("Status", estimate.afe_status),
-            ("AFE budget", float(estimate.budget_amount)),
             ("Planned days", float(estimate.total_planned_days)),
             ("Estimated total", float(estimate.estimated_total)),
-            ("Variance to budget", float(estimate.variance_to_budget)),
         ]
         row_index = 4
         for label, value in header_pairs:
@@ -243,19 +241,71 @@ class AfeEstimateService:
             return Decimal(item.computed_quantity)
         return Decimal("0")
 
+    @staticmethod
+    def _line_item_identity(item: AfeLine) -> tuple[str | None, str | None, str | None]:
+        if item.catalog_item is not None:
+            return item.catalog_item.code, item.catalog_item.name, item.catalog_item.item_type
+        secondary = item.secondary_category
+        primary = secondary.primary_category if secondary else None
+        return (
+            secondary.code if secondary else None,
+            secondary.name if secondary else None,
+            AfeEstimateService._infer_item_type(
+                primary.code if primary else None,
+                primary.name if primary else None,
+                item.rate_basis,
+            ),
+        )
+
+    @staticmethod
+    def _infer_item_type(
+        primary_code: str | None,
+        primary_name: str | None,
+        rate_basis: str | None,
+    ) -> str | None:
+        mapping = {
+            "SERVICE": "service",
+            "SERVICES": "service",
+            "TANGIBLE": "tangible",
+            "TANGIBLES": "tangible",
+            "MATERIAL": "material",
+            "MATERIALS": "material",
+            "EQUIPMENT": "equipment",
+            "MUDCHEMICAL": "mud_chemical",
+            "MUDCHEMICALS": "mud_chemical",
+            "CEMENTADDITIVE": "cement_additive",
+            "CEMENTADDITIVES": "cement_additive",
+        }
+        for candidate in (primary_code, primary_name):
+            key = AfeEstimateService._normalise_item_scope(candidate)
+            if key in mapping:
+                return mapping[key]
+        if rate_basis in {"daily", "per_service", "per_section"}:
+            return "service"
+        if rate_basis == "daily_consumption":
+            return "mud_chemical"
+        if rate_basis == "per_unit":
+            return "tangible"
+        return None
+
+    @staticmethod
+    def _normalise_item_scope(value: str | None) -> str:
+        return "".join(character for character in (value or "").upper() if character.isalnum())
+
     def _read_line(
         self, item: AfeLine, rate: AfeCostEstimateLine | None
     ) -> AfeCostEstimateLineRead:
         quantity = self.effective_quantity(item)
         unit_rate = Decimal(rate.unit_rate) if rate else Decimal("0")
+        catalog_item_code, catalog_item_name, item_type = self._line_item_identity(item)
         return AfeCostEstimateLineRead(
             afe_line_id=item.id,
             estimate_line_id=rate.id if rate else None,
             line_number=item.line_number,
             catalog_item_id=item.catalog_item_id,
-            catalog_item_code=item.catalog_item.code if item.catalog_item else None,
-            catalog_item_name=item.catalog_item.name if item.catalog_item else None,
-            item_type=item.catalog_item.item_type if item.catalog_item else None,
+            catalog_item_code=catalog_item_code,
+            catalog_item_name=catalog_item_name,
+            item_type=item_type,
             cost_code_id=item.cost_code_id,
             cost_code=item.cost_code.code if item.cost_code else None,
             hole_section_id=item.hole_section_id,

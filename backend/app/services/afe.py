@@ -1612,8 +1612,59 @@ class AfeLineService:
             values["quantity_override_reason"] = None
 
     @staticmethod
+    def _line_item_identity(item: AfeLine) -> tuple[str | None, str | None, str | None]:
+        if item.catalog_item is not None:
+            return item.catalog_item.code, item.catalog_item.name, item.catalog_item.item_type
+        secondary = item.secondary_category
+        primary = secondary.primary_category if secondary else None
+        return (
+            secondary.code if secondary else None,
+            secondary.name if secondary else None,
+            AfeLineService._infer_item_type(
+                primary.code if primary else None,
+                primary.name if primary else None,
+                item.rate_basis,
+            ),
+        )
+
+    @staticmethod
+    def _infer_item_type(
+        primary_code: str | None,
+        primary_name: str | None,
+        rate_basis: str | None,
+    ) -> str | None:
+        mapping = {
+            "SERVICE": "service",
+            "SERVICES": "service",
+            "TANGIBLE": "tangible",
+            "TANGIBLES": "tangible",
+            "MATERIAL": "material",
+            "MATERIALS": "material",
+            "EQUIPMENT": "equipment",
+            "MUDCHEMICAL": "mud_chemical",
+            "MUDCHEMICALS": "mud_chemical",
+            "CEMENTADDITIVE": "cement_additive",
+            "CEMENTADDITIVES": "cement_additive",
+        }
+        for candidate in (primary_code, primary_name):
+            key = AfeLineService._normalise_item_scope(candidate)
+            if key in mapping:
+                return mapping[key]
+        if rate_basis in {"daily", "per_service", "per_section"}:
+            return "service"
+        if rate_basis == "daily_consumption":
+            return "mud_chemical"
+        if rate_basis == "per_unit":
+            return "tangible"
+        return None
+
+    @staticmethod
+    def _normalise_item_scope(value: str | None) -> str:
+        return "".join(character for character in (value or "").upper() if character.isalnum())
+
+    @staticmethod
     def read(item: AfeLine) -> AfeLineRead:
-        catalog_item = item.catalog_item
+        catalog_item_code, catalog_item_name, item_type = AfeLineService._line_item_identity(item)
         cost_code = item.cost_code
         unit = item.unit
         return AfeLineRead.model_validate(
@@ -1639,14 +1690,28 @@ class AfeLineService:
                         "quantity_source",
                     }
                 },
-                "catalog_item_code": catalog_item.code if catalog_item else None,
-                "catalog_item_name": catalog_item.name if catalog_item else None,
-                "item_type": catalog_item.item_type if catalog_item else None,
-                "primary_category_id": item.secondary_category.primary_category_id if item.secondary_category else None,
-                "primary_category_code": item.secondary_category.primary_category.code if item.secondary_category and item.secondary_category.primary_category else None,
-                "primary_category_name": item.secondary_category.primary_category.name if item.secondary_category and item.secondary_category.primary_category else None,
-                "secondary_category_code": item.secondary_category.code if item.secondary_category else None,
-                "secondary_category_name": item.secondary_category.name if item.secondary_category else None,
+                "catalog_item_code": catalog_item_code,
+                "catalog_item_name": catalog_item_name,
+                "item_type": item_type,
+                "primary_category_id": (
+                    item.secondary_category.primary_category_id if item.secondary_category else None
+                ),
+                "primary_category_code": (
+                    item.secondary_category.primary_category.code
+                    if item.secondary_category and item.secondary_category.primary_category
+                    else None
+                ),
+                "primary_category_name": (
+                    item.secondary_category.primary_category.name
+                    if item.secondary_category and item.secondary_category.primary_category
+                    else None
+                ),
+                "secondary_category_code": (
+                    item.secondary_category.code if item.secondary_category else None
+                ),
+                "secondary_category_name": (
+                    item.secondary_category.name if item.secondary_category else None
+                ),
                 "cost_code": cost_code.name if cost_code else None,
                 "unit_code": unit.code if unit else None,
                 "depth_unit_code": item.depth_unit.code if item.depth_unit else None,
