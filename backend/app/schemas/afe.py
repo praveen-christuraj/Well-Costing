@@ -263,7 +263,7 @@ class AfeUpdate(BaseModel):
 
 class AfeLineCreate(BaseModel):
     line_number: int = Field(ge=1)
-    catalog_item_id: UUID
+    secondary_category_id: UUID
     cost_code_id: UUID
     quantity: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     unit_id: UUID
@@ -298,7 +298,7 @@ class AfeLineCreate(BaseModel):
 
 class AfeLineUpdate(BaseModel):
     line_number: int | None = Field(default=None, ge=1)
-    catalog_item_id: UUID | None = None
+    secondary_category_id: UUID | None = None
     cost_code_id: UUID | None = None
     quantity: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     unit_id: UUID | None = None
@@ -323,10 +323,16 @@ class AfeLineRead(BaseModel):
     id: UUID
     afe_id: UUID
     line_number: int
-    catalog_item_id: UUID
+    catalog_item_id: UUID | None = None
     catalog_item_code: str | None = None
     catalog_item_name: str | None = None
     item_type: str | None = None
+    primary_category_id: UUID | None = None
+    primary_category_code: str | None = None
+    primary_category_name: str | None = None
+    secondary_category_id: UUID | None = None
+    secondary_category_code: str | None = None
+    secondary_category_name: str | None = None
     cost_code_id: UUID
     cost_code: str | None = None
     quantity: Decimal

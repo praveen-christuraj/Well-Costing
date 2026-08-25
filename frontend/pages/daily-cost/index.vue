@@ -304,6 +304,8 @@ function quickLoadAfeItems(): void {
     return
   }
   for (const item of activeAfe.value.items) {
+    // Classification-only AFE lines do not map to a service/consumable rate-book item.
+    if (!item.catalog_item_id) continue
     if (item.item_type === 'service') {
       const matchRef = refServices.value.find(s => s.service_id === item.catalog_item_id)
       const existing = serviceLines.value.find(s => s.service_id === item.catalog_item_id)

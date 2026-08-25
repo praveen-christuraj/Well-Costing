@@ -4,7 +4,7 @@ export interface AfeCostEstimateLine {
   afe_line_id: string
   estimate_line_id: string | null
   line_number: number
-  catalog_item_id: string
+  catalog_item_id: string | null
   catalog_item_code: string | null
   catalog_item_name: string | null
   item_type: string | null

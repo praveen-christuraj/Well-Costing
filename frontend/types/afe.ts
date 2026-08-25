@@ -141,10 +141,17 @@ export interface AfeLineRecord {
   id: string
   afe_id: string
   line_number: number
-  catalog_item_id: string
+  /** Legacy catalogue reference retained only for historical AFE lines. */
+  catalog_item_id: string | null
   catalog_item_code: string | null
   catalog_item_name: string | null
   item_type: string | null
+  primary_category_id: string | null
+  primary_category_code: string | null
+  primary_category_name: string | null
+  secondary_category_id: string | null
+  secondary_category_code: string | null
+  secondary_category_name: string | null
   cost_code_id: string
   cost_code: string | null
   quantity: string
@@ -202,13 +209,11 @@ export interface EditableAfeLine {
   id?: string
   line_number: number
   /**
-   * Classification of the line, driving which items may be picked. Held on the
-   * client only: the stored line references the catalogue item, and the item
-   * carries the classification, so the two can never disagree.
+   * Classification is stored directly on the AFE line. The secondary category
+   * is the source of its configured cost-code options.
    */
   primary_category_id: string
   secondary_category_id: string
-  catalog_item_id: string
   cost_code_id: string
   quantity: string
   unit_id: string

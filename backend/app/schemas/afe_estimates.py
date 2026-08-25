@@ -34,7 +34,7 @@ class AfeCostEstimateLineRead(BaseModel):
     afe_line_id: UUID
     estimate_line_id: UUID | None = None
     line_number: int
-    catalog_item_id: UUID
+    catalog_item_id: UUID | None = None
     catalog_item_code: str | None = None
     catalog_item_name: str | None = None
     item_type: str | None = None
