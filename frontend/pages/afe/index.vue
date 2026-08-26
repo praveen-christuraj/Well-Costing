@@ -35,7 +35,6 @@ import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
 import PageHeader from '~/components/design-system/PageHeader.vue'
-import { rateBasesFor } from '~/types/afe'
 import { escapeHtml, formatMoneyCell, printDocument } from '~/utils/printDocument'
 import type {
   AfeAuditLogRecord,
@@ -631,6 +630,41 @@ function isConsumptionLine(line: EditableAfeLine): boolean { return line.rate_ba
 function needsSection(line: EditableAfeLine): boolean { return line.rate_basis === 'per_section' && !line.applies_to_all_sections }
 function onAllSectionsChange(line: EditableAfeLine): void { if (line.applies_to_all_sections) line.hole_section_id = ''; markDirty(line) }
 
+/**
+ * Per-section costing reads the section the AFE was planned against. The
+ * dropdown is restricted to the AFE's configured sections so a planner cannot
+ * pick a section that has no planned days on this well.
+ */
+function configuredAfeSections(): AfeSectionRecord[] {
+  return (selectedAfe.value?.sections ?? []).filter(section => section.is_active && section.hole_section_id)
+}
+function sectionOptionDetail(holeSectionId: string | null | undefined): string {
+  if (!holeSectionId) return ''
+  const section = configuredAfeSections().find(candidate => candidate.hole_section_id === holeSectionId)
+  if (!section) return ''
+  const from = section.planned_depth_from != null ? Number(section.planned_depth_from) : null
+  const to = section.planned_depth_to != null ? Number(section.planned_depth_to) : null
+  const days = Number(section.planned_days || 0)
+  const depth = from !== null && to !== null ? `${from}–${to} ${selectedAfe.value?.depth_unit_code ?? ''}`.trim() : '—'
+  return `${days.toFixed(1)} days · ${depth}`
+}
+
+/**
+ * Resolves the dropdown options for the line's Section field. For
+ * per-section costing the options are restricted to the AFE's configured
+ * sections; the currently stored section is included so existing lines
+ * keep displaying their value even if the AFE no longer has that section.
+ */
+function sectionOptionsFor(line: EditableAfeLine): MasterDataRecord[] {
+  if (!needsSection(line)) return holeSections.value
+  const configuredIds = new Set(configuredAfeSections().map(section => section.hole_section_id).filter((id): id is string => Boolean(id)))
+  return holeSections.value.filter(section => configuredIds.has(section.id) || section.id === line.hole_section_id)
+}
+function isCurrentAfeSection(holeSectionId: string | null | undefined): boolean {
+  if (!holeSectionId) return false
+  return configuredAfeSections().some(section => section.hole_section_id === holeSectionId)
+}
+
 function getPlannedDaysForLine(line: EditableAfeLine): number {
   if (selectedAfe.value?.sections?.length && line.hole_section_id) {
     const section = selectedAfe.value.sections.find(candidate => candidate.hole_section_id === line.hole_section_id && candidate.is_active)
@@ -661,6 +695,15 @@ function onBasisChange(line: EditableAfeLine): void {
   }
   else {
     syncComputedQuantity(line)
+  }
+  if (line.rate_basis === 'per_section' && !line.applies_to_all_sections && !line.hole_section_id) {
+    // Auto-link to the AFE's first configured section so the planner never
+    // picks a section that has no planned days on this well. The user can
+    // still switch the section in the dropdown below.
+    const sections = configuredAfeSections()
+    if (sections.length === 1 && sections[0]?.hole_section_id) {
+      line.hole_section_id = sections[0].hole_section_id
+    }
   }
   markDirty(line)
 }
@@ -788,7 +831,12 @@ function missingRequired(line: EditableAfeLine): string[] {
   const missing: string[] = []
   if (!line.secondary_category_id) missing.push('Secondary category')
   if (!line.cost_code_id) missing.push('Cost code')
-  if (needsSection(line) && !line.hole_section_id) missing.push('Section (charged per section)')
+  if (needsSection(line) && !configuredAfeSections().length) {
+    missing.push('Section (this AFE has no configured sections; add them on the AFEs tab)')
+  }
+  else if (needsSection(line) && !line.hole_section_id) {
+    missing.push('Section (charged per section)')
+  }
   if (isOverridden(line) && !line.quantity_override_reason.trim()) {
     missing.push('Override reason (quantity differs from the computed total)')
   }
@@ -1458,27 +1506,55 @@ onMounted(() => void loadAll())
                   </div>
                 </template>
               </Column>
-              <Column header="Section" :style="{ width: '170px' }">
+              <Column header="Section" :style="{ width: '220px' }">
                 <template #body="{ data }">
-                  <Select
-                    v-model="data.hole_section_id"
-                    :options="holeSections"
-                    option-value="id"
-                    filter
-                    show-clear
-                    fluid
-                    :disabled="!isDraft || data.applies_to_all_sections"
-                    :invalid="needsSection(data) && !data.hole_section_id"
-                    :placeholder="needsSection(data) ? 'Required' : 'Section'"
-                    data-testid="hole-section"
-                    @change="markDirty(data)"
-                  >
-                    <template #option="{ option }">{{ option.code }} — {{ option.name }}</template>
-                    <template #value="{ value }">
-                      <span v-if="value">{{ holeSections.find(section => section.id === value)?.code }}</span>
-                      <span v-else class="afe-placeholder">{{ needsSection(data) ? 'Required' : 'Section' }}</span>
-                    </template>
-                  </Select>
+                  <div class="section-cell">
+                    <Select
+                      v-if="needsSection(data) || data.hole_section_id"
+                      v-model="data.hole_section_id"
+                      :options="sectionOptionsFor(data)"
+                      option-value="id"
+                      :option-label="(opt) => `${opt.code} — ${opt.name}`"
+                      :filter="!needsSection(data)"
+                      :show-clear="!needsSection(data)"
+                      fluid
+                      :disabled="!isDraft || data.applies_to_all_sections"
+                      :invalid="needsSection(data) && !data.hole_section_id"
+                      :placeholder="needsSection(data) ? 'Select configured section' : 'Section (optional)'"
+                      data-testid="hole-section"
+                      @change="markDirty(data)"
+                    >
+                      <template #option="{ option }">
+                        <div class="section-option">
+                          <span class="section-option__code">{{ option.code }} — {{ option.name }}</span>
+                          <small
+                            v-if="needsSection(data)"
+                            class="section-option__meta"
+                          >{{ sectionOptionDetail(option.id) }}</small>
+                        </div>
+                      </template>
+                      <template #value="{ value }">
+                        <span v-if="value">{{ holeSections.find(section => section.id === value)?.code }}</span>
+                        <span v-else class="afe-placeholder">{{ needsSection(data) ? 'Select configured section' : 'Section (optional)' }}</span>
+                      </template>
+                    </Select>
+                    <Message
+                      v-if="needsSection(data) && !configuredAfeSections().length"
+                      severity="warn"
+                      :closable="false"
+                      class="section-hint"
+                    >
+                      This AFE has no configured sections. Open the AFE dialog and add a Hole Section with planned days before charging per section.
+                    </Message>
+                    <Message
+                      v-else-if="needsSection(data) && data.hole_section_id && !isCurrentAfeSection(data.hole_section_id)"
+                      severity="warn"
+                      :closable="false"
+                      class="section-hint"
+                    >
+                      The previously selected section is no longer in this AFE. Pick one of the configured sections below before saving.
+                    </Message>
+                  </div>
                 </template>
               </Column>
               <Column header="Usage / day" :style="{ width: '120px' }">
@@ -1945,6 +2021,33 @@ onMounted(() => void loadAll())
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
+}
+
+.section-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.section-option {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.section-option__code {
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
+.section-option__meta {
+  display: block;
+  color: var(--app-muted, #62717f);
+  font-size: 0.7rem;
+}
+
+.section-hint {
+  margin: 4px 0 0;
 }
 
 .form-row {
