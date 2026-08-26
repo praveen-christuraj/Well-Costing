@@ -364,8 +364,11 @@
   }
 
   .dashboard-page {
+    display: flex;
+    flex-direction: column;
     width: min(1380px, 100%);
     margin: 0 auto;
+    min-height: calc(100vh - var(--layout-topbar-height) - 24px - 36px);
   }
 
   /* ── Dashboard: twelve-column grid, after the Sakai dashboard ── */
