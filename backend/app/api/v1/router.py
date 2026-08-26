@@ -5,7 +5,6 @@ from fastapi import APIRouter
 from app.api.v1.routes import (
     afe,
     afe_estimates,
-    afe_imports,
     assurance,
     audit,
     auth,
@@ -30,7 +29,6 @@ api_router.include_router(rates.router)
 api_router.include_router(reference.router)
 api_router.include_router(master_data.router)
 api_router.include_router(imports.router)
-api_router.include_router(afe_imports.router)
 api_router.include_router(afe_estimates.router)
 api_router.include_router(afe.router)
 api_router.include_router(well_activities.router)

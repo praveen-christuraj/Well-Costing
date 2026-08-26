@@ -313,7 +313,7 @@ function onConsumableSelect(line: DailyCostConsumableLine): void {
     line.secondary_category_name = match.secondary_category_name ?? null
     line.cost_code_id = match.cost_code_id
     line.cost_code = match.cost_code
-    line.unit_id = match.unit_id
+    line.unit_id = match.unit_id || units.value[0]?.id || ''
     line.unit_code = match.unit_code
     line.unit_rate = match.unit_rate
     computeConsumableAmount(line)
@@ -373,7 +373,7 @@ function quickLoadAfeItems(): void {
       vendor_name: item.vendor_name ?? null,
       sub_activity_id: null,
       quantity: 0,
-      unit_id: item.unit_id,
+      unit_id: item.unit_id || units.value[0]?.id || '',
       unit_code: item.unit_code,
       unit_rate: item.unit_rate,
       override_rate: null,
@@ -451,6 +451,10 @@ async function recoverDeletedEntry(entry: DailyCostEntry): Promise<void> {
 /* ------------------------------- Save & Load ------------------------------ */
 async function saveDailyCost(): Promise<void> {
   if (!selectedWellId.value) return
+  if (!activeAfe.value) {
+    error.value = 'Submit an AFE and save its estimate rates before entering Daily Cost.'
+    return
+  }
   if (!entrySubActivityId.value) {
     error.value = wellActivities.value.length
       ? 'Select the day\u2019s activity type (Planned, NPT-1, UPA-1, …) before saving.'
@@ -680,7 +684,7 @@ async function onWellChange(): Promise<void> {
   try {
     const [refRates, afesPage] = await Promise.all([
       api.getReferenceRates(selectedWellId.value),
-      afeApi.listAfes(selectedWellId.value),
+      afeApi.listAfes(selectedWellId.value, 'submitted'),
       wellActApi.loadForWell(selectedWellId.value),
     ])
     refServices.value = refRates.services || []
@@ -689,7 +693,7 @@ async function onWellChange(): Promise<void> {
     ratesUnpricedCount.value = refRates.unpriced_line_count ?? 0
 
     const wellAfes = afesPage.items || []
-    activeAfe.value = wellAfes.find(a => a.status === 'submitted') ?? wellAfes[0] ?? null
+    activeAfe.value = wellAfes[0] ?? null
 
     await loadDayData()
     await Promise.all([loadAnalytics(), loadDeletedEntries()])
@@ -883,7 +887,7 @@ onMounted(() => void loadAll())
           :disabled="!currentEntryId"
           @click="deleteDailyCost"
         />
-        <Button label="Save Day Log" icon="pi pi-save" :loading="saving" :disabled="!selectedWellId" @click="saveDailyCost" />
+        <Button label="Save Day Log" icon="pi pi-save" :loading="saving" :disabled="!selectedWellId || !activeAfe" @click="saveDailyCost" />
       </template>
     </PageHeader>
 
@@ -895,6 +899,9 @@ onMounted(() => void loadAll())
       Daily cost entry requires one — configure the
       <NuxtLink to="/daily-cost/well-activities">Well Activities page</NuxtLink> first so every cost is
       accounted to Planned, NPT, or UPA.
+    </Message>
+    <Message v-else-if="selectedWellId && !activeAfe" severity="warn" :closable="false">
+      This well has no submitted AFE yet. Submit its scope on the <NuxtLink to="/afe">AFE page</NuxtLink>, then save estimate rates before entering Daily Cost.
     </Message>
     <Message v-else-if="selectedWellId && ratesAfeCode" severity="info" :closable="false">
       Unit rates are read from the <strong>AFE Cost Estimates</strong> of AFE
@@ -1213,7 +1220,7 @@ onMounted(() => void loadAll())
             <div class="grid-toolbar">
               <div>
                 <strong>AFE Quantity Charges Used Today</strong>
-                <small class="toolbar-note">Per-unit and daily-consumption AFE lines. Used quantity is multiplied by the AFE Cost Estimate rate.</small>
+                <small class="toolbar-note">Per-unit AFE consumable lines. Enter the actual used quantity and UOM; it is multiplied by the AFE Cost Estimate rate.</small>
               </div>
               <div class="grid-toolbar__actions">
                 <Button label="Load from AFE Scope" icon="pi pi-download" text size="small" @click="quickLoadAfeItems" />

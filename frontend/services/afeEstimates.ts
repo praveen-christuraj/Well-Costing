@@ -16,4 +16,9 @@ export class AfeEstimatesApi {
   export(afeId: string): Promise<Blob> {
     return this.api.download(`/afes/${afeId}/cost-estimate/export`)
   }
+
+  /** Browser printing is client-side, so record it through the active API first. */
+  recordPrint(afeId: string): Promise<undefined> {
+    return this.api.post(`/afes/${afeId}/cost-estimate/audit/print`, {})
+  }
 }

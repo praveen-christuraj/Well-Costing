@@ -2,6 +2,22 @@
 
 All notable project changes are documented here.
 
+## 2026-08-26 — Submitted AFE pricing and scope-only consumables
+
+### Changed
+
+- AFE Lines now keep only the current scope: classification, cost code, type, rate basis, section and notes. The compact grid no longer asks for consumable usage/day, planned quantity, or UOM.
+- Consumables use a per-unit estimated rate in **AFE Cost Estimates**. Their actual quantity and UOM are entered only in **Daily Cost** for the operational day.
+- **AFE Cost Estimates** now accepts and lists submitted AFEs only, enforced in both the selector and the API. Draft AFEs return a clear workflow validation message instead of a generic error.
+- Scope-only AFE lines with no UOM now load correctly in AFE Cost Estimates; a current line's saved estimate rate is its estimated amount.
+- AFE and AFE Cost Estimate printouts/exports now use only the current AFE → AFE Cost Estimate chain and omit retired usage/quantity columns. The obsolete AFE-line Excel import/export router is no longer registered.
+- AFE Lines and AFE Cost Estimate tables were compacted, with smaller selectors and larger viewport-aware table areas to reduce scrolling.
+
+### Audit
+
+- AFE line create, update, delete and recovery actions now include before/after scope detail in the global audit log and concise AFE-local history.
+- Estimate-rate saves include rate-level before/after snapshots. AFE print, AFE Cost Estimate print and AFE Cost Estimate export are now recorded in the global audit log and AFE history.
+
 ## 2026-08-25 — Active AFE-to-Daily-Cost reporting chain
 
 ### Changed

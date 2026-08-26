@@ -92,6 +92,7 @@ const loading = ref(false)
 const loadingLines = ref(false)
 const saving = ref(false)
 const submitting = ref(false)
+const printingAfe = ref(false)
 const reopening = ref(false)
 const error = ref<string | null>(null)
 const success = ref<string | null>(null)
@@ -617,99 +618,71 @@ function onPrimaryCategoryChange(line: EditableAfeLine): void {
 }
 function onSecondaryCategoryChange(line: EditableAfeLine): void { line.cost_code_id = ''; markDirty(line) }
 function onServiceTypeChange(line: EditableAfeLine): void {
-  line.rate_basis = line.service_type === 'consumable' ? 'daily_consumption' : 'daily'
-  line.daily_consumption = ''
+  // A consumable is priced per unit in the estimate, while the quantity is
+  // entered only on Daily Cost. Never switch it to a usage/day planner.
+  if (line.service_type === 'consumable' || line.service_type === 'tangible') line.rate_basis = 'per_unit'
+  else if (line.service_type === 'other') line.rate_basis = 'fixed'
+  else line.rate_basis = 'daily'
   markDirty(line)
 }
+
 function basisOptionsFor(line: EditableAfeLine): { label: string, value: RateBasis }[] {
-  return line.service_type === 'consumable'
-    ? [{ label: 'Consumption rate', value: 'daily_consumption' }]
-    : [{ label: 'Daily rate', value: 'daily' }, { label: 'Per service / fixed', value: 'fixed' }, { label: 'Per section', value: 'per_section' }]
+  if (line.service_type === 'consumable') return [{ label: 'Per unit (actual quantity in Daily Cost)', value: 'per_unit' }]
+  if (line.service_type === 'tangible') return [
+    { label: 'Per unit', value: 'per_unit' },
+    { label: 'Fixed', value: 'fixed' },
+  ]
+  return [
+    { label: 'Daily rate', value: 'daily' },
+    { label: 'Per service / fixed', value: 'fixed' },
+    { label: 'Per section', value: 'per_section' },
+  ]
 }
-function isConsumptionLine(line: EditableAfeLine): boolean { return line.rate_basis === 'daily_consumption' }
-function needsSection(line: EditableAfeLine): boolean { return line.rate_basis === 'per_section' && !line.applies_to_all_sections }
-function onAllSectionsChange(line: EditableAfeLine): void { if (line.applies_to_all_sections) line.hole_section_id = ''; markDirty(line) }
+
+function needsSection(line: EditableAfeLine): boolean {
+  return line.rate_basis === 'per_section' && !line.applies_to_all_sections
+}
+
+function onAllSectionsChange(line: EditableAfeLine): void {
+  if (line.applies_to_all_sections) line.hole_section_id = ''
+  markDirty(line)
+}
 
 /**
- * Per-section costing reads the section the AFE was planned against. The
- * dropdown is restricted to the AFE's configured sections so a planner cannot
- * pick a section that has no planned days on this well.
+ * Per-section costing reads the section planned on this AFE. It prevents a
+ * planner from selecting a section that does not belong to the current scope.
  */
 function configuredAfeSections(): AfeSectionRecord[] {
   return (selectedAfe.value?.sections ?? []).filter(section => section.is_active && section.hole_section_id)
 }
+
 function sectionOptionDetail(holeSectionId: string | null | undefined): string {
   if (!holeSectionId) return ''
   const section = configuredAfeSections().find(candidate => candidate.hole_section_id === holeSectionId)
   if (!section) return ''
   const from = section.planned_depth_from != null ? Number(section.planned_depth_from) : null
   const to = section.planned_depth_to != null ? Number(section.planned_depth_to) : null
-  const days = Number(section.planned_days || 0)
-  const depth = from !== null && to !== null ? `${from}–${to} ${selectedAfe.value?.depth_unit_code ?? ''}`.trim() : '—'
-  return `${days.toFixed(1)} days · ${depth}`
+  return from !== null && to !== null
+    ? `${from}–${to} ${selectedAfe.value?.depth_unit_code ?? ''}`.trim()
+    : 'Configured on this AFE'
 }
 
-/**
- * Resolves the dropdown options for the line's Section field. For
- * per-section costing the options are restricted to the AFE's configured
- * sections; the currently stored section is included so existing lines
- * keep displaying their value even if the AFE no longer has that section.
- */
 function sectionOptionsFor(line: EditableAfeLine): MasterDataRecord[] {
   if (!needsSection(line)) return holeSections.value
   const configuredIds = new Set(configuredAfeSections().map(section => section.hole_section_id).filter((id): id is string => Boolean(id)))
   return holeSections.value.filter(section => configuredIds.has(section.id) || section.id === line.hole_section_id)
 }
+
 function isCurrentAfeSection(holeSectionId: string | null | undefined): boolean {
   if (!holeSectionId) return false
   return configuredAfeSections().some(section => section.hole_section_id === holeSectionId)
 }
 
-function getPlannedDaysForLine(line: EditableAfeLine): number {
-  if (selectedAfe.value?.sections?.length && line.hole_section_id) {
-    const section = selectedAfe.value.sections.find(candidate => candidate.hole_section_id === line.hole_section_id && candidate.is_active)
-    if (section) return Number(section.planned_days) || 0
-  }
-  return Number(selectedAfe.value?.total_planned_days) || 1
-}
-function computedQuantityFor(line: EditableAfeLine): number | null {
-  if (!isConsumptionLine(line) || !line.daily_consumption) return null
-  const value = Number(line.daily_consumption) * getPlannedDaysForLine(line)
-  return Number.isFinite(value) ? value : null
-}
-function isOverridden(line: EditableAfeLine): boolean {
-  const computed = computedQuantityFor(line)
-  return computed !== null && line.quantity !== '' && Number(line.quantity) !== computed
-}
-function syncComputedQuantity(line: EditableAfeLine): void {
-  const computed = computedQuantityFor(line)
-  line.computed_quantity = computed === null ? '' : String(computed)
-  if (computed !== null && !line.quantity_override_reason.trim()) line.quantity = String(computed)
-}
-
 function onBasisChange(line: EditableAfeLine): void {
-  if (!isConsumptionLine(line)) {
-    line.daily_consumption = ''
-    line.computed_quantity = ''
-    line.quantity_override_reason = ''
-  }
-  else {
-    syncComputedQuantity(line)
-  }
   if (line.rate_basis === 'per_section' && !line.applies_to_all_sections && !line.hole_section_id) {
-    // Auto-link to the AFE's first configured section so the planner never
-    // picks a section that has no planned days on this well. The user can
-    // still switch the section in the dropdown below.
     const sections = configuredAfeSections()
-    if (sections.length === 1 && sections[0]?.hole_section_id) {
-      line.hole_section_id = sections[0].hole_section_id
-    }
+    if (sections.length === 1 && sections[0]?.hole_section_id) line.hole_section_id = sections[0].hole_section_id
   }
-  markDirty(line)
-}
-
-function onConsumptionChange(line: EditableAfeLine): void {
-  syncComputedQuantity(line)
   markDirty(line)
 }
 
@@ -722,19 +695,20 @@ function toPayload(line: EditableAfeLine) {
     line_number: line.line_number,
     secondary_category_id: line.secondary_category_id,
     cost_code_id: line.cost_code_id,
-    // AFE Lines are scope only. Actual time/usage is captured in Daily Cost.
+    // Scope only: no planned quantity, UOM, usage/day, or duration belongs on
+    // an AFE line. Actual consumable quantity is captured in Daily Cost.
     quantity: null,
     unit_id: null,
     service_type: line.service_type,
     hole_section_id: line.applies_to_all_sections ? null : nullableValue(line.hole_section_id),
     applies_to_all_sections: line.applies_to_all_sections,
     rate_basis: line.rate_basis,
-    daily_consumption: nullableValue(line.daily_consumption),
-    quantity_override_reason: nullableValue(line.quantity_override_reason.trim()),
-    planned_duration_days: nullableValue(line.planned_duration_days || getPlannedDaysForLine(line)),
-    planned_depth_from: nullableValue(line.planned_depth_from),
-    planned_depth_to: nullableValue(line.planned_depth_to),
-    depth_unit_id: nullableValue(line.depth_unit_id),
+    daily_consumption: null,
+    quantity_override_reason: null,
+    planned_duration_days: null,
+    planned_depth_from: null,
+    planned_depth_to: null,
+    depth_unit_id: null,
     notes: nullableValue(line.notes),
     is_active: line.is_active,
   }
@@ -742,7 +716,20 @@ function toPayload(line: EditableAfeLine) {
 
 function toEditable(record: AfeLineRecord): EditableAfeLine {
   void ensureSecondaryOptions(record.primary_category_id ?? '')
-  return { id: record.id, line_number: record.line_number, primary_category_id: record.primary_category_id ?? '', secondary_category_id: record.secondary_category_id ?? '', cost_code_id: record.cost_code_id, quantity: record.quantity ?? null, unit_id: record.unit_id ?? null, service_type: record.service_type ?? 'service', hole_section_id: record.hole_section_id ?? '', applies_to_all_sections: record.applies_to_all_sections, rate_basis: record.rate_basis, daily_consumption: record.daily_consumption ?? '', computed_quantity: record.computed_quantity ?? '', quantity_override_reason: record.quantity_override_reason ?? '', planned_duration_days: record.planned_duration_days ?? '', planned_depth_from: record.planned_depth_from ?? '', planned_depth_to: record.planned_depth_to ?? '', depth_unit_id: record.depth_unit_id ?? '', notes: record.notes ?? '', is_active: record.is_active, _state: 'clean' }
+  return {
+    id: record.id,
+    line_number: record.line_number,
+    primary_category_id: record.primary_category_id ?? '',
+    secondary_category_id: record.secondary_category_id ?? '',
+    cost_code_id: record.cost_code_id,
+    service_type: record.service_type ?? 'service',
+    hole_section_id: record.hole_section_id ?? '',
+    applies_to_all_sections: record.applies_to_all_sections,
+    rate_basis: record.rate_basis === 'daily_consumption' ? 'per_unit' : record.rate_basis,
+    notes: record.notes ?? '',
+    is_active: record.is_active,
+    _state: 'clean',
+  }
 }
 
 const blankLine = (): EditableAfeLine => ({
@@ -750,19 +737,10 @@ const blankLine = (): EditableAfeLine => ({
   primary_category_id: '',
   secondary_category_id: '',
   cost_code_id: '',
-  quantity: null,
-  unit_id: null,
   service_type: 'service',
   hole_section_id: '',
   applies_to_all_sections: false,
   rate_basis: 'daily',
-  daily_consumption: '',
-  computed_quantity: '',
-  quantity_override_reason: '',
-  planned_duration_days: '',
-  planned_depth_from: '',
-  planned_depth_to: '',
-  depth_unit_id: '',
   notes: '',
   is_active: true,
   _state: 'new',
@@ -785,7 +763,7 @@ function removeLine(line: EditableAfeLine): void {
     return
   }
   if (!window.confirm('Delete this AFE line permanently? This cannot be undone. Linked cost-estimate data must be removed first.')) return
-  void api.deactivateLine(String(line.id))
+  void api.deleteLine(String(line.id))
     .then(() => Promise.all([loadLines(), loadRemovedLines()]))
     .catch((caught: unknown) => {
       error.value = caught instanceof Error ? caught.message : 'The line could not be removed.'
@@ -836,9 +814,6 @@ function missingRequired(line: EditableAfeLine): string[] {
   }
   else if (needsSection(line) && !line.hole_section_id) {
     missing.push('Section (charged per section)')
-  }
-  if (isOverridden(line) && !line.quantity_override_reason.trim()) {
-    missing.push('Override reason (quantity differs from the computed total)')
   }
   return missing
 }
@@ -894,16 +869,6 @@ async function submitAfe(): Promise<void> {
   finally { submitting.value = false }
 }
 
-async function download(kind: 'export' | 'template'): Promise<void> {
-  if (!selectedAfeId.value) return
-  const blob = kind === 'export' ? await api.export(selectedAfeId.value) : await api.template(selectedAfeId.value)
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = `afe-${kind}.xlsx`
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
 
 /** Print a record-quality, well-scoped copy of the selected AFE. */
 function money(value: string | number | null | undefined): string {
@@ -921,11 +886,11 @@ function lineRowsHtml(
   items: AfeLineRecord[],
   rateMap: Map<string, { unit_rate: number, estimated_amount: number }>,
 ): string {
-  if (!items.length) return '<tr><td colspan="10">No AFE lines configured.</td></tr>'
+  if (!items.length) return '<tr><td colspan="9">No AFE lines configured.</td></tr>'
   return items.map((item) => {
     const rate = rateMap.get(item.id)
-    const unitRate = rate?.unit_rate ?? 0
-    const estimated = rate?.estimated_amount ?? (Number(item.quantity) * unitRate)
+    const estimatedRate = rate?.unit_rate ?? 0
+    const estimated = rate?.estimated_amount ?? estimatedRate
     const sectionLabel = item.applies_to_all_sections ? 'All sections' : (item.hole_section_code ?? '—')
     return `
     <tr>
@@ -933,11 +898,10 @@ function lineRowsHtml(
       <td>${escapeHtml(item.primary_category_name ?? item.primary_category_code ?? '—')}</td>
       <td>${escapeHtml(item.secondary_category_name ?? item.secondary_category_code ?? item.catalog_item_name ?? '—')}</td>
       <td>${escapeHtml(item.cost_code ?? '')}</td>
+      <td>${escapeHtml(item.service_type)}</td>
       <td>${escapeHtml(item.rate_basis.replace(/_/g, ' '))}</td>
       <td>${escapeHtml(sectionLabel)}</td>
-      <td class="num">${Number(item.quantity)}</td>
-      <td>${escapeHtml(item.unit_code ?? '')}</td>
-      <td class="num">${money(unitRate)}</td>
+      <td class="num">${money(estimatedRate)}</td>
       <td class="num">${money(estimated)}</td>
     </tr>`
   }).join('')
@@ -946,91 +910,110 @@ function lineRowsHtml(
 async function printAfe(): Promise<void> {
   const afe = selectedAfe.value
   if (!afe) return
+  if (pendingCount.value) {
+    error.value = 'Save the pending AFE line changes before printing so the printout contains the current AFE record only.'
+    return
+  }
+
+  printingAfe.value = true
+  error.value = null
   const well = wells.value.find(candidate => candidate.id === afe.well_id)
   const project = projects.value.find(candidate => candidate.id === well?.project_id)
 
-  // Pull well-scoped unit rates and totals from the AFE Cost Estimates so the
-  // printout can show unit/fixed rates and estimated costs next to the scope.
-  let rateMap = new Map<string, { unit_rate: number, estimated_amount: number }>()
-  let estimatedTotal = 0
-  let pricedFootnote = ''
   try {
-    const estimate = await estimatesApi.get(afe.id)
-    estimatedTotal = Number(estimate.estimated_total) || 0
-    rateMap = new Map(estimate.lines.map(line => [
-      line.afe_line_id,
-      { unit_rate: Number(line.unit_rate) || 0, estimated_amount: Number(line.estimated_amount) || 0 },
-    ]))
-    pricedFootnote = 'Unit/fixed rates and estimated costs come from the AFE Cost Estimates page.'
+    // Browser print is client-side. Record the action before opening the
+    // current AFE document so it is visible in the global and AFE audit logs.
+    await api.recordPrint(afe.id)
+
+    // Submitted AFEs can be priced. A draft AFE print remains a scope record;
+    // it never calls a retired estimate/cost-builder module.
+    let rateMap = new Map<string, { unit_rate: number, estimated_amount: number }>()
+    let estimatedTotal = 0
+    let pricedFootnote = 'Draft scope — submit this AFE to enter estimate rates.'
+    if (afe.status === 'submitted') {
+      try {
+        const estimate = await estimatesApi.get(afe.id)
+        estimatedTotal = Number(estimate.estimated_total) || 0
+        rateMap = new Map(estimate.lines.map(line => [
+          line.afe_line_id,
+          { unit_rate: Number(line.unit_rate) || 0, estimated_amount: Number(line.estimated_amount) || 0 },
+        ]))
+        pricedFootnote = 'Estimate rates and totals come from the current AFE Cost Estimates module.'
+      }
+      catch {
+        pricedFootnote = 'Submitted scope — estimate rates have not been saved yet.'
+      }
+    }
+
+    const meta = [
+      ['AFE Number', `${afe.code} (rev ${afe.revision_number})`],
+      ['Well Name', `${well?.code ?? ''} — ${well?.name ?? ''}`],
+      ['Rig Name', well?.rig_name ?? '—'],
+      ['Project Name', `${project?.code ?? ''} — ${project?.name ?? ''}`],
+      ['Title', afe.title],
+      ['Status', afe.status],
+      ['AFE Budget', money(afe.budget_amount)],
+      ['Total Planned Days', `${Number(afe.total_planned_days || 0).toFixed(1)} days`],
+      ['Total Planned Depth', `${Number(afe.total_planned_depth || 0).toFixed(0)} ${afe.depth_unit_code ?? ''}`],
+      ['Submitted', afe.submitted_at ? new Date(afe.submitted_at).toLocaleString() : '—'],
+    ]
+    const metaHtml = meta
+      .map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+      .join('')
+
+    const sectionRows = (afe.sections ?? []).map((section) => {
+      const phaseRows = sectionPhasesFor(section)
+      const span = phaseRows.length || 1
+      return phaseRows.map((ph, index) => `
+      <tr>
+        ${index === 0 ? `<td rowspan="${span}">${escapeHtml(section.hole_section_code ?? '—')}</td>` : ''}
+        ${index === 0 ? `<td class="num" rowspan="${span}">${section.planned_depth_from != null ? Number(section.planned_depth_from) : '—'}</td>` : ''}
+        ${index === 0 ? `<td class="num" rowspan="${span}">${section.planned_depth_to != null ? Number(section.planned_depth_to) : '—'}</td>` : ''}
+        <td>${escapeHtml(ph.phase)}</td>
+        <td class="num">${Number(ph.planned_days)}</td>
+        ${index === phaseRows.length - 1 ? `<td class="num" rowspan="${span}"><strong>${Number(section.planned_days || 0).toFixed(1)}</strong></td>` : ''}
+      </tr>`).join('')
+    }).join('')
+
+    const configuredLineRows = lineRowsHtml(afe.items ?? [], rateMap)
+
+    printDocument(`AFE ${afe.code}`, `
+      <h1>AUTHORISATION FOR EXPENDITURE</h1>
+      <p class="doc-subtitle">Current AFE scope using the classifications configured in Master Data. Consumable quantity and UOM are entered in Daily Cost, not in this document.</p>
+      <div class="meta-grid">${metaHtml}</div>
+
+      <h2>Sections &amp; phases</h2>
+      <table>
+        <thead><tr><th>Hole section</th><th class="num">Depth from</th><th class="num">Depth to</th><th>Phase</th><th class="num">Planned days</th><th class="num">Section total (days)</th></tr></thead>
+        <tbody>${sectionRows || '<tr><td colspan="6">No sections configured.</td></tr>'}</tbody>
+        <tfoot><tr class="total-row"><td colspan="4">Total planned days</td><td class="num" colspan="2">${Number(afe.total_planned_days || 0).toFixed(1)} days</td></tr></tfoot>
+      </table>
+
+      <h2>Configured AFE lines</h2>
+      <table>
+        <thead><tr><th class="num">#</th><th>Primary category</th><th>Secondary category</th><th>Cost code</th><th>Type</th><th>Costing method</th><th>Section</th><th class="num">Estimated total rate</th><th class="num">Estimated cost</th></tr></thead>
+        <tbody>${configuredLineRows}</tbody>
+        <tfoot><tr class="total-row"><td colspan="8">Total estimated cost</td><td class="num">${money(estimatedTotal)}</td></tr></tfoot>
+      </table>
+
+      <h2>Cost summary</h2>
+      <table>
+        <thead><tr><th>Component</th><th class="num">Amount</th></tr></thead>
+        <tbody>
+          <tr><td>AFE cost estimate</td><td class="num">${money(estimatedTotal)}</td></tr>
+          <tr><td>AFE budget</td><td class="num">${money(afe.budget_amount)}</td></tr>
+          <tr class="total-row"><td>Variance to budget</td><td class="num">${money(Number(afe.budget_amount || 0) - estimatedTotal)}</td></tr>
+        </tbody>
+      </table>
+
+      <div class="signatures"><div>Prepared by</div><div>Reviewed by</div><div>Approved by</div></div>
+      <p class="print-footer">Printed ${new Date().toLocaleString()} — ${escapeHtml(pricedFootnote)}</p>
+    `)
   }
-  catch {
-    pricedFootnote = 'Unit rates have not been priced yet — enter them on the AFE Cost Estimates page.'
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The AFE could not be printed.'
   }
-
-  const meta = [
-    ['AFE Number', `${afe.code} (rev ${afe.revision_number})`],
-    ['Well Name', `${well?.code ?? ''} — ${well?.name ?? ''}`],
-    ['Rig Name', well?.rig_name ?? '—'],
-    ['Project Name', `${project?.code ?? ''} — ${project?.name ?? ''}`],
-    ['Title', afe.title],
-    ['Status', afe.status],
-    ['AFE Budget', money(afe.budget_amount)],
-    ['Total Planned Days', `${Number(afe.total_planned_days || 0).toFixed(1)} days`],
-    ['Total Planned Depth', `${Number(afe.total_planned_depth || 0).toFixed(0)} ${afe.depth_unit_code ?? ''}`],
-    ['Submitted', afe.submitted_at ? new Date(afe.submitted_at).toLocaleString() : '—'],
-  ]
-  const metaHtml = meta
-    .map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
-    .join('')
-
-  const sectionRows = (afe.sections ?? []).map((section) => {
-    const phaseRows = sectionPhasesFor(section)
-    const span = phaseRows.length || 1
-    return phaseRows.map((ph, i) => `
-    <tr>
-      ${i === 0 ? `<td rowspan="${span}">${escapeHtml(section.hole_section_code ?? '—')}</td>` : ''}
-      ${i === 0 ? `<td class="num" rowspan="${span}">${section.planned_depth_from != null ? Number(section.planned_depth_from) : '—'}</td>` : ''}
-      ${i === 0 ? `<td class="num" rowspan="${span}">${section.planned_depth_to != null ? Number(section.planned_depth_to) : '—'}</td>` : ''}
-      <td>${escapeHtml(ph.phase)}</td>
-      <td class="num">${Number(ph.planned_days)}</td>
-      ${i === phaseRows.length - 1 ? `<td class="num" rowspan="${span}"><strong>${Number(section.planned_days || 0).toFixed(1)}</strong></td>` : ''}
-    </tr>`).join('')
-  }).join('')
-
-  const configuredLineRows = lineRowsHtml(afe.items ?? [], rateMap)
-
-  printDocument(`AFE ${afe.code}`, `
-    <h1>AUTHORISATION FOR EXPENDITURE</h1>
-    <p class="doc-subtitle">Well-scoped AFE record using the classifications configured in Master Data.</p>
-    <div class="meta-grid">${metaHtml}</div>
-
-    <h2>Sections &amp; phases</h2>
-    <table>
-      <thead><tr><th>Hole section</th><th class="num">Depth from</th><th class="num">Depth to</th><th>Phase</th><th class="num">Planned days</th><th class="num">Section total (days)</th></tr></thead>
-      <tbody>${sectionRows || '<tr><td colspan="6">No sections configured.</td></tr>'}</tbody>
-      <tfoot><tr class="total-row"><td colspan="4">Total planned days</td><td class="num" colspan="2">${Number(afe.total_planned_days || 0).toFixed(1)} days</td></tr></tfoot>
-    </table>
-
-    <h2>Configured AFE lines</h2>
-    <table>
-      <thead><tr><th class="num">#</th><th>Primary category</th><th>Secondary category</th><th>Cost code</th><th>Rate basis</th><th>Section</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit rate</th><th class="num">Estimated cost</th></tr></thead>
-      <tbody>${configuredLineRows}</tbody>
-      <tfoot><tr class="total-row"><td colspan="9">Total estimated cost</td><td class="num">${money(estimatedTotal)}</td></tr></tfoot>
-    </table>
-
-    <h2>Cost summary</h2>
-    <table>
-      <thead><tr><th>Component</th><th class="num">Amount</th></tr></thead>
-      <tbody>
-        <tr><td>AFE cost estimate</td><td class="num">${money(estimatedTotal)}</td></tr>
-        <tr><td>AFE budget</td><td class="num">${money(afe.budget_amount)}</td></tr>
-        <tr class="total-row"><td>Variance to budget</td><td class="num">${money(Number(afe.budget_amount || 0) - estimatedTotal)}</td></tr>
-      </tbody>
-    </table>
-
-    <div class="signatures"><div>Prepared by</div><div>Reviewed by</div><div>Approved by</div></div>
-    <p class="print-footer">Printed ${new Date().toLocaleString()} — ${escapeHtml(pricedFootnote)}</p>
-  `)
+  finally { printingAfe.value = false }
 }
 
 /* --------------------------------------------------------------- loading ---- */
@@ -1148,7 +1131,7 @@ onMounted(() => void loadAll())
   <div class="library-page">
     <PageHeader
       title="AFE & Well Scope"
-      description="Register projects and wells, configure AFE budgets, hole sections, planned days and depths on the AFEs tab. Phases come from master data. Build detailed scope lines on the AFE Lines tab, where each line is classified with the Primary and Secondary Categories and linked to its configured cost code. Submitted AFEs can be reopened with audited remarks for well-scoped revisions."
+      description="Configure projects, wells and AFE scope. Lines contain classification, cost code, type and section only; estimate rates are entered after submission, while actual consumable quantity is entered in Daily Cost."
     >
       <template #actions>
         <Button label="New AFE" icon="pi pi-plus" @click="openAfeDialog()" />
@@ -1398,8 +1381,7 @@ onMounted(() => void loadAll())
                   title="Restore removed lines"
                   @click="openRemovedLines"
                 />
-                <Button label="Export" icon="pi pi-download" text :disabled="!selectedAfeId" @click="download('export')" />
-                <Button label="Print" icon="pi pi-print" text :disabled="!selectedAfe" @click="printAfe" />
+                <Button label="Print" icon="pi pi-print" text :loading="printingAfe" :disabled="!selectedAfe || !!pendingCount" @click="printAfe" />
                 <Button :label="pendingCount ? `Save ${pendingCount}` : 'Save'" icon="pi pi-save" :disabled="!isDraft || !pendingCount" :loading="saving" @click="saveLines" />
                 <Button :label="selectedAfe?.reopened_at ? 'Resubmit' : 'Submit'" icon="pi pi-send" severity="secondary" :disabled="!isDraft || !lines.length" :loading="submitting" @click="submitAfe" />
               </div>
@@ -1420,95 +1402,106 @@ onMounted(() => void loadAll())
             <DataTable
               :value="lines"
               :loading="loadingLines"
-              data-key="id"
+              data-key="line_number"
               striped-rows
               show-gridlines
               size="small"
               scrollable
-              scroll-height="520px"
+              scroll-height="calc(100vh - 300px)"
               class="afe-lines"
             >
-              <Column field="line_number" header="#" :style="{ width: '60px' }" />
-              <Column header="Primary Category" :style="{ minWidth: '180px' }">
+              <Column field="line_number" header="#" :style="{ width: '52px' }" />
+              <Column header="Classification" :style="{ minWidth: '260px' }">
+                <template #body="{ data }">
+                  <div class="compact-cell compact-cell--pair">
+                    <Select
+                      v-model="data.primary_category_id"
+                      :options="primaryCategoryOptions"
+                      option-label="label"
+                      option-value="value"
+                      filter
+                      show-clear
+                      fluid
+                      placeholder="Primary category"
+                      :disabled="!isDraft"
+                      data-testid="line-primary-category"
+                      @change="onPrimaryCategoryChange(data)"
+                    />
+                    <Select
+                      v-model="data.secondary_category_id"
+                      :options="secondaryOptionsFor(data)"
+                      option-label="label"
+                      option-value="value"
+                      filter
+                      show-clear
+                      fluid
+                      :disabled="!isDraft || !data.primary_category_id"
+                      :placeholder="data.primary_category_id ? 'Secondary category' : 'Select primary first'"
+                      data-testid="line-secondary-category"
+                      @change="onSecondaryCategoryChange(data)"
+                    />
+                  </div>
+                </template>
+              </Column>
+              <Column header="Cost code" :style="{ minWidth: '190px' }">
                 <template #body="{ data }">
                   <Select
-                    v-model="data.primary_category_id"
-                    :options="primaryCategoryOptions"
-                    option-label="label"
-                    option-value="value"
+                    v-model="data.cost_code_id"
+                    :options="costCodeOptionsFor(data)"
+                    option-label="name"
+                    option-value="id"
                     filter
                     show-clear
                     fluid
-                    placeholder="Classification"
-                    :disabled="!isDraft"
-                    data-testid="line-primary-category"
-                    @change="onPrimaryCategoryChange(data)"
-                  />
-                </template>
-              </Column>
-              <Column header="Secondary Category" :style="{ minWidth: '190px' }">
-                <template #body="{ data }">
-                  <Select
-                    v-model="data.secondary_category_id"
-                    :options="secondaryOptionsFor(data)"
-                    option-label="label"
-                    option-value="value"
-                    filter
-                    show-clear
-                    fluid
-                    :disabled="!isDraft || !data.primary_category_id"
-                    :placeholder="data.primary_category_id ? 'Select category' : 'Pick a primary first'"
-                    data-testid="line-secondary-category"
-                    @change="onSecondaryCategoryChange(data)"
-                  />
-                </template>
-              </Column>
-              <Column header="Cost code" :style="{ minWidth: '220px' }">
-                <template #body="{ data }">
-                  <Select v-model="data.cost_code_id" :options="costCodeOptionsFor(data)" option-label="name" option-value="id" filter show-clear fluid :disabled="!isDraft || !data.secondary_category_id" :placeholder="data.secondary_category_id ? 'Select cost code' : 'Select secondary category first'" @change="markDirty(data)">
+                    :disabled="!isDraft || !data.secondary_category_id"
+                    :placeholder="data.secondary_category_id ? 'Select cost code' : 'Select category first'"
+                    @change="markDirty(data)"
+                  >
                     <template #option="{ option }">{{ option.name }}</template>
                   </Select>
                 </template>
               </Column>
-              <Column header="Service type" :style="{ width: '135px' }">
+              <Column header="Type & method" :style="{ minWidth: '175px' }">
                 <template #body="{ data }">
-                  <Select v-model="data.service_type" :options="[
-                    { label: 'Service', value: 'service' }, { label: 'Tangible', value: 'tangible' },
-                    { label: 'Consumable', value: 'consumable' }, { label: 'Other', value: 'other' },
-                  ]" option-label="label" option-value="value" fluid :disabled="!isDraft" @change="onServiceTypeChange(data)" />
-                </template>
-              </Column>
-              <Column header="Costing method" :style="{ width: '160px' }">
-                <template #body="{ data }">
-                  <Select
-                    v-model="data.rate_basis"
-                    :options="basisOptionsFor(data)"
-                    option-label="label"
-                    option-value="value"
-                    fluid
-                    :disabled="!isDraft"
-                    data-testid="rate-basis"
-                    @change="onBasisChange(data)"
-                  />
-                </template>
-              </Column>
-              <Column header="All sections" :style="{ width: '120px' }">
-                <template #body="{ data }">
-                  <div class="all-sections-cell">
-                    <Checkbox
-                      v-model="data.applies_to_all_sections"
-                      binary
+                  <div class="compact-cell compact-cell--pair">
+                    <Select
+                      v-model="data.service_type"
+                      :options="[
+                        { label: 'Service', value: 'service' }, { label: 'Tangible', value: 'tangible' },
+                        { label: 'Consumable', value: 'consumable' }, { label: 'Other', value: 'other' },
+                      ]"
+                      option-label="label"
+                      option-value="value"
+                      fluid
                       :disabled="!isDraft"
-                      data-testid="all-sections"
-                      @change="onAllSectionsChange(data)"
+                      @change="onServiceTypeChange(data)"
                     />
-                    <small class="afe-hint">Applies to every section</small>
+                    <Select
+                      v-model="data.rate_basis"
+                      :options="basisOptionsFor(data)"
+                      option-label="label"
+                      option-value="value"
+                      fluid
+                      :disabled="!isDraft"
+                      data-testid="rate-basis"
+                      @change="onBasisChange(data)"
+                    />
                   </div>
                 </template>
               </Column>
-              <Column header="Section" :style="{ width: '220px' }">
+              <Column header="Scope" :style="{ minWidth: '205px' }">
                 <template #body="{ data }">
-                  <div class="section-cell">
+                  <div class="compact-cell">
+                    <label class="all-sections-inline">
+                      <Checkbox
+                        v-model="data.applies_to_all_sections"
+                        binary
+                        :disabled="!isDraft"
+                        data-testid="all-sections"
+                        @change="onAllSectionsChange(data)"
+                      />
+                      <span>All sections</span>
+                    </label>
                     <Select
                       v-if="needsSection(data) || data.hole_section_id"
                       v-model="data.hole_section_id"
@@ -1520,77 +1513,33 @@ onMounted(() => void loadAll())
                       fluid
                       :disabled="!isDraft || data.applies_to_all_sections"
                       :invalid="needsSection(data) && !data.hole_section_id"
-                      :placeholder="needsSection(data) ? 'Select configured section' : 'Section (optional)'"
+                      :placeholder="needsSection(data) ? 'Select configured section' : 'Optional section'"
                       data-testid="hole-section"
                       @change="markDirty(data)"
                     >
                       <template #option="{ option }">
                         <div class="section-option">
                           <span class="section-option__code">{{ option.code }} — {{ option.name }}</span>
-                          <small
-                            v-if="needsSection(data)"
-                            class="section-option__meta"
-                          >{{ sectionOptionDetail(option.id) }}</small>
+                          <small v-if="needsSection(data)" class="section-option__meta">{{ sectionOptionDetail(option.id) }}</small>
                         </div>
                       </template>
                       <template #value="{ value }">
                         <span v-if="value">{{ holeSections.find(section => section.id === value)?.code }}</span>
-                        <span v-else class="afe-placeholder">{{ needsSection(data) ? 'Select configured section' : 'Section (optional)' }}</span>
+                        <span v-else class="afe-placeholder">{{ needsSection(data) ? 'Select configured section' : 'Optional section' }}</span>
                       </template>
                     </Select>
-                    <Message
-                      v-if="needsSection(data) && !configuredAfeSections().length"
-                      severity="warn"
-                      :closable="false"
-                      class="section-hint"
-                    >
-                      This AFE has no configured sections. Open the AFE dialog and add a Hole Section with planned days before charging per section.
-                    </Message>
-                    <Message
-                      v-else-if="needsSection(data) && data.hole_section_id && !isCurrentAfeSection(data.hole_section_id)"
-                      severity="warn"
-                      :closable="false"
-                      class="section-hint"
-                    >
-                      The previously selected section is no longer in this AFE. Pick one of the configured sections below before saving.
-                    </Message>
+                    <small v-if="data.service_type === 'consumable'" class="afe-hint">Actual quantity is entered in Daily Cost.</small>
+                    <small v-else-if="needsSection(data) && !configuredAfeSections().length" class="afe-hint afe-hint--warn">Add a configured section on the AFEs tab first.</small>
+                    <small v-else-if="needsSection(data) && data.hole_section_id && !isCurrentAfeSection(data.hole_section_id)" class="afe-hint afe-hint--warn">Select a current AFE section before saving.</small>
                   </div>
                 </template>
               </Column>
-              <Column header="Usage / day" :style="{ width: '120px' }">
-                <template #body="{ data }">
-                  <InputNumber
-                    v-if="isConsumptionLine(data)"
-                    v-model="data.daily_consumption"
-                    :min="0"
-                    :max-fraction-digits="4"
-                    fluid
-                    :disabled="!isDraft"
-                    @input="onConsumptionChange(data)"
-                  />
-                  <span v-else class="afe-na">—</span>
-                </template>
-              </Column>
-              <Column header="Override reason" :style="{ minWidth: '170px' }">
-                <template #body="{ data }">
-                  <InputText
-                    v-if="isConsumptionLine(data)"
-                    v-model="data.quantity_override_reason"
-                    fluid
-                    :disabled="!isDraft"
-                    :invalid="isOverridden(data) && !data.quantity_override_reason.trim()"
-                    placeholder="Why total differs"
-                    @input="markDirty(data)"
-                  />
-                  <span v-else class="afe-na">—</span>
-                </template>
-              </Column>
-              <Column header="Notes" :style="{ minWidth: '160px' }">
+              <Column header="Notes" :style="{ minWidth: '150px' }">
                 <template #body="{ data }">
                   <InputText v-model="data.notes" fluid :disabled="!isDraft" placeholder="Line notes" @input="markDirty(data)" />
                 </template>
               </Column>
-              <Column header="" :style="{ width: '60px' }">
+              <Column header="" :style="{ width: '48px' }">
                 <template #body="{ data }">
                   <Button icon="pi pi-trash" size="small" text severity="danger" aria-label="Remove line" :disabled="!isDraft" @click="removeLine(data)" />
                 </template>
@@ -1601,7 +1550,7 @@ onMounted(() => void loadAll())
                   <p v-if="!selectedAfeId"><strong>Pick an AFE above</strong></p>
                   <p v-else><strong>No lines yet.</strong></p>
                   <p v-if="!selectedAfeId">Choose an AFE from the AFEs tab, or create one with “New AFE”.</p>
-                  <p v-else>Add a row to start building the well's scope.</p>
+                  <p v-else>Add a compact scope row. Consumption and quantities are entered later in Daily Cost.</p>
                 </div>
               </template>
             </DataTable>
@@ -1835,6 +1784,9 @@ onMounted(() => void loadAll())
           </template>
         </Column>
         <Column field="remarks" header="Remarks / Reason" />
+        <Column header="Actor">
+          <template #body="{ data }">{{ data.actor_id ? `${data.actor_id.slice(0, 8)}…` : 'System' }}</template>
+        </Column>
         <Column header="Date & Time">
           <template #body="{ data }">
             {{ new Date(data.created_at).toLocaleString() }}
@@ -1858,8 +1810,9 @@ onMounted(() => void loadAll())
         <Column header="Secondary category">
           <template #body="{ data }">{{ data.secondary_category_name ?? data.secondary_category_code ?? '—' }}</template>
         </Column>
-        <Column field="quantity" header="Qty" />
-        <Column field="unit_code" header="Unit" />
+        <Column header="Type / method">
+          <template #body="{ data }">{{ data.service_type }} · {{ data.rate_basis.replaceAll('_', ' ') }}</template>
+        </Column>
         <Column header="Actions" :style="{ width: '120px' }">
           <template #body="{ data }">
             <Button label="Restore" icon="pi pi-undo" size="small" severity="success" text @click="recoverRemovedLine(data)" />
@@ -1888,6 +1841,38 @@ onMounted(() => void loadAll())
 .afe-table,
 .afe-lines {
   margin-top: 0.75rem;
+}
+
+/* Keep the AFE scope grid readable without a long horizontal/vertical scroll. */
+.afe-lines :deep(.p-datatable-thead > tr > th),
+.afe-lines :deep(.p-datatable-tbody > tr > td) {
+  padding: .32rem .4rem;
+  font-size: .8rem;
+  vertical-align: top;
+}
+
+.afe-lines :deep(.p-select-label),
+.afe-lines :deep(.p-inputtext) {
+  font-size: .8rem;
+  padding-block: .33rem;
+}
+
+.compact-cell {
+  display: grid;
+  gap: .28rem;
+}
+
+.compact-cell--pair {
+  gap: .22rem;
+}
+
+.all-sections-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  color: var(--text-color-secondary);
+  font-size: .76rem;
+  white-space: nowrap;
 }
 
 .afe-picker {

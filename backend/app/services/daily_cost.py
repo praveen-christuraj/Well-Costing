@@ -150,23 +150,32 @@ class DailyCostService:
 
         afe_id = payload.afe_id
         if not afe_id:
-            # Pick active/submitted AFE for the well, or latest draft AFE
+            # Daily Cost uses the submitted AFE baseline only. Draft scope is
+            # intentionally unavailable until it has passed AFE submission.
             active_afe = self.session.scalar(
                 select(Afe)
-                .where(Afe.well_id == well_id, Afe.is_active.is_(True))
-                .order_by(Afe.status.desc(), Afe.revision_number.desc())
+                .where(
+                    Afe.well_id == well_id,
+                    Afe.is_active.is_(True),
+                    Afe.status == "submitted",
+                )
+                .order_by(Afe.revision_number.desc())
             )
             afe_id = active_afe.id if active_afe else None
-        if afe_id is not None:
-            selected_afe = self.session.get(Afe, afe_id)
-            if (
-                selected_afe is None
-                or not selected_afe.is_active
-                or selected_afe.well_id != well_id
-            ):
-                raise BusinessValidationError(
-                    "The selected AFE is not active or does not belong to this well."
-                )
+        if afe_id is None:
+            raise BusinessValidationError(
+                "A submitted AFE is required before entering Daily Cost for this well."
+            )
+        selected_afe = self.session.get(Afe, afe_id)
+        if (
+            selected_afe is None
+            or not selected_afe.is_active
+            or selected_afe.status != "submitted"
+            or selected_afe.well_id != well_id
+        ):
+            raise BusinessValidationError(
+                "The selected AFE must be an active submitted AFE for this well."
+            )
 
         # The database allows one log per well/date/sub-activity. Match on the
         # activity as well; otherwise saving a second activity for the same day
@@ -312,10 +321,26 @@ class DailyCostService:
             else:
                 category_field = category_rates.get(s_input.service_type, "operating_rate")
             if estimate_rate is not None:
+                # The current Cost Estimate screen stores one estimated rate per
+                # line. Historical category rates still win when present, but a
+                # zero category falls back to that current rate so every Daily
+                # Cost mode can use the configured line rate.
                 selected_rate = Decimal(getattr(estimate_rate, category_field, 0) or 0)
-                effective_rate = Decimal(str(override)) if override is not None and Decimal(str(override)) > 0 else selected_rate
+                if selected_rate <= 0:
+                    selected_rate = Decimal(
+                        estimate_rate.operating_rate or estimate_rate.unit_rate or 0
+                    )
+                effective_rate = (
+                    Decimal(str(override))
+                    if override is not None and Decimal(str(override)) > 0
+                    else selected_rate
+                )
                 base_rate = selected_rate
-            multiply = estimate_rate.multiply_by_input if estimate_rate is not None else rate_basis == "daily"
+            multiply = (
+                estimate_rate.multiply_by_input
+                if estimate_rate is not None
+                else rate_basis == "daily"
+            )
             line_amount = operating_days * effective_rate if multiply else effective_rate
             total_services += line_amount
 
@@ -380,7 +405,10 @@ class DailyCostService:
                 ),
                 sub_activity_id=c_input.sub_activity_id,
                 quantity=qty,
-                unit_id=source.unit_id if source is not None else c_input.unit_id,
+                # AFE lines are scope-only, so a consumable's actual UOM comes
+                # from the operator's Daily Cost entry rather than a planned
+                # usage/UOM stored on the AFE.
+                unit_id=c_input.unit_id,
                 unit_rate=base_rate,
                 override_rate=Decimal(str(override)) if override is not None else None,
                 amount=line_amount,
@@ -496,11 +524,15 @@ class DailyCostService:
         return self._read_entry(entry)
 
     def _active_afe(self, well_id: UUID) -> Afe | None:
-        """The well's governing AFE: submitted preferred, then latest revision."""
+        """The well's latest active submitted AFE baseline."""
         return self.session.scalar(
             select(Afe)
-            .where(Afe.well_id == well_id, Afe.is_active.is_(True))
-            .order_by(Afe.status.desc(), Afe.revision_number.desc())
+            .where(
+                Afe.well_id == well_id,
+                Afe.is_active.is_(True),
+                Afe.status == "submitted",
+            )
+            .order_by(Afe.revision_number.desc())
         )
 
     def get_reference_rates(self, well_id: UUID) -> dict[str, Any]:
@@ -601,13 +633,33 @@ class DailyCostService:
                         rate_basis=line.rate_basis,
                         unit_id=line.unit_id,
                         unit_code=line.unit.code if line.unit else "EA",
-                        operating_rate=Decimal(rate_row.operating_rate or unit_rate) if rate_row else unit_rate,
-                        standby_rate=Decimal(rate_row.standby_rate) if rate_row else Decimal("0"),
-                        mobilization_rate=Decimal(rate_row.mobilization_rate) if rate_row else Decimal("0"),
-                        demobilization_rate=Decimal(rate_row.demobilization_rate) if rate_row else Decimal("0"),
-                        fixed_charges=Decimal(rate_row.fixed_charges) if rate_row else Decimal("0"),
-                        personnel_operating_rate=Decimal(rate_row.personnel_operating_rate) if rate_row else Decimal("0"),
-                        personnel_standby_rate=Decimal(rate_row.personnel_standby_rate) if rate_row else Decimal("0"),
+                        operating_rate=(
+                            Decimal(rate_row.operating_rate or unit_rate)
+                            if rate_row
+                            else unit_rate
+                        ),
+                        standby_rate=(
+                            Decimal(rate_row.standby_rate) if rate_row else Decimal("0")
+                        ),
+                        mobilization_rate=(
+                            Decimal(rate_row.mobilization_rate) if rate_row else Decimal("0")
+                        ),
+                        demobilization_rate=(
+                            Decimal(rate_row.demobilization_rate) if rate_row else Decimal("0")
+                        ),
+                        fixed_charges=(
+                            Decimal(rate_row.fixed_charges) if rate_row else Decimal("0")
+                        ),
+                        personnel_operating_rate=(
+                            Decimal(rate_row.personnel_operating_rate)
+                            if rate_row
+                            else Decimal("0")
+                        ),
+                        personnel_standby_rate=(
+                            Decimal(rate_row.personnel_standby_rate)
+                            if rate_row
+                            else Decimal("0")
+                        ),
                         other_rate=Decimal(rate_row.other_rate) if rate_row else Decimal("0"),
                         multiply_by_input=rate_row.multiply_by_input if rate_row else True,
                     )
@@ -629,11 +681,7 @@ class DailyCostService:
         if not well or not well.is_active:
             raise NotFoundError("Well not found")
 
-        afe = self.session.scalar(
-            select(Afe)
-            .where(Afe.well_id == well_id, Afe.is_active.is_(True))
-            .order_by(Afe.status.desc(), Afe.revision_number.desc())
-        )
+        afe = self._active_afe(well_id)
 
         afe_budget = Decimal("0")
         total_planned_days = Decimal("0")
@@ -817,7 +865,7 @@ class DailyCostService:
                 if not line.is_active:
                     continue
                 rate_row = rate_rows.get(line.id)
-                amount = AfeEstimateService.effective_quantity(line) * (
+                amount = AfeEstimateService.estimate_multiplier(line) * (
                     Decimal(rate_row.unit_rate) if rate_row else Decimal("0")
                 )
                 estimate_total += amount

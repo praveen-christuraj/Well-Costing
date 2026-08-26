@@ -20,8 +20,8 @@ export interface AfeCostEstimateLine {
   hole_section_code: string | null
   applies_to_all_sections: boolean
   rate_basis: string
-  quantity: string | number
-  unit_id: string
+  quantity: string | number | null
+  unit_id: string | null
   unit_code: string | null
   unit_rate: string | number
   operating_rate: string | number
@@ -33,6 +33,7 @@ export interface AfeCostEstimateLine {
   personnel_standby_rate: string | number
   other_rate: string | number
   multiply_by_input: boolean
+  estimate_multiplier: string | number
   estimated_amount: string | number
   vendor_id: string | null
   vendor_name: string | null
@@ -77,18 +78,12 @@ export interface AfeCostEstimate {
   totals_by_rate_basis: AfeCostEstimateGroupTotal[]
 }
 
+/** The current AFE Cost Estimate UI maintains one estimate rate per scope line. */
 export interface AfeCostEstimateRateInput {
   afe_line_id: string
   unit_rate: number
-  operating_rate: number
-  standby_rate: number
-  mobilization_rate: number
-  demobilization_rate: number
-  fixed_charges: number
-  personnel_operating_rate: number
-  personnel_standby_rate: number
-  other_rate: number
-  multiply_by_input: boolean
+  operating_rate?: number
+  multiply_by_input?: boolean
   vendor_id?: string | null
   remarks?: string | null
 }

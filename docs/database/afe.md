@@ -3,10 +3,10 @@
 ```text
 projects -> wells -> afes -> afe_lines
                          |        |
-                         |        +-> catalog_items
+                         |        +-> secondary_categories -> primary_categories
                          |        +-> cost_codes
-                         |        +-> units (quantity unit, depth unit)
-                         |        +-> hole_sections
+                         |        +-> hole_sections (optional)
+                         |        +-> historical catalogue/quantity fields (nullable)
                          |-> afe_sections -> afe_section_phases
                          +-> optional superseded AFE
 ```
@@ -37,47 +37,39 @@ planned days.
 
 ## AFE line fields
 
-Planning context recorded on a line:
+Current AFE lines hold **scope**, not a forecast of daily consumption. A line
+contains:
 
-- Quantity and unit
-- Hole section (a foreign key to `hole_sections`, not free text)
-- `applies_to_all_sections` — when true the line's rate applies to every
-  section of the AFE, so a common service (for example a rig day rate) is
-  entered once instead of being duplicated per section. The `hole_section_id`
-  is ignored while the flag is set.
-- Rate basis, and the daily-consumption inputs that follow from it
-- Planned duration in days
-- Planned depth from/to and depth unit
+- Primary → Secondary classification and its configured cost code
+- Service type and rate basis
+- Hole section (a foreign key to `hole_sections`, not free text), or
+  `applies_to_all_sections`
 - Notes
 
-These fields record supplied planning information. They do not calculate depth, duration, trajectory, casing, cement, BHA, hydraulics, or simulations.
+`applies_to_all_sections` lets a common service be entered once rather than once
+per section. `per_section` requires a configured `hole_section_id`.
+
+The historical `quantity`, `unit_id`, `daily_consumption`,
+`computed_quantity`, `quantity_override_reason`, and line-level planned duration
+columns remain nullable for existing records and imports. They are not requested
+by the current AFE Lines UI. Actual consumable quantity and UOM are captured on
+Daily Cost, where the saved AFE Cost Estimate rate is applied.
 
 ## Rate basis
 
-`afe_lines.rate_basis` is checked against
+`afe_lines.rate_basis` supports the historical values
 `('daily','per_service','per_section','fixed','per_unit','daily_consumption')`.
+The current UI offers `per_unit` for consumables and does not expose
+`daily_consumption`; that historical value remains readable so older records do
+not lose their audit history.
 
-The catalogue carries the default: `services.rate_basis` for a service, and
-`mud_chemicals.rate_basis` / `cement_additives.rate_basis` for a consumable
-(both checked against `('per_unit','daily_consumption')`). A line pre-fills
-that default and the planner may change it for that line alone; a basis the
-item type does not allow is rejected in `app/domain/afe/rate_basis.py` before
-it reaches the database.
+## AFE Cost Estimate workflow
 
-`per_section` requires `hole_section_id`.
-
-## Daily consumption
-
-For chemicals and additives charged on daily usage the app derives the total:
-
-```text
-computed_quantity = daily_consumption × planned_duration_days
-```
-
-`quantity` holds the figure the line is costed on. When it differs from
-`computed_quantity` the line must carry a `quantity_override_reason`
-(`ck_afe_lines_override_reason_not_blank` keeps it non-blank), so an override
-is always an explained decision and the computed figure stays visible beside it.
+Only an active **submitted** AFE is available to AFE Cost Estimates. The pricing
+screen maintains one estimated rate per current scope line, plus optional vendor
+and remarks. For a scope-only line, that rate is its estimated amount; a legacy
+line with an explicit quantity remains readable with its historical
+quantity-based amount. The saved rate is the source used by Daily Cost.
 
 ## Status and revision safety
 

@@ -1,6 +1,5 @@
 import type { ApiClient } from '~/services/apiClient'
 import type { AfeLineRecord, AfeRecord, DrillingPhaseRecord, ProjectRecord, WellRecord } from '~/types/afe'
-import type { ImportCommitResult, ImportPreview } from '~/types/imports'
 import type { BulkValidationResult, PageResponse } from '~/types/masterData'
 
 export class AfeApi {
@@ -129,11 +128,6 @@ export class AfeApi {
     return this.api.delete(`/afe-lines/${id}`)
   }
 
-  /** @deprecated Use deleteLine; kept for older screens during rollout. */
-  deactivateLine(id: string): Promise<undefined> {
-    return this.deleteLine(id)
-  }
-
   recoverLine(id: string): Promise<AfeLineRecord> {
     return this.api.post(`/afe-lines/${id}/recover`, {})
   }
@@ -146,21 +140,8 @@ export class AfeApi {
     return this.api.post(`/afes/${id}/submit`, {})
   }
 
-  previewImport(id: string, file: File): Promise<ImportPreview> {
-    const body = new FormData()
-    body.append('file', file)
-    return this.api.postForm(`/afes/${id}/import/preview`, body)
-  }
-
-  commitImport(id: string, batchId: string): Promise<ImportCommitResult> {
-    return this.api.post(`/afes/${id}/import/commit`, { batch_id: batchId })
-  }
-
-  template(id: string): Promise<Blob> {
-    return this.api.download(`/afes/${id}/import/template`)
-  }
-
-  export(id: string): Promise<Blob> {
-    return this.api.download(`/afes/${id}/export`)
+  /** Browser printing is client-side, so record it with the active AFE API first. */
+  recordPrint(id: string): Promise<undefined> {
+    return this.api.post(`/afes/${id}/audit/print`, {})
   }
 }

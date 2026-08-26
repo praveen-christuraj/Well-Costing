@@ -32,8 +32,19 @@ def save_afe_cost_estimate_rates(
     current_user: CurrentUser,
     session: DbSession,
 ) -> AfeCostEstimateRead:
-    """Save unit rates for AFE lines and return the refreshed estimate."""
+    """Save the submitted AFE's current estimate rates and return it refreshed."""
     return AfeEstimateService(session, current_user.id).save_rates(afe_id, payload)
+
+
+@router.post("/audit/print", status_code=204)
+def audit_afe_cost_estimate_print(
+    afe_id: UUID,
+    current_user: CurrentUser,
+    session: DbSession,
+) -> Response:
+    """Record a browser print of the current submitted AFE Cost Estimate."""
+    AfeEstimateService(session, current_user.id).record_print(afe_id)
+    return Response(status_code=204)
 
 
 @router.get("/export")

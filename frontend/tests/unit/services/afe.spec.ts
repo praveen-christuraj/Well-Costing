@@ -60,6 +60,15 @@ describe('AfeApi', () => {
     expect(post).toHaveBeenCalledWith('/afe-lines/line-1/recover', {})
   })
 
+  it('records a browser AFE print with the active AFE API', async () => {
+    const post = vi.fn().mockResolvedValue(undefined)
+    const api = new AfeApi({ post } as unknown as ApiClient)
+
+    await api.recordPrint('afe-1')
+
+    expect(post).toHaveBeenCalledWith('/afes/afe-1/audit/print', {})
+  })
+
   it('filters wells by active state only when requested', async () => {
     const get = vi.fn().mockResolvedValue({ items: [], page: 1, page_size: 500, total: 0, pages: 0 })
     const client = { get } as unknown as ApiClient

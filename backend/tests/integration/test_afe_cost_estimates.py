@@ -1,19 +1,22 @@
-"""AFE Cost Estimates: pricing AFE lines, daily-cost rate sourcing, comparison.
+"""Current AFE Cost Estimate workflow integration coverage.
 
-Covers the backbone flow:
+The released flow is intentionally narrow:
 
-1. The AFE defines the scope (lines).
-2. The AFE Cost Estimates page prices each AFE line with a well-scoped rate.
-3. Daily cost reference rates come from the AFE Cost Estimates only.
-4. Daily cost entry requires a configured well activity type.
-5. The comparison endpoint groups by section / activity / phase / date /
-   week / month with planned-versus-actual figures.
+* AFE Lines hold submitted scope only — never consumable usage/day or a planned
+  quantity/UOM.
+* AFE Cost Estimates is the only place the estimate rate is configured.
+* Only submitted AFEs can be priced.
+* Daily Cost captures actual consumable quantity and UOM, using the saved AFE
+  Cost Estimate rate.
+* Pricing, print, and export actions are auditable.
 """
 
 from decimal import Decimal
+from io import BytesIO
 from typing import Any
 
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 
 from tests.conftest import TEST_PASSWORD
 
@@ -25,6 +28,7 @@ def headers(client: TestClient) -> dict[str, str]:
         "/api/v1/auth/login",
         json={"email": "engineer@example.com", "password": TEST_PASSWORD},
     )
+    assert login.status_code == 200, login.text
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
@@ -36,64 +40,57 @@ def post(
     return response.json()
 
 
-def setup_scope(client: TestClient, auth: dict[str, str]) -> dict[str, Any]:
-    day = post(client, "/api/v1/master-data/units", {"code": "DAY", "name": "Day"}, auth)
-    bbl = post(client, "/api/v1/master-data/units", {"code": "BBL", "name": "Barrel"}, auth)
-    category = post(
+def setup_current_scope(client: TestClient, auth: dict[str, str]) -> dict[str, Any]:
+    """Create classification-only AFE lines exactly as the current UI does."""
+    primary = post(
+        client,
+        "/api/v1/master-data/primary-categories",
+        {"code": "OPERATIONS", "name": "Operations"},
+        auth,
+    )
+    secondary = post(
+        client,
+        "/api/v1/master-data/secondary-categories",
+        {
+            "code": "DRILLING",
+            "name": "Drilling scope",
+            "primary_category_id": primary["id"],
+        },
+        auth,
+    )
+    cost_category = post(
         client,
         "/api/v1/master-data/cost-categories",
-        {"code": "SERV", "name": "Services"},
+        {
+            "code": "DRILL-COST",
+            "name": "Drilling cost",
+            "primary_category_id": primary["id"],
+            "secondary_category_id": secondary["id"],
+        },
         auth,
     )
     cost_code = post(
         client,
         "/api/v1/master-data/cost-codes",
-        {"code": "CC-001", "name": "Well services", "cost_category_id": category["id"]},
+        {"code": "DR-001", "name": "Drilling", "cost_category_id": cost_category["id"]},
         auth,
     )
-    cost_code_chem = post(
+    barrel = post(
         client,
-        "/api/v1/master-data/cost-codes",
-        {"code": "CC-002", "name": "Chemicals", "cost_category_id": category["id"]},
-        auth,
-    )
-    section = post(
-        client,
-        "/api/v1/master-data/hole-sections",
-        {"code": '17-1/2"', "name": "17-1/2 inch section"},
-        auth,
-    )
-    service_item = post(
-        client,
-        "/api/v1/master-data/services",
-        {
-            "code": "SRV-RIG-01",
-            "name": "Rig Day Rate",
-            "cost_code_id": cost_code["id"],
-            "default_unit_id": day["id"],
-            "rate_basis": "daily",
-        },
-        auth,
-    )
-    chemical_item = post(
-        client,
-        "/api/v1/master-data/mud-chemicals",
-        {
-            "code": "CHM-BEN-01",
-            "name": "Bentonite",
-            "cost_code_id": cost_code_chem["id"],
-            "default_unit_id": bbl["id"],
-            "rate_basis": "per_unit",
-        },
+        "/api/v1/master-data/units",
+        {"code": "BBL", "name": "Barrel"},
         auth,
     )
     project = post(
-        client, "/api/v1/projects", {"code": "PRJ-EST-01", "name": "Estimate Project"}, auth
+        client,
+        "/api/v1/projects",
+        {"code": "PRJ-EST-CURRENT", "name": "Current Estimate Project"},
+        auth,
     )
     well = post(
         client,
         "/api/v1/wells",
-        {"project_id": project["id"], "code": "W-EST-1", "name": "Estimate Well"},
+        {"project_id": project["id"], "code": "W-EST-CURRENT", "name": "Current Estimate Well"},
         auth,
     )
     afe = post(
@@ -101,8 +98,8 @@ def setup_scope(client: TestClient, auth: dict[str, str]) -> dict[str, Any]:
         "/api/v1/afes",
         {
             "well_id": well["id"],
-            "code": "AFE-EST-1",
-            "title": "Estimate AFE",
+            "code": "AFE-EST-CURRENT",
+            "title": "Current AFE Estimate",
             "budget_amount": "50000.00",
             "total_planned_days": "10.0",
         },
@@ -113,306 +110,196 @@ def setup_scope(client: TestClient, auth: dict[str, str]) -> dict[str, Any]:
         f"/api/v1/afes/{afe['id']}/lines",
         {
             "line_number": 1,
-            "catalog_item_id": service_item["id"],
+            "secondary_category_id": secondary["id"],
             "cost_code_id": cost_code["id"],
-            "quantity": "10.0",
-            "unit_id": day["id"],
-            "hole_section_id": section["id"],
+            "service_type": "service",
             "rate_basis": "daily",
         },
         auth,
     )
-    chem_line = post(
+    consumable_line = post(
         client,
         f"/api/v1/afes/{afe['id']}/lines",
         {
             "line_number": 2,
-            "catalog_item_id": chemical_item["id"],
-            "cost_code_id": cost_code_chem["id"],
-            "quantity": "100.0",
-            "unit_id": bbl["id"],
+            "secondary_category_id": secondary["id"],
+            "cost_code_id": cost_code["id"],
+            "service_type": "consumable",
             "rate_basis": "per_unit",
         },
         auth,
     )
     return {
-        "day": day,
-        "bbl": bbl,
+        "primary": primary,
+        "secondary": secondary,
         "cost_code": cost_code,
-        "cost_code_chem": cost_code_chem,
-        "section": section,
-        "service_item": service_item,
-        "chemical_item": chemical_item,
+        "barrel": barrel,
         "project": project,
         "well": well,
         "afe": afe,
         "service_line": service_line,
-        "chem_line": chem_line,
+        "consumable_line": consumable_line,
     }
 
 
-def test_afe_cost_estimate_prices_afe_lines(client: TestClient) -> None:
-    auth = headers(client)
-    refs = setup_scope(client, auth)
+def submit_and_price(
+    client: TestClient, auth: dict[str, str], refs: dict[str, Any]
+) -> dict[str, Any]:
     afe_id = refs["afe"]["id"]
+    submitted = client.post(f"/api/v1/afes/{afe_id}/submit", headers=auth)
+    assert submitted.status_code == 200, submitted.text
+    assert submitted.json()["status"] == "submitted"
 
-    # The estimate mirrors the AFE lines even before any rate is saved.
-    estimate = client.get(f"/api/v1/afes/{afe_id}/cost-estimate", headers=auth).json()
-    assert estimate["line_count"] == 2
-    assert estimate["priced_line_count"] == 0
-    assert Decimal(str(estimate["estimated_total"])) == Decimal("0")
-
-    # Price both lines with well-scoped unit rates.
-    save = client.put(
+    priced = client.put(
         f"/api/v1/afes/{afe_id}/cost-estimate/rates",
         json={
             "rates": [
-                {"afe_line_id": refs["service_line"]["id"], "unit_rate": "2400.00"},
-                {"afe_line_id": refs["chem_line"]["id"], "unit_rate": "50.00"},
+                {"afe_line_id": refs["service_line"]["id"], "unit_rate": "1200.00"},
+                {"afe_line_id": refs["consumable_line"]["id"], "unit_rate": "50.00"},
             ]
         },
         headers=auth,
     )
-    assert save.status_code == 200, save.text
-    estimate = save.json()
-    assert estimate["priced_line_count"] == 2
-    # 10 days x 2400 + 100 bbl x 50 = 24000 + 5000
-    assert Decimal(str(estimate["estimated_total"])) == Decimal("29000.00")
-    assert Decimal(str(estimate["services_total"])) == Decimal("24000.00")
-    assert Decimal(str(estimate["consumables_total"])) == Decimal("5000.00")
-    assert Decimal(str(estimate["variance_to_budget"])) == Decimal("21000.00")
-    sections = {row["key"]: row for row in estimate["totals_by_section"]}
-    assert Decimal(str(sections['17-1/2"']["estimated_total"])) == Decimal("24000.00")
-    assert Decimal(str(sections["Unassigned"]["estimated_total"])) == Decimal("5000.00")
-
-    # Export is a well-scoped Excel record.
-    export = client.get(f"/api/v1/afes/{afe_id}/cost-estimate/export", headers=auth)
-    assert export.status_code == 200
-    assert export.headers["content-type"].startswith(XLSX_MEDIA_TYPE)
-    assert len(export.content) > 1000
-
-    # Rejects rates for lines outside this AFE.
-    bad = client.put(
-        f"/api/v1/afes/{afe_id}/cost-estimate/rates",
-        json={"rates": [{"afe_line_id": refs["afe"]["id"], "unit_rate": "1.00"}]},
-        headers=auth,
-    )
-    assert bad.status_code == 422
+    assert priced.status_code == 200, priced.text
+    return priced.json()
 
 
-def test_daily_cost_uses_estimate_rates_and_requires_activity(client: TestClient) -> None:
+def test_scope_only_lines_do_not_require_usage_and_submitted_afe_can_be_priced(
+    client: TestClient,
+) -> None:
     auth = headers(client)
-    refs = setup_scope(client, auth)
+    refs = setup_current_scope(client, auth)
     afe_id = refs["afe"]["id"]
-    well_id = refs["well"]["id"]
 
-    client.put(
+    # Scope-only line creation succeeds with no daily usage, quantity, or UOM.
+    assert refs["consumable_line"]["quantity"] is None
+    assert refs["consumable_line"]["unit_id"] is None
+    assert refs["consumable_line"]["daily_consumption"] is None
+
+    # The server enforces the submitted workflow gate, not just the UI filter.
+    draft_get = client.get(f"/api/v1/afes/{afe_id}/cost-estimate", headers=auth)
+    assert draft_get.status_code == 422
+    assert "Only submitted AFEs" in draft_get.json()["error"]["message"]
+    draft_save = client.put(
         f"/api/v1/afes/{afe_id}/cost-estimate/rates",
-        json={
-            "rates": [
-                {"afe_line_id": refs["service_line"]["id"], "unit_rate": "2400.00"},
-                {"afe_line_id": refs["chem_line"]["id"], "unit_rate": "50.00"},
-            ]
-        },
+        json={"rates": []},
         headers=auth,
     )
-    client.post(f"/api/v1/afes/{afe_id}/submit", headers=auth)
+    assert draft_save.status_code == 422
 
-    # Reference rates come from the AFE Cost Estimates only.
-    rates = client.get(f"/api/v1/wells/{well_id}/daily-cost/reference-rates", headers=auth).json()
-    assert rates["rates_source"] == "afe_cost_estimate"
-    assert rates["afe_code"] == "AFE-EST-1"
-    assert len(rates["services"]) == 1
-    assert Decimal(str(rates["services"][0]["operating_rate"])) == Decimal("2400.00")
-    assert len(rates["consumables"]) == 1
-    assert Decimal(str(rates["consumables"][0]["unit_rate"])) == Decimal("50.00")
+    estimate = submit_and_price(client, auth, refs)
+    assert estimate["afe_status"] == "submitted"
+    assert len(estimate["lines"]) == 2
+    # Regression: unit_id is null for scope-only lines and must not cause the
+    # estimate serializer to return "An unexpected error occurred".
+    assert estimate["lines"][0]["quantity"] is None
+    assert estimate["lines"][1]["quantity"] is None
+    assert estimate["lines"][0]["unit_id"] is None
+    assert estimate["lines"][1]["unit_id"] is None
+    assert Decimal(str(estimate["lines"][0]["estimated_amount"])) == Decimal("1200.00")
+    assert Decimal(str(estimate["lines"][1]["estimated_amount"])) == Decimal("50.00")
+    assert Decimal(str(estimate["estimated_total"])) == Decimal("1250.00")
 
-    # Daily cost entry is blocked until the well's activity types exist.
-    payload = {
-        "well_id": well_id,
-        "afe_id": afe_id,
-        "entry_date": "2026-08-01",
-        "phase": "Drilling",
-        "services": [
-            {
-                "service_id": refs["service_item"]["id"],
-                "cost_code_id": refs["cost_code"]["id"],
-                "service_hours": "24.0",
-                "rate_basis": "daily",
-                "unit_rate": "2400.00",
-            }
-        ],
-        "consumables": [],
-    }
-    blocked = client.post(f"/api/v1/wells/{well_id}/daily-cost", json=payload, headers=auth)
-    assert blocked.status_code == 422
-    assert "activity type" in blocked.text.lower()
+    page = client.get(
+        f"/api/v1/afes?well_id={refs['well']['id']}&status=submitted",
+        headers=auth,
+    )
+    assert page.status_code == 200
+    assert [item["id"] for item in page.json()["items"]] == [afe_id]
 
-    # Configure the Well Activities page, then the entry saves.
+
+def test_consumable_actual_quantity_and_uom_are_captured_in_daily_cost(
+    client: TestClient,
+) -> None:
+    auth = headers(client)
+    refs = setup_current_scope(client, auth)
+    submit_and_price(client, auth, refs)
+
+    reference = client.get(
+        f"/api/v1/wells/{refs['well']['id']}/daily-cost/reference-rates",
+        headers=auth,
+    )
+    assert reference.status_code == 200, reference.text
+    rates = reference.json()
+    assert rates["afe_id"] == refs["afe"]["id"]
+    assert rates["consumables"][0]["afe_line_id"] == refs["consumable_line"]["id"]
+    assert rates["consumables"][0]["unit_id"] is None
+
     activity = post(
         client,
         "/api/v1/master-data/activities",
-        {"code": "NPT", "name": "Non-Productive Time"},
+        {"code": "PLANNED", "name": "Planned"},
         auth,
     )
-    sub_activity = post(
-        client,
-        "/api/v1/well-activities",
-        {"well_id": well_id, "activity_id": activity["id"], "name": "NPT-1"},
-        auth,
-    )
-    payload["sub_activity_id"] = sub_activity["id"]
-    saved = client.post(f"/api/v1/wells/{well_id}/daily-cost", json=payload, headers=auth)
-    assert saved.status_code == 201, saved.text
-    assert saved.json()["sub_activity_name"] == "NPT-1"
-
-    # An activity from a different well is rejected.
-    other_well = post(
-        client,
-        "/api/v1/wells",
-        {"project_id": refs["project"]["id"], "code": "W-EST-2", "name": "Other Well"},
-        auth,
-    )
-    foreign = post(
-        client,
-        "/api/v1/well-activities",
-        {"well_id": other_well["id"], "activity_id": activity["id"], "name": "Planned"},
-        auth,
-    )
-    payload["sub_activity_id"] = foreign["id"]
-    rejected = client.post(f"/api/v1/wells/{well_id}/daily-cost", json=payload, headers=auth)
-    assert rejected.status_code == 422
-
-
-def test_comparison_groups_all_dimensions(client: TestClient) -> None:
-    auth = headers(client)
-    refs = setup_scope(client, auth)
-    afe_id = refs["afe"]["id"]
-    well_id = refs["well"]["id"]
-
-    client.put(
-        f"/api/v1/afes/{afe_id}/cost-estimate/rates",
-        json={
-            "rates": [
-                {"afe_line_id": refs["service_line"]["id"], "unit_rate": "2400.00"},
-                {"afe_line_id": refs["chem_line"]["id"], "unit_rate": "50.00"},
-            ]
-        },
-        headers=auth,
-    )
-    client.post(f"/api/v1/afes/{afe_id}/submit", headers=auth)
-
-    planned = post(
-        client, "/api/v1/master-data/activities", {"code": "PLANNED", "name": "Planned"}, auth
-    )
-    npt = post(client, "/api/v1/master-data/activities", {"code": "NPT", "name": "NPT"}, auth)
-    sub_planned = post(
-        client,
-        "/api/v1/well-activities",
-        {"well_id": well_id, "activity_id": planned["id"], "name": "Planned"},
-        auth,
-    )
-    sub_npt = post(
+    well_activity = post(
         client,
         "/api/v1/well-activities",
         {
-            "well_id": well_id,
-            "activity_id": npt["id"],
-            "name": "NPT-1",
-            "responsible_party": "Rig contractor",
+            "well_id": refs["well"]["id"],
+            "activity_id": activity["id"],
+            "name": "Planned operations",
         },
         auth,
     )
-
-    def day_payload(date: str, sub_id: str, hours: str, qty: str) -> dict[str, Any]:
-        return {
-            "well_id": well_id,
-            "afe_id": afe_id,
-            "entry_date": date,
-            "phase": "Drilling",
-            "hole_section_id": refs["section"]["id"],
-            "sub_activity_id": sub_id,
-            "services": [
-                {
-                    "service_id": refs["service_item"]["id"],
-                    "cost_code_id": refs["cost_code"]["id"],
-                    "hole_section_id": refs["section"]["id"],
-                    "sub_activity_id": sub_id,
-                    "service_hours": hours,
-                    "rate_basis": "daily",
-                    "unit_rate": "2400.00",
-                }
-            ],
+    entry = post(
+        client,
+        f"/api/v1/wells/{refs['well']['id']}/daily-cost",
+        {
+            "well_id": refs["well"]["id"],
+            "afe_id": refs["afe"]["id"],
+            "entry_date": "2026-08-26",
+            "sub_activity_id": well_activity["id"],
             "consumables": [
                 {
-                    "consumable_id": refs["chemical_item"]["id"],
-                    "cost_code_id": refs["cost_code_chem"]["id"],
-                    "sub_activity_id": sub_id,
-                    "quantity": qty,
-                    "unit_id": refs["bbl"]["id"],
-                    "unit_rate": "50.00",
+                    "afe_line_id": refs["consumable_line"]["id"],
+                    "consumable_id": None,
+                    "cost_code_id": refs["cost_code"]["id"],
+                    "quantity": "8.5",
+                    # The operator supplies the actual UOM here, not on AFE.
+                    "unit_id": refs["barrel"]["id"],
+                    "unit_rate": "1.00",
                 }
             ],
-        }
+        },
+        auth,
+    )
+    assert entry["consumables"][0]["unit_id"] == refs["barrel"]["id"]
+    assert Decimal(str(entry["consumables"][0]["unit_rate"])) == Decimal("50.00")
+    assert Decimal(str(entry["total_consumables_cost"])) == Decimal("425.00")
 
-    # Two days in one ISO week/month: 2400 + 500 and 1200 + 250.
-    r1 = client.post(
-        f"/api/v1/wells/{well_id}/daily-cost",
-        json=day_payload("2026-08-03", sub_planned["id"], "24.0", "10.0"),
+
+def test_pricing_print_export_and_rate_changes_are_audited(client: TestClient) -> None:
+    auth = headers(client)
+    refs = setup_current_scope(client, auth)
+    estimate = submit_and_price(client, auth, refs)
+    afe_id = refs["afe"]["id"]
+
+    afe_printed = client.post(f"/api/v1/afes/{afe_id}/audit/print", headers=auth)
+    assert afe_printed.status_code == 204
+    printed = client.post(f"/api/v1/afes/{afe_id}/cost-estimate/audit/print", headers=auth)
+    assert printed.status_code == 204
+    exported = client.get(f"/api/v1/afes/{afe_id}/cost-estimate/export", headers=auth)
+    assert exported.status_code == 200, exported.text
+    assert exported.headers["content-type"].startswith(XLSX_MEDIA_TYPE)
+    workbook = load_workbook(BytesIO(exported.content))
+    assert workbook.sheetnames == ["AFE Cost Estimate", "Summaries"]
+    assert "Estimated total rate" in [cell.value for cell in workbook["AFE Cost Estimate"][13]]
+
+    audit = client.get(
+        "/api/v1/audit-logs?entity_type=afe_cost_estimate&page=1&page_size=50",
         headers=auth,
     )
-    assert r1.status_code == 201, r1.text
-    r2 = client.post(
-        f"/api/v1/wells/{well_id}/daily-cost",
-        json=day_payload("2026-08-04", sub_npt["id"], "12.0", "5.0"),
-        headers=auth,
-    )
-    assert r2.status_code == 201, r2.text
+    assert audit.status_code == 200, audit.text
+    actions = {record["action"] for record in audit.json()["items"]}
+    assert {"save_rates", "print", "export"} <= actions
+    saved = next(record for record in audit.json()["items"] if record["action"] == "save_rates")
+    assert "rates_saved" in (saved["details"] or "")
 
-    comparison = client.get(f"/api/v1/wells/{well_id}/daily-cost/comparison", headers=auth)
-    assert comparison.status_code == 200, comparison.text
-    data = comparison.json()
-
-    assert Decimal(str(data["estimate_total"])) == Decimal("29000.00")
-    assert Decimal(str(data["cumulative_actual_cost"])) == Decimal("4350.00")
-    assert data["days_elapsed"] == 2
-
-    # Date-wise with planned cumulative (budget 50000 / 10 days = 5000/day).
-    assert len(data["by_date"]) == 2
-    assert Decimal(str(data["by_date"][0]["planned_cumulative"])) == Decimal("5000.00")
-    assert Decimal(str(data["by_date"][1]["cumulative_cost"])) == Decimal("4350.00")
-
-    # Week & month roll-ups.
-    assert len(data["by_week"]) == 1
-    assert Decimal(str(data["by_week"][0]["total_cost"])) == Decimal("4350.00")
-    assert len(data["by_month"]) == 1
-    assert data["by_month"][0]["key"] == "2026-08"
-
-    # Section-wise with planned figures from the estimate.
-    sections = {row["key"]: row for row in data["by_section"]}
-    section_row = sections['17-1/2"']
-    assert Decimal(str(section_row["planned_cost"])) == Decimal("24000.00")
-    # Services attributed to the section; consumables follow the entry section.
-    assert Decimal(str(section_row["total_cost"])) == Decimal("4350.00")
-
-    # Activity-wise: Planned vs NPT.
-    activities = {row["key"]: row for row in data["by_activity"]}
-    assert Decimal(str(activities["PLANNED"]["total_cost"])) == Decimal("2900.00")
-    assert Decimal(str(activities["NPT"]["total_cost"])) == Decimal("1450.00")
-    subs = {row["key"]: row for row in data["by_sub_activity"]}
-    assert subs["NPT-1"]["responsible_party"] == "Rig contractor"
-
-    # Phase-wise.
-    phases = {row["key"]: row for row in data["by_phase"]}
-    assert Decimal(str(phases["Drilling"]["total_cost"])) == Decimal("4350.00")
-
-    # Reports: day report, register, and comparison workbook all export.
-    for path in [
-        f"/api/v1/wells/{well_id}/daily-cost/report?entry_date=2026-08-03",
-        f"/api/v1/wells/{well_id}/daily-cost/export",
-        f"/api/v1/wells/{well_id}/daily-cost/comparison/export",
-    ]:
-        response = client.get(path, headers=auth)
-        assert response.status_code == 200, path
-        assert response.headers["content-type"].startswith(XLSX_MEDIA_TYPE)
-        assert len(response.content) > 500
+    detail = client.get(f"/api/v1/afes/{afe_id}", headers=auth)
+    assert detail.status_code == 200
+    local_actions = {record["action"] for record in detail.json()["audit_logs"]}
+    assert "printed" in local_actions
+    assert "cost_estimate_rates_saved" in local_actions
+    assert "cost_estimate_printed" in local_actions
+    assert "cost_estimate_exported" in local_actions
+    assert Decimal(str(estimate["estimated_total"])) == Decimal("1250.00")

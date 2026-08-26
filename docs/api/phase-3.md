@@ -32,6 +32,7 @@ replaced the former `/requirements` and `/requirement-items` routes.
 - `POST /api/v1/afes/bulk/create`
 - `PATCH /api/v1/afes/bulk/update`
 - `POST /api/v1/afes/{id}/submit`
+- `POST /api/v1/afes/{id}/audit/print` (records browser print)
 - `POST /api/v1/afes/{id}/recover`
 - `DELETE /api/v1/afes/{id}/hard`
 - Filter by search, project, well, status, and active state
@@ -66,33 +67,38 @@ Every create, update, soft delete, recover, and permanent delete writes an entry
 to the global audit log (`GET /api/v1/audit-logs`), and AFE-level lifecycle
 actions additionally write to the per-AFE audit history.
 
-### Line fields that decide how a line is charged
+### Current AFE line scope
 
 | Field | Meaning |
 | --- | --- |
-| `hole_section_id` | The configured hole section (`/master-data/hole-sections`) the line belongs to. Replaced the free-text `section_name`. Required when `rate_basis` is `per_section`. |
-| `rate_basis` | `daily`, `per_service`, `per_section`, `fixed`, `per_unit`, or `daily_consumption`. Defaults from the catalogue item and may be overridden per line. A basis the item type does not allow is rejected. |
-| `daily_consumption` | Usage per day, for chemicals and additives charged on `daily_consumption`. |
-| `computed_quantity` | Read-only: `daily_consumption` × `planned_duration_days`, recorded so an override stays visible against the figure the app proposed. |
-| `quantity_override_reason` | Required when the supplied `quantity` differs from `computed_quantity`; an unexplained mismatch returns 422. |
-| `quantity_source` | Read-only: `entered`, `computed`, or `overridden`. |
+| `secondary_category_id` + `cost_code_id` | The selected current classification and its configured cost code. |
+| `service_type` + `rate_basis` | Scope type and charging method. Consumables use `per_unit` in the current UI. |
+| `hole_section_id` | Optional configured hole section; required for `per_section`. |
+| `applies_to_all_sections` | Applies one line to every configured section. |
+| `notes` | Optional scope note. |
 
-`quantity` is optional on a `daily_consumption` line — omit it and the app
-computes the total. Changing usage or planned days on a line the app computed
-recomputes it; a line with a recorded override keeps the override.
+The current AFE Lines UI does **not** request `quantity`, `unit_id`,
+`daily_consumption`, or planned duration. Those legacy nullable fields remain
+in the API/model only so historical records stay readable. Actual consumable
+quantity and UOM are entered on Daily Cost.
 
-## Excel
+## AFE Cost Estimates
 
-- `POST /api/v1/afes/{id}/import/preview`
-- `POST /api/v1/afes/{id}/import/commit`
-- `GET /api/v1/afes/{id}/import/template`
-- `GET /api/v1/afes/{id}/export`
+- `GET /api/v1/afes/{id}/cost-estimate`
+- `PUT /api/v1/afes/{id}/cost-estimate/rates`
+- `POST /api/v1/afes/{id}/cost-estimate/audit/print`
+- `GET /api/v1/afes/{id}/cost-estimate/export`
 
-## Baseline AFE snapshots
+These routes accept only a submitted AFE. The current screen maintains one
+estimated rate per scope line, with optional vendor and remarks; its browser
+print and Excel export are audited.
 
-The immutable baseline snapshot is a separate, later artefact and keeps its own
-routes; only the standalone read moved, to avoid colliding with `/afes/{id}`.
+## Retired AFE-line Excel routes
 
-- `GET /api/v1/estimates/{id}/afe`
-- `POST /api/v1/estimates/{id}/afe/snapshots`
-- `GET /api/v1/afe-snapshots/{snapshot_id}` (was `GET /api/v1/afes/{snapshot_id}`)
+The legacy catalogue/quantity AFE-line Excel import/export routes are not part
+of the active router. Use the current AFE Lines and AFE Cost Estimates modules
+instead.
+
+## Historical notes
+
+Baseline snapshot routes belong to the retired estimate workflow and are not part of the active API surface.

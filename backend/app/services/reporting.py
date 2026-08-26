@@ -211,7 +211,7 @@ class ReportingService:
     @staticmethod
     def _amount(line: AfeLine, rates: dict[UUID, AfeCostEstimateLine]) -> Decimal:
         rate = rates.get(line.id)
-        return AfeEstimateService.effective_quantity(line) * (
+        return AfeEstimateService.estimate_multiplier(line) * (
             Decimal(rate.unit_rate) if rate else Decimal("0")
         )
 
@@ -314,9 +314,7 @@ class ReportingService:
                         if line.applies_to_all_sections
                         else (line.hole_section.code if line.hole_section else None),
                         "rate_basis": line.rate_basis.replace("_", " "),
-                        "quantity": AfeEstimateService.effective_quantity(line),
-                        "unit": line.unit.code if line.unit else None,
-                        "unit_rate": Decimal(rate.unit_rate) if rate else Decimal("0"),
+                        "estimated_rate": Decimal(rate.unit_rate) if rate else Decimal("0"),
                         "amount": amount,
                         "vendor": rate.vendor.name if rate and rate.vendor else None,
                         "remarks": rate.remarks if rate else None,
@@ -332,9 +330,7 @@ class ReportingService:
             self._column("cost_code", "Cost code"),
             self._column("section", "Section"),
             self._column("rate_basis", "Rate basis"),
-            self._column("quantity", "Quantity", "number"),
-            self._column("unit", "Unit"),
-            self._column("unit_rate", "Unit rate", "money"),
+            self._column("estimated_rate", "Estimated total rate", "money"),
             self._column("amount", "Estimated amount", "money"),
             self._column("vendor", "Vendor"),
             self._column("remarks", "Remarks"),
@@ -347,7 +343,7 @@ class ReportingService:
             ReportSummary(
                 key="priced",
                 label="Priced lines",
-                value=sum(1 for row in rows if Decimal(row["unit_rate"] or 0) > 0),
+                value=sum(1 for row in rows if Decimal(row["estimated_rate"] or 0) > 0),
                 format="number",
             ),
         ]

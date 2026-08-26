@@ -96,6 +96,10 @@ def test_afe_estimate_daily_cost_reports_and_audit_export(client: TestClient) ->
         },
     )
 
+    # Submitted AFEs are the only pricing source in the active workflow.
+    submitted = client.post(f"/api/v1/afes/{afe['id']}/submit", headers=headers)
+    assert submitted.status_code == 200, submitted.text
+
     priced = client.put(
         f"/api/v1/afes/{afe['id']}/cost-estimate/rates",
         json={
@@ -114,7 +118,6 @@ def test_afe_estimate_daily_cost_reports_and_audit_export(client: TestClient) ->
     assert estimate["lines"][0]["secondary_category_name"] == "Drilling Scope"
     assert Decimal(str(estimate["estimated_total"])) == Decimal("2500")
 
-    assert client.post(f"/api/v1/afes/{afe['id']}/submit", headers=headers).status_code == 200
     reference = client.get(
         f"/api/v1/wells/{well['id']}/daily-cost/reference-rates", headers=headers
     ).json()
