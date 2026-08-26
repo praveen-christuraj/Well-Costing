@@ -115,7 +115,6 @@ export const SERVICE_RATE_BASES: { label: string, value: RateBasis }[] = [
 
 export const CONSUMABLE_RATE_BASES: { label: string, value: RateBasis }[] = [
   { label: 'Per unit', value: 'per_unit' },
-  { label: 'Daily usage', value: 'daily_consumption' },
 ]
 
 export const ALL_RATE_BASES = [...SERVICE_RATE_BASES, ...CONSUMABLE_RATE_BASES]
@@ -216,19 +215,11 @@ export interface EditableAfeLine {
   primary_category_id: string
   secondary_category_id: string
   cost_code_id: string
-  quantity: string | null
-  unit_id: string | null
+  // AFE lines are scope-only. Quantity/UOM/usage are captured at Daily Cost.
   service_type: 'service' | 'tangible' | 'consumable' | 'other'
   hole_section_id: string
   applies_to_all_sections: boolean
   rate_basis: RateBasis
-  daily_consumption: string
-  computed_quantity: string
-  quantity_override_reason: string
-  planned_duration_days: string
-  planned_depth_from: string
-  planned_depth_to: string
-  depth_unit_id: string
   notes: string
   is_active: boolean
   _state: 'clean' | 'new' | 'dirty'

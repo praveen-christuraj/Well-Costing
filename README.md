@@ -138,13 +138,13 @@ configurator (preset, primary colour, surface palette, static or overlay menu)
 whose choice is remembered between sessions.
 
 **AFE** (`/afe`) is where a well's cost scope is entered — projects, wells, the AFE
-itself, and every AFE line on one page. Each line records how it is charged:
-daily, per section, per service, fixed, per unit, or on daily usage for chemicals
-and additives. The basis pre-fills from the catalogue item and can be changed for
-one line; **Section** is a dropdown of the hole sections configured under Master
-Data, never free text; and a chemical on daily usage has its total computed from
-usage per day times planned days, overridable only with a recorded reason. See
-the [AFE data model](docs/database/afe.md) and the [Phase 3 API](docs/api/phase-3.md).
+itself, and every AFE line on one page. A line records its Primary/Secondary
+classification, cost code, type, rate basis, and optional section; it does **not**
+ask for a planned quantity, UOM, or consumable usage/day. Consumables are scoped
+as per-unit lines, then their actual quantity and UOM are entered in **Daily
+Cost**. After the scope is submitted, **AFE Cost Estimates** is the only page that
+sets each line's estimated rate. See the [AFE data model](docs/database/afe.md)
+and the [Phase 3 API](docs/api/phase-3.md).
 
 **Master Data** (`/master-data/primary-categories`) maintains the raw reference data
 the AFE is built from. One classification — **Primary → Secondary → Tertiary

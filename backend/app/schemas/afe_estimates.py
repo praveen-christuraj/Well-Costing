@@ -23,10 +23,16 @@ class AfeCostEstimateRateInput(BaseModel):
     operating_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
     standby_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
     mobilization_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    demobilization_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    demobilization_rate: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     fixed_charges: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    personnel_operating_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    personnel_standby_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    personnel_operating_rate: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    personnel_standby_rate: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     other_rate: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
     multiply_by_input: bool = True
     vendor_id: UUID | None = None
@@ -66,8 +72,14 @@ class AfeCostEstimateLineRead(BaseModel):
     hole_section_code: str | None = None
     applies_to_all_sections: bool = False
     rate_basis: str
-    quantity: Decimal
-    unit_id: UUID
+    # Scope-only current lines intentionally have no planned quantity or UOM.
+    # Historical quantity-planned lines remain readable.
+    quantity: Decimal | None = None
+    # AFE scope lines intentionally do not require a planned UOM. Consumable
+    # quantities and their UOM are entered on the Daily Cost page when they are
+    # actually used, so this is nullable for current AFE lines (historical
+    # quantity-planned lines can still carry a unit).
+    unit_id: UUID | None = None
     unit_code: str | None = None
     unit_rate: Decimal = Decimal("0")
     operating_rate: Decimal = Decimal("0")
@@ -79,6 +91,10 @@ class AfeCostEstimateLineRead(BaseModel):
     personnel_standby_rate: Decimal = Decimal("0")
     other_rate: Decimal = Decimal("0")
     multiply_by_input: bool = True
+    # Current scope-only AFE lines use a multiplier of one, making the saved
+    # estimate rate the line's estimated total. Historical quantity-planned
+    # lines retain their entered quantity as the multiplier.
+    estimate_multiplier: Decimal = Decimal("1")
     estimated_amount: Decimal = Decimal("0")
     vendor_id: UUID | None = None
     vendor_name: str | None = None

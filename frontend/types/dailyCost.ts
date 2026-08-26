@@ -214,7 +214,9 @@ export interface ReferenceConsumableRate {
   vendor_id?: string | null
   vendor_name?: string | null
   rate_basis: 'per_unit' | 'daily_consumption'
-  unit_id: string
+  // Scope-only AFE lines do not prescribe a UOM; Daily Cost selects it when
+  // the actual consumed quantity is entered.
+  unit_id: string | null
   unit_code: string
   unit_rate: number
 }

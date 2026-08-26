@@ -876,6 +876,16 @@ class AfeService:
                 }
                 for section in sections_input
             ]
+        self.session.add(
+            AfeAuditLog(
+                afe_id=afe.id,
+                action="updated",
+                previous_status=afe.status,
+                new_status=afe.status,
+                remarks="AFE header or section plan updated",
+                actor_id=self.actor_id,
+            )
+        )
         _audit(self.session, self.actor_id, "update", "afe", afe.id, afe.code, details)
         if commit:
             self.session.commit()
@@ -972,6 +982,33 @@ class AfeService:
         self.session.refresh(afe)
         self.session.expire(afe, ["items", "sections", "audit_logs"])
         return self._read(afe, include_items=True)
+
+    def record_print(self, afe_id: UUID) -> None:
+        """Record a browser print of the current AFE record in both audit views."""
+        afe = self.repository.get(afe_id)
+        if afe is None or not afe.is_active:
+            raise NotFoundError("AFE not found")
+        self.session.add(
+            AfeAuditLog(
+                afe_id=afe.id,
+                action="printed",
+                previous_status=afe.status,
+                new_status=afe.status,
+                remarks="AFE printed",
+                actor_id=self.actor_id,
+            )
+        )
+        self.session.flush()
+        _audit(
+            self.session,
+            self.actor_id,
+            "print",
+            "afe",
+            afe.id,
+            afe.code,
+            {"line_count": sum(1 for item in afe.items if item.is_active), "source": "afe_page"},
+        )
+        self.session.commit()
 
     def deactivate(self, afe_id: UUID) -> None:
         """Soft-delete an AFE (draft or submitted) — moves to deleted AFEs."""
@@ -1268,6 +1305,38 @@ class AfeLineService:
         self.session, self.actor_id = session, actor_id
         self.repository = AfeLineRepository(session)
 
+    def _append_afe_history(self, afe: Afe, action: str, remarks: str) -> None:
+        """Mirror scope-line actions into the AFE's concise local timeline."""
+        self.session.add(
+            AfeAuditLog(
+                afe_id=afe.id,
+                action=action,
+                previous_status=afe.status,
+                new_status=afe.status,
+                remarks=remarks,
+                actor_id=self.actor_id,
+            )
+        )
+
+    @staticmethod
+    def _line_snapshot(item: AfeLine) -> dict[str, object]:
+        """Compact serialisable scope-line snapshot for the immutable audit log."""
+        return {
+            "line_number": item.line_number,
+            "secondary_category_id": str(item.secondary_category_id),
+            "cost_code_id": str(item.cost_code_id),
+            "service_type": item.service_type,
+            "rate_basis": item.rate_basis,
+            "hole_section_id": str(item.hole_section_id) if item.hole_section_id else None,
+            "applies_to_all_sections": item.applies_to_all_sections,
+            "quantity": str(item.quantity) if item.quantity is not None else None,
+            "daily_consumption": (
+                str(item.daily_consumption) if item.daily_consumption is not None else None
+            ),
+            "notes": item.notes,
+            "is_active": item.is_active,
+        }
+
     def list_items(self, afe_id: UUID) -> list[AfeLineRead]:
         self._afe(afe_id)
         return [self.read(item) for item in self.repository.list_for_afe(afe_id) if item.is_active]
@@ -1293,6 +1362,11 @@ class AfeLineService:
         self.session.add(item)
         try:
             self.session.flush()
+            self._append_afe_history(
+                afe,
+                "line_created",
+                f"AFE line {item.line_number} created",
+            )
             _audit(
                 self.session,
                 self.actor_id,
@@ -1300,7 +1374,7 @@ class AfeLineService:
                 "afe_line",
                 item.id,
                 f"{afe.code}:{values.get('line_number')}",
-                values,
+                {"after": values},
             )
             if commit:
                 self.session.commit()
@@ -1315,6 +1389,7 @@ class AfeLineService:
         if item is None:
             raise NotFoundError("AFE item not found")
         afe = self._afe(item.afe_id, must_be_draft=True)
+        before = self._line_snapshot(item)
         values = payload.model_dump(exclude_unset=True)
         self._validate_references(values)
         was_computed = (
@@ -1353,6 +1428,11 @@ class AfeLineService:
             raise BusinessValidationError("A depth unit is required when planned depth is supplied")
         item.updated_by = self.actor_id
         self.session.flush()
+        self._append_afe_history(
+            afe,
+            "line_updated",
+            f"AFE line {item.line_number} updated",
+        )
         _audit(
             self.session,
             self.actor_id,
@@ -1360,7 +1440,7 @@ class AfeLineService:
             "afe_line",
             item.id,
             str(item.line_number),
-            values,
+            {"before": before, "after": self._line_snapshot(item)},
         )
         if commit:
             self.session.commit()
@@ -1377,16 +1457,22 @@ class AfeLineService:
         item = self.repository.get(item_id)
         if item is None:
             raise NotFoundError("AFE item not found")
-        self._afe(item.afe_id, must_be_draft=True)
+        afe = self._afe(item.afe_id, must_be_draft=True)
         code = str(item.line_number)
+        before = self._line_snapshot(item)
         self.session.delete(item)
         self.session.flush()
-        _audit(self.session, self.actor_id, "delete", "afe_line", item.id, code, None)
+        self._append_afe_history(afe, "line_deleted", f"AFE line {code} deleted")
+        _audit(
+            self.session,
+            self.actor_id,
+            "delete",
+            "afe_line",
+            item.id,
+            code,
+            {"before": before},
+        )
         self.session.commit()
-
-    def deactivate(self, item_id: UUID) -> None:
-        """Compatibility shim: new writes must use permanent delete."""
-        self.delete(item_id)
 
     def recover(self, item_id: UUID) -> AfeLineRead:
         """Restore a removed (soft-deleted) AFE line on a draft AFE."""
@@ -1411,6 +1497,7 @@ class AfeLineService:
             )
         item.is_active, item.updated_by = True, self.actor_id
         self.session.flush()
+        self._append_afe_history(afe, "line_recovered", f"AFE line {item.line_number} restored")
         _audit(
             self.session,
             self.actor_id,
@@ -1418,7 +1505,7 @@ class AfeLineService:
             "afe_line",
             item.id,
             str(item.line_number),
-            None,
+            {"after": self._line_snapshot(item)},
         )
         self.session.commit()
         self.session.refresh(item)
@@ -1536,10 +1623,42 @@ class AfeLineService:
         if values.get("applies_to_all_sections"):
             values["hole_section_id"] = None
 
-        # Derive planned duration days from section if not explicitly given
+        try:
+            basis = normalize_rate_basis(values.get("rate_basis") or "per_unit")
+            if basis not in RATE_BASES:
+                raise RateBasisError(
+                    f"rate_basis '{basis}' is not valid; use one of {', '.join(RATE_BASES)}"
+                )
+        except RateBasisError as exc:
+            raise BusinessValidationError(str(exc)) from exc
+        if requires_hole_section(basis) and values.get("hole_section_id") is None:
+            raise BusinessValidationError(
+                "hole_section_id is required when a line is charged per section"
+            )
+
+        # Current AFE Lines are intentionally scope-only. Do not derive a
+        # quantity from planned days and never make a consumable user enter
+        # usage/day here; its actual quantity and UOM are captured in Daily
+        # Cost. The legacy branch below preserves existing quantity-planned
+        # records received through older API/import clients.
+        scope_only = (
+            values.get("quantity") is None
+            and values.get("daily_consumption") is None
+            and values.get("quantity_override_reason") is None
+        )
+        values["rate_basis"] = basis
+        if scope_only:
+            values["quantity"] = None
+            values["daily_consumption"] = None
+            values["computed_quantity"] = None
+            values["quantity_override_reason"] = None
+            values["planned_duration_days"] = None
+            return
+
+        # Legacy quantity planning remains readable and writable for historical
+        # integrations. It is not exposed by the current AFE Lines UI.
         planned_duration = values.get("planned_duration_days")
         if (planned_duration is None or planned_duration == 0) and values.get("hole_section_id"):
-            # Check AFE sections
             for sec in afe.sections:
                 if sec.hole_section_id == values["hole_section_id"] and sec.is_active:
                     planned_duration = sec.planned_days
@@ -1548,13 +1667,7 @@ class AfeLineService:
             planned_duration = (
                 afe.total_planned_days if afe.total_planned_days > 0 else Decimal("1")
             )
-
         try:
-            basis = normalize_rate_basis(values.get("rate_basis") or "per_unit")
-            if basis not in RATE_BASES:
-                raise RateBasisError(
-                    f"rate_basis '{basis}' is not valid; use one of {', '.join(RATE_BASES)}"
-                )
             resolved = resolve_planned_quantity(
                 rate_basis=basis,
                 quantity=values.get("quantity"),
@@ -1564,12 +1677,6 @@ class AfeLineService:
             )
         except RateBasisError as exc:
             raise BusinessValidationError(str(exc)) from exc
-        if requires_hole_section(basis) and values.get("hole_section_id") is None:
-            raise BusinessValidationError(
-                "hole_section_id is required when a line is charged per section"
-            )
-
-        values["rate_basis"] = basis
         values["quantity"] = resolved.quantity
         values["computed_quantity"] = resolved.computed_quantity
         if not resolved.is_overridden:

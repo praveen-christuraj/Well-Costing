@@ -44,6 +44,8 @@ const actionOptions = [
   { label: 'Import preview', value: 'import_preview' },
   { label: 'Import commit', value: 'import_commit' },
   { label: 'Export', value: 'export' },
+  { label: 'Print', value: 'print' },
+  { label: 'Delete', value: 'delete' },
 ]
 
 const entityOptions = [
@@ -71,7 +73,7 @@ const entityOptions = [
   { label: 'Drilling phase', value: 'drilling_phase' },
   { label: 'Dropdown binding', value: 'dropdown_binding' },
   { label: 'Import batch', value: 'import_batch' },
-  { label: 'AFE import batch', value: 'afe_import_batch' },
+  { label: 'AFE import batch (historical)', value: 'afe_import_batch' },
 ]
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))

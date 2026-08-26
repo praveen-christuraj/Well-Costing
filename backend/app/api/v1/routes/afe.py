@@ -289,6 +289,13 @@ def reopen_afe(
     return AfeService(session, current_user.id).reopen(afe_id, payload.remarks)
 
 
+@router.post("/afes/{afe_id}/audit/print", status_code=status.HTTP_204_NO_CONTENT)
+def audit_afe_print(afe_id: UUID, current_user: CurrentUser, session: DbSession) -> Response:
+    """Record a browser print of the current AFE record."""
+    AfeService(session, current_user.id).record_print(afe_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/afes/{afe_id}/lines/bulk/validate", response_model=BulkValidationResult)
 def validate_afe_lines(
     afe_id: UUID,

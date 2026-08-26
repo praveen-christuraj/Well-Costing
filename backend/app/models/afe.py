@@ -304,8 +304,12 @@ class AfeLine(TimestampMixin, AuditMixin, Base):
     # Scope lines do not carry a planned quantity or UOM. Daily consumption is
     # captured against a unit-priced consumable in the daily cost entry.
     quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
-    unit_id: Mapped[UUID | None] = mapped_column(ForeignKey("units.id", ondelete="RESTRICT"), nullable=True, index=True)
-    service_type: Mapped[str] = mapped_column(String(20), default="service", server_default="service", index=True)
+    unit_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("units.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    service_type: Mapped[str] = mapped_column(
+        String(20), default="service", server_default="service", index=True
+    )
     hole_section_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("hole_sections.id", ondelete="RESTRICT"), nullable=True, index=True
     )
@@ -337,5 +341,7 @@ class AfeLine(TimestampMixin, AuditMixin, Base):
     secondary_category: Mapped[SecondaryCategory] = relationship(lazy="joined")
     cost_code: Mapped[CostCode] = relationship(lazy="joined")
     hole_section: Mapped[HoleSection | None] = relationship(lazy="joined")
-    unit: Mapped[Unit] = relationship(foreign_keys=[unit_id], lazy="joined")
+    # Scope-only AFE lines do not have a planned UOM; actual consumable UOM is
+    # supplied with the Daily Cost entry.
+    unit: Mapped[Unit | None] = relationship(foreign_keys=[unit_id], lazy="joined")
     depth_unit: Mapped[Unit | None] = relationship(foreign_keys=[depth_unit_id], lazy="joined")

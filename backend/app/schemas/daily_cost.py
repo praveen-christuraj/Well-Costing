@@ -257,7 +257,9 @@ class ReferenceConsumableRate(BaseModel):
     vendor_id: UUID | None = None
     vendor_name: str | None = None
     rate_basis: str
-    unit_id: UUID
+    # Current AFE scope lines do not define a planned UOM. The operator chooses
+    # the UOM with the actual consumed quantity on the Daily Cost entry.
+    unit_id: UUID | None = None
     unit_code: str
     unit_rate: Decimal
 

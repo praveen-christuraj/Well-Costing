@@ -1,11 +1,10 @@
 <script setup lang="ts">
 /**
- * Prices the user-configured AFE scope. Classification is read exactly from
- * Master Data → AFE; this page never guesses service/tangible/other types.
+ * Prices submitted AFE scope lines. AFE Lines deliberately contains scope only;
+ * this page is the single place where the current estimated rate is configured.
  */
 import { computed, onMounted, ref } from 'vue'
 import Button from 'primevue/button'
-import Checkbox from 'primevue/checkbox'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
 import InputNumber from 'primevue/inputnumber'
@@ -36,23 +35,17 @@ const selectedAfeId = ref('')
 const estimate = ref<AfeCostEstimate | null>(null)
 
 interface EditableEstimateLine extends AfeCostEstimateLine {
-  _rate: number
-  _operatingRate: number
-  _standbyRate: number
-  _mobilizationRate: number
-  _demobilizationRate: number
-  _fixedCharges: number
-  _personnelOperatingRate: number
-  _personnelStandbyRate: number
-  _otherRate: number
-  _multiplyByInput: boolean
+  _estimatedRate: number
   _vendorId: string | null
   _remarks: string
   _dirty: boolean
 }
+
 const rows = ref<EditableEstimateLine[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const exporting = ref(false)
+const printing = ref(false)
 const error = ref<string | null>(null)
 const success = ref<string | null>(null)
 
@@ -60,11 +53,22 @@ const wellOptions = computed(() => projectFilter.value
   ? wells.value.filter(well => well.project_id === projectFilter.value)
   : wells.value)
 const dirtyCount = computed(() => rows.value.filter(row => row._dirty).length)
-const pricedCount = computed(() => rows.value.filter(row => Number(row._rate) > 0).length)
+const pricedCount = computed(() => rows.value.filter(row => Number(row._estimatedRate) > 0).length)
+
+/**
+ * Current AFE lines are scope-only. A saved rate is therefore the line's
+ * estimated total. Historic lines with a positive planned quantity remain
+ * readable with their quantity-based estimate.
+ */
+function estimateMultiplier(row: AfeCostEstimateLine): number {
+  const quantity = Number(row.quantity)
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : 1
+}
 
 function lineAmount(row: EditableEstimateLine): number {
-  return Number(row.quantity) * (Number(row._rate) || 0)
+  return estimateMultiplier(row) * (Number(row._estimatedRate) || 0)
 }
+
 const estimatedTotal = computed(() => rows.value.reduce((sum, row) => sum + lineAmount(row), 0))
 const varianceToBudget = computed(() => Number(estimate.value?.budget_amount ?? 0) - estimatedTotal.value)
 
@@ -92,6 +96,7 @@ function groupTotals(dimension: 'section' | 'primary' | 'secondary' | 'cost_code
   }
   return [...buckets.values()].sort((a, b) => Number(b.estimated_total) - Number(a.estimated_total))
 }
+
 const sectionTotals = computed(() => groupTotals('section'))
 const primaryTotals = computed(() => groupTotals('primary'))
 const secondaryTotals = computed(() => groupTotals('secondary'))
@@ -104,16 +109,7 @@ function money(value: string | number | null | undefined): string {
 function setRows(detail: AfeCostEstimate): void {
   rows.value = detail.lines.map(line => ({
     ...line,
-    _rate: Number(line.unit_rate) || 0,
-    _operatingRate: Number(line.operating_rate) || Number(line.unit_rate) || 0,
-    _standbyRate: Number(line.standby_rate) || 0,
-    _mobilizationRate: Number(line.mobilization_rate) || 0,
-    _demobilizationRate: Number(line.demobilization_rate) || 0,
-    _fixedCharges: Number(line.fixed_charges) || 0,
-    _personnelOperatingRate: Number(line.personnel_operating_rate) || 0,
-    _personnelStandbyRate: Number(line.personnel_standby_rate) || 0,
-    _otherRate: Number(line.other_rate) || 0,
-    _multiplyByInput: line.multiply_by_input !== false,
+    _estimatedRate: Number(line.unit_rate) || 0,
     _vendorId: line.vendor_id,
     _remarks: line.remarks ?? '',
     _dirty: false,
@@ -136,20 +132,23 @@ async function onWellChange(): Promise<void> {
   estimate.value = null
   rows.value = []
   afes.value = []
+  error.value = null
+  success.value = null
   if (!selectedWellId.value) return
+
   try {
-    const page = await afeApi.listAfes(selectedWellId.value)
+    // Pricing is available only after the AFE scope is submitted. The API also
+    // enforces this gate, so a stale URL cannot open a draft AFE for pricing.
+    const page = await afeApi.listAfes(selectedWellId.value, 'submitted')
     afes.value = page.items || []
-    const preferred = [...afes.value].sort((a, b) =>
-      (b.status === 'submitted' ? 1 : 0) - (a.status === 'submitted' ? 1 : 0)
-      || b.revision_number - a.revision_number)[0]
+    const preferred = [...afes.value].sort((a, b) => b.revision_number - a.revision_number)[0]
     if (preferred) {
       selectedAfeId.value = preferred.id
       await loadEstimate()
     }
   }
   catch (caught: unknown) {
-    error.value = caught instanceof Error ? caught.message : 'Could not load the well’s AFEs.'
+    error.value = caught instanceof Error ? caught.message : 'Could not load the well’s submitted AFEs.'
   }
 }
 
@@ -162,7 +161,7 @@ async function loadEstimate(): Promise<void> {
     setRows(estimate.value)
   }
   catch (caught: unknown) {
-    error.value = caught instanceof Error ? caught.message : 'Could not load the AFE cost estimate.'
+    error.value = caught instanceof Error ? caught.message : 'Could not load the AFE Cost Estimate.'
     estimate.value = null
     rows.value = []
   }
@@ -181,30 +180,29 @@ async function saveRates(): Promise<void> {
   try {
     estimate.value = await estimatesApi.saveRates(selectedAfeId.value, rows.value.map(row => ({
       afe_line_id: row.afe_line_id,
-      unit_rate: Number(row._operatingRate) || 0,
-      operating_rate: Number(row._operatingRate) || 0,
-      standby_rate: Number(row._standbyRate) || 0,
-      mobilization_rate: Number(row._mobilizationRate) || 0,
-      demobilization_rate: Number(row._demobilizationRate) || 0,
-      fixed_charges: Number(row._fixedCharges) || 0,
-      personnel_operating_rate: Number(row._personnelOperatingRate) || 0,
-      personnel_standby_rate: Number(row._personnelStandbyRate) || 0,
-      other_rate: Number(row._otherRate) || 0,
-      multiply_by_input: row._multiplyByInput,
+      // The released Cost Estimate page has one current estimate rate. It is
+      // mirrored to operating_rate for Daily Cost compatibility.
+      unit_rate: Number(row._estimatedRate) || 0,
+      operating_rate: Number(row._estimatedRate) || 0,
+      // Daily operational charges still multiply by the entered fraction of a
+      // day. Fixed/section/service charges do not.
+      multiply_by_input: row.rate_basis === 'daily',
       vendor_id: row._vendorId || null,
       remarks: row._remarks.trim() || null,
     })))
     setRows(estimate.value)
-    success.value = `Rates saved for AFE ${estimate.value.afe_code}. Daily Cost now reads these AFE-line rates.`
+    success.value = `Estimate rates saved for submitted AFE ${estimate.value.afe_code}. Daily Cost now reads these line rates.`
   }
   catch (caught: unknown) {
-    error.value = caught instanceof Error ? caught.message : 'The rates could not be saved.'
+    error.value = caught instanceof Error ? caught.message : 'The estimate rates could not be saved.'
   }
   finally { saving.value = false }
 }
 
 async function exportExcel(): Promise<void> {
   if (!selectedAfeId.value) return
+  exporting.value = true
+  error.value = null
   try {
     downloadBlob(
       await estimatesApi.export(selectedAfeId.value),
@@ -214,45 +212,56 @@ async function exportExcel(): Promise<void> {
   catch (caught: unknown) {
     error.value = caught instanceof Error ? caught.message : 'The export failed.'
   }
+  finally { exporting.value = false }
 }
 
 function summaryTable(title: string, totals: AfeCostEstimateGroupTotal[]): string {
   return `<h2>${escapeHtml(title)}</h2><table><thead><tr><th>Group</th><th class="num">Lines</th><th class="num">Estimated total</th></tr></thead><tbody>${totals.map(total => `<tr><td>${escapeHtml(total.label)}</td><td class="num">${total.line_count}</td><td class="num">${money(total.estimated_total)}</td></tr>`).join('')}</tbody></table>`
 }
 
-function printEstimate(): void {
+async function printEstimate(): Promise<void> {
   const detail = estimate.value
   if (!detail) return
-  const meta = [
-    ['Project', `${detail.project_code ?? ''} — ${detail.project_name ?? ''}`],
-    ['Well', `${detail.well_code ?? ''} — ${detail.well_name ?? ''}`],
-    ['Rig', detail.rig_name ?? '—'],
-    ['AFE', `${detail.afe_code} (rev ${detail.revision_number})`],
-    ['Title', detail.afe_title],
-    ['Status', detail.afe_status],
-    ['AFE budget', money(detail.budget_amount)],
-    ['Planned days', String(Number(detail.total_planned_days))],
-  ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')
-  const lineRows = rows.value.map(row => `<tr>
-    <td class="num">${row.line_number}</td><td>${escapeHtml(classification(row))}</td>
-    <td>${escapeHtml(row.cost_code ?? '')}</td><td>${escapeHtml(row.applies_to_all_sections ? 'All sections' : (row.hole_section_code ?? '—'))}</td>
-    <td>${escapeHtml(row.rate_basis.replace(/_/g, ' '))}</td><td class="num">${Number(row.quantity)}</td>
-    <td>${escapeHtml(row.unit_code ?? '')}</td><td class="num">${money(row._rate)}</td><td class="num">${money(lineAmount(row))}</td>
-  </tr>`).join('')
-  printDocument(`AFE Cost Estimate ${detail.afe_code}`, `
-    <h1>AFE COST ESTIMATE</h1>
-    <p class="doc-subtitle">Rates against the classifications configured in Master Data and selected on the AFE.</p>
-    <div class="meta-grid">${meta}</div>
-    <h2>Priced AFE lines</h2>
-    <table><thead><tr><th class="num">#</th><th>Classification</th><th>Cost code</th><th>Section</th><th>Rate basis</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit rate</th><th class="num">Estimated amount</th></tr></thead>
-      <tbody>${lineRows}<tr class="total-row"><td colspan="8">Estimated total</td><td class="num">${money(estimatedTotal.value)}</td></tr></tbody></table>
-    ${summaryTable('Totals by primary category', primaryTotals.value)}
-    ${summaryTable('Totals by secondary category', secondaryTotals.value)}
-    ${summaryTable('Totals by hole section', sectionTotals.value)}
-    ${summaryTable('Totals by cost code', costCodeTotals.value)}
-    <div class="signatures"><div>Prepared by</div><div>Reviewed by</div><div>Approved by</div></div>
-    <p class="print-footer">Printed ${new Date().toLocaleString()} — classification values are user-configured.</p>
-  `)
+  printing.value = true
+  error.value = null
+  try {
+    // Browser print has no server request of its own, so record it explicitly
+    // before opening the current-page document.
+    await estimatesApi.recordPrint(detail.afe_id)
+    const meta = [
+      ['Project', `${detail.project_code ?? ''} — ${detail.project_name ?? ''}`],
+      ['Well', `${detail.well_code ?? ''} — ${detail.well_name ?? ''}`],
+      ['Rig', detail.rig_name ?? '—'],
+      ['AFE', `${detail.afe_code} (rev ${detail.revision_number})`],
+      ['Title', detail.afe_title],
+      ['Status', detail.afe_status],
+      ['AFE budget', money(detail.budget_amount)],
+      ['Estimated total', money(estimatedTotal.value)],
+    ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')
+    const lineRows = rows.value.map(row => `<tr>
+      <td class="num">${row.line_number}</td><td>${escapeHtml(classification(row))}</td>
+      <td>${escapeHtml(row.cost_code ?? '')}</td><td>${escapeHtml(row.applies_to_all_sections ? 'All sections' : (row.hole_section_code ?? '—'))}</td>
+      <td>${escapeHtml(row.rate_basis.replaceAll('_', ' '))}</td><td class="num">${money(row._estimatedRate)}</td><td class="num">${money(lineAmount(row))}</td>
+    </tr>`).join('')
+    printDocument(`AFE Cost Estimate ${detail.afe_code}`, `
+      <h1>AFE COST ESTIMATE</h1>
+      <p class="doc-subtitle">Current submitted AFE scope and its saved estimate rates. Consumable quantities are recorded only in Daily Cost.</p>
+      <div class="meta-grid">${meta}</div>
+      <h2>Priced AFE lines</h2>
+      <table><thead><tr><th class="num">#</th><th>Classification</th><th>Cost code</th><th>Section</th><th>Costing method</th><th class="num">Estimated total rate</th><th class="num">Estimated amount</th></tr></thead>
+        <tbody>${lineRows}<tr class="total-row"><td colspan="6">Estimated total</td><td class="num">${money(estimatedTotal.value)}</td></tr></tbody></table>
+      ${summaryTable('Totals by primary category', primaryTotals.value)}
+      ${summaryTable('Totals by secondary category', secondaryTotals.value)}
+      ${summaryTable('Totals by hole section', sectionTotals.value)}
+      ${summaryTable('Totals by cost code', costCodeTotals.value)}
+      <div class="signatures"><div>Prepared by</div><div>Reviewed by</div><div>Approved by</div></div>
+      <p class="print-footer">Printed ${new Date().toLocaleString()} — source: current AFE Cost Estimates module.</p>
+    `)
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'The AFE Cost Estimate could not be printed.'
+  }
+  finally { printing.value = false }
 }
 
 onMounted(() => void loadFoundation().catch((caught: unknown) => {
@@ -264,11 +273,11 @@ onMounted(() => void loadFoundation().catch((caught: unknown) => {
   <div class="library-page">
     <PageHeader
       title="AFE Cost Estimates"
-      description="Price the AFE lines using the primary and secondary classifications configured in Master Data. Calculation behaviour is controlled by each line’s user-selected rate basis; no service/tangible/other type is guessed."
+      description="Configure one estimated rate for each submitted AFE scope line. Actual consumable quantities are entered only on Daily Cost."
     >
       <template #actions>
-        <Button label="Print" icon="pi pi-print" outlined :disabled="!estimate" @click="printEstimate" />
-        <Button label="Export Excel" icon="pi pi-file-excel" outlined :disabled="!estimate" @click="exportExcel" />
+        <Button label="Print" icon="pi pi-print" outlined :loading="printing" :disabled="!estimate" @click="printEstimate" />
+        <Button label="Export Excel" icon="pi pi-file-excel" outlined :loading="exporting" :disabled="!estimate" @click="exportExcel" />
         <Button :label="dirtyCount ? `Save rates (${dirtyCount})` : 'Save rates'" icon="pi pi-save" :loading="saving" :disabled="!rows.length" @click="saveRates" />
       </template>
     </PageHeader>
@@ -279,51 +288,43 @@ onMounted(() => void loadFoundation().catch((caught: unknown) => {
     <section class="est-selector-bar bulk-grid-panel">
       <label>Project<Select v-model="projectFilter" :options="projects" option-label="code" option-value="id" placeholder="All projects" show-clear filter /></label>
       <label>Well<Select v-model="selectedWellId" :options="wellOptions" option-label="code" option-value="id" placeholder="Select well" filter @change="onWellChange"><template #option="{ option }"><strong>{{ option.code }}</strong>&nbsp;— {{ option.name }}</template></Select></label>
-      <label>AFE<Select v-model="selectedAfeId" :options="afes" option-value="id" :disabled="!afes.length" placeholder="Select AFE" @change="loadEstimate"><template #option="{ option }"><strong>{{ option.code }}</strong>&nbsp;— {{ option.title }}</template><template #value="{ value }"><span v-if="value">{{ afes.find(item => item.id === value)?.code }} — {{ afes.find(item => item.id === value)?.title }}</span><span v-else>Select AFE</span></template></Select></label>
-      <div v-if="estimate" class="selector-status"><span>Status</span><div><Tag :value="estimate.afe_status" :severity="estimate.afe_status === 'submitted' ? 'success' : 'warn'" /><Tag :value="`${pricedCount}/${rows.length} lines priced`" :severity="pricedCount === rows.length && rows.length > 0 ? 'success' : 'warn'" /></div></div>
+      <label>Submitted AFE<Select v-model="selectedAfeId" :options="afes" option-value="id" :disabled="!afes.length" placeholder="Select submitted AFE" @change="loadEstimate"><template #option="{ option }"><strong>{{ option.code }}</strong>&nbsp;— {{ option.title }}</template><template #value="{ value }"><span v-if="value">{{ afes.find(item => item.id === value)?.code }} — {{ afes.find(item => item.id === value)?.title }}</span><span v-else>Select submitted AFE</span></template></Select></label>
+      <div v-if="estimate" class="selector-status"><span>Status</span><div><Tag :value="estimate.afe_status" severity="success" /><Tag :value="`${pricedCount}/${rows.length} lines priced`" :severity="pricedCount === rows.length && rows.length > 0 ? 'success' : 'warn'" /></div></div>
     </section>
 
-    <Message v-if="selectedWellId && !afes.length" severity="warn" :closable="false">This well has no AFE. Create its scope on the <NuxtLink to="/afe">AFE page</NuxtLink> first.</Message>
-    <Message v-else-if="estimate && !rows.length" severity="warn" :closable="false">AFE {{ estimate.afe_code }} has no lines. Add classified lines on the <NuxtLink to="/afe">AFE page</NuxtLink>.</Message>
+    <Message v-if="selectedWellId && !afes.length" severity="warn" :closable="false">This well has no submitted AFE yet. Complete and submit its scope on the <NuxtLink to="/afe">AFE page</NuxtLink> before entering estimate rates.</Message>
+    <Message v-else-if="estimate && !rows.length" severity="warn" :closable="false">Submitted AFE {{ estimate.afe_code }} has no scope lines. Add lines on the <NuxtLink to="/afe">AFE page</NuxtLink>, then submit it again.</Message>
 
     <section v-if="estimate" class="est-kpi-grid">
-      <article><span>AFE scope</span><strong>{{ rows.length }} lines</strong><small>Planned days: {{ Number(estimate.total_planned_days).toFixed(1) }}</small></article>
-      <article><span>Estimated total</span><strong class="text-primary">${{ money(estimatedTotal) }}</strong><small>From quantity × saved rate</small></article>
+      <article><span>Submitted scope</span><strong>{{ rows.length }} lines</strong><small>AFE rev {{ estimate.revision_number }}</small></article>
+      <article><span>Estimated total</span><strong class="text-primary">${{ money(estimatedTotal) }}</strong><small>Saved estimate rates</small></article>
       <article><span>Variance to AFE budget</span><strong :class="varianceToBudget < 0 ? 'text-danger' : 'text-success'">${{ money(varianceToBudget) }}</strong><small>Budget ${{ money(estimate.budget_amount) }}</small></article>
       <article><span>Pricing progress</span><strong>{{ pricedCount }}/{{ rows.length }}</strong><small>{{ rows.length - pricedCount }} line(s) without a rate</small></article>
     </section>
 
-    <DataTable v-if="rows.length" :value="rows" :loading="loading" data-key="afe_line_id" paginator :rows="50" striped-rows show-gridlines scrollable class="bulk-grid-panel">
+    <DataTable v-if="rows.length" :value="rows" :loading="loading" data-key="afe_line_id" paginator :rows="50" striped-rows show-gridlines scrollable scroll-height="calc(100vh - 350px)" class="bulk-grid-panel estimate-grid">
       <Column field="line_number" header="#" style="width: 52px" />
-      <Column header="Primary category" style="min-width: 170px"><template #body="{ data }"><strong>{{ data.primary_category_name || data.primary_category_code || '—' }}</strong></template></Column>
-      <Column header="Secondary category" style="min-width: 210px"><template #body="{ data }"><strong>{{ data.secondary_category_name || data.secondary_category_code || data.catalog_item_name || '—' }}</strong><br><small>{{ data.secondary_category_code || data.catalog_item_code }}</small></template></Column>
-      <Column field="cost_code" header="Cost code" />
-      <Column header="Section"><template #body="{ data }">{{ data.applies_to_all_sections ? 'All sections' : (data.hole_section_code || '—') }}</template></Column>
-      <Column header="Rate basis"><template #body="{ data }"><Tag :value="data.rate_basis.replaceAll('_', ' ')" severity="info" /></template></Column>
-      <Column header="Quantity"><template #body="{ data }">{{ Number(data.quantity) }}</template></Column>
-      <Column field="unit_code" header="Unit" />
-      <Column header="Operating" style="min-width: 125px"><template #body="{ data }"><InputNumber v-model="data._operatingRate" :min="0" fluid @input="mark(data)" /></template></Column>
-      <Column header="Standby" style="min-width: 125px"><template #body="{ data }"><InputNumber v-model="data._standbyRate" :min="0" fluid @input="mark(data)" /></template></Column>
-      <Column header="Mobilization" style="min-width: 125px"><template #body="{ data }"><InputNumber v-model="data._mobilizationRate" :min="0" fluid @input="mark(data)" /></template></Column>
-      <Column header="Demobilization" style="min-width: 125px"><template #body="{ data }"><InputNumber v-model="data._demobilizationRate" :min="0" fluid @input="mark(data)" /></template></Column>
-      <Column header="Fixed charges" style="min-width: 125px"><template #body="{ data }"><InputNumber v-model="data._fixedCharges" :min="0" fluid @input="mark(data)" /></template></Column>
-      <Column header="Personnel operating" style="min-width: 135px"><template #body="{ data }"><InputNumber v-model="data._personnelOperatingRate" :min="0" fluid @input="mark(data)" /></template></Column>
-      <Column header="Personnel standby" style="min-width: 135px"><template #body="{ data }"><InputNumber v-model="data._personnelStandbyRate" :min="0" fluid @input="mark(data)" /></template></Column>
-      <Column header="Other" style="min-width: 125px"><template #body="{ data }"><InputNumber v-model="data._otherRate" :min="0" fluid @input="mark(data)" /></template></Column>
-      <Column header="Multiply time/usage" style="min-width: 110px"><template #body="{ data }"><Checkbox v-model="data._multiplyByInput" binary @change="mark(data)" /></template></Column>
-      <Column header="Estimated amount"><template #body="{ data }"><strong>${{ money(lineAmount(data)) }}</strong></template></Column>
-      <Column header="Vendor" style="min-width: 180px"><template #body="{ data }"><Select v-model="data._vendorId" :options="vendors" option-label="name" option-value="id" show-clear filter placeholder="Optional" fluid @change="mark(data)" /></template></Column>
-      <Column header="Remarks" style="min-width: 180px"><template #body="{ data }"><InputText v-model="data._remarks" placeholder="Contract reference…" fluid @input="mark(data)" /></template></Column>
+      <Column header="Classification" style="min-width: 220px"><template #body="{ data }"><div class="classification-cell"><strong>{{ data.primary_category_name || data.primary_category_code || '—' }}</strong><span>{{ data.secondary_category_name || data.secondary_category_code || data.catalog_item_name || '—' }}</span></div></template></Column>
+      <Column field="cost_code" header="Cost code" style="min-width: 130px" />
+      <Column header="Scope" style="min-width: 130px"><template #body="{ data }">{{ data.applies_to_all_sections ? 'All sections' : (data.hole_section_code || '—') }}</template></Column>
+      <Column header="Method" style="min-width: 125px"><template #body="{ data }"><Tag :value="data.rate_basis.replaceAll('_', ' ')" severity="info" /></template></Column>
+      <Column header="Estimated total rate" style="min-width: 155px"><template #body="{ data }"><InputNumber v-model="data._estimatedRate" :min="0" :max-fraction-digits="4" prefix="$ " fluid @input="mark(data)" /></template></Column>
+      <Column header="Estimated amount" style="min-width: 145px"><template #body="{ data }"><strong>${{ money(lineAmount(data)) }}</strong></template></Column>
+      <Column header="Vendor" style="min-width: 165px"><template #body="{ data }"><Select v-model="data._vendorId" :options="vendors" option-label="name" option-value="id" show-clear filter placeholder="Optional" fluid @change="mark(data)" /></template></Column>
+      <Column header="Remarks" style="min-width: 170px"><template #body="{ data }"><InputText v-model="data._remarks" placeholder="Contract reference…" fluid @input="mark(data)" /></template></Column>
     </DataTable>
 
     <section v-if="rows.length" class="est-summary-grid">
       <article
-v-for="summary in [
-        { title: 'By primary category', values: primaryTotals },
-        { title: 'By secondary category', values: secondaryTotals },
-        { title: 'By hole section', values: sectionTotals },
-        { title: 'By cost code', values: costCodeTotals },
-      ]" :key="summary.title" class="bulk-grid-panel">
+        v-for="summary in [
+          { title: 'By primary category', values: primaryTotals },
+          { title: 'By secondary category', values: secondaryTotals },
+          { title: 'By hole section', values: sectionTotals },
+          { title: 'By cost code', values: costCodeTotals },
+        ]"
+        :key="summary.title"
+        class="bulk-grid-panel"
+      >
         <h3>{{ summary.title }}</h3>
         <table><tbody><tr v-for="total in summary.values" :key="total.key"><td>{{ total.label }}</td><td>{{ total.line_count }}</td><td>${{ money(total.estimated_total) }}</td></tr></tbody></table>
       </article>
@@ -332,19 +333,24 @@ v-for="summary in [
 </template>
 
 <style scoped>
-.est-selector-bar { display: flex; flex-wrap: wrap; gap: 1.25rem; align-items: end; padding: 1rem 1.25rem; margin-bottom: 1rem; }
-.est-selector-bar > label, .selector-status { display: grid; gap: .35rem; min-width: 190px; font-size: .78rem; font-weight: 600; color: var(--text-color-secondary); text-transform: uppercase; letter-spacing: .04em; }
-.selector-status > div { display: flex; gap: .5rem; min-height: 40px; align-items: center; }
-.est-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .9rem; margin-bottom: 1rem; }
-.est-kpi-grid article { background: var(--surface-card); border: 1px solid var(--surface-border); border-radius: 10px; padding: .9rem 1.1rem; display: grid; gap: .3rem; }
-.est-kpi-grid span { font-size: .75rem; text-transform: uppercase; color: var(--text-color-secondary); }
-.est-kpi-grid strong { font-size: 1.3rem; }
-.est-kpi-grid small { color: var(--text-color-secondary); }
+.est-selector-bar { display: flex; flex-wrap: wrap; gap: .8rem 1rem; align-items: end; padding: .8rem 1rem; margin-bottom: .75rem; }
+.est-selector-bar > label, .selector-status { display: grid; gap: .25rem; min-width: 185px; font-size: .74rem; font-weight: 600; color: var(--text-color-secondary); text-transform: uppercase; letter-spacing: .04em; }
+.selector-status > div { display: flex; gap: .4rem; min-height: 34px; align-items: center; }
+.est-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: .7rem; margin-bottom: .75rem; }
+.est-kpi-grid article { background: var(--surface-card); border: 1px solid var(--surface-border); border-radius: 8px; padding: .7rem .85rem; display: grid; gap: .2rem; }
+.est-kpi-grid span { font-size: .7rem; text-transform: uppercase; color: var(--text-color-secondary); }
+.est-kpi-grid strong { font-size: 1.15rem; }
+.est-kpi-grid small { color: var(--text-color-secondary); font-size: .76rem; }
 .text-primary { color: var(--primary-color); } .text-success { color: #16a34a; } .text-danger { color: #dc2626; }
-.est-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: .9rem; margin-top: 1rem; }
-.est-summary-grid article { padding: 1rem 1.2rem; }
-.est-summary-grid h3 { margin: 0 0 .6rem; font-size: .95rem; }
+.classification-cell { display: grid; gap: .08rem; line-height: 1.2; }
+.classification-cell span { color: var(--text-color-secondary); font-size: .78rem; }
+.estimate-grid :deep(.p-datatable-thead > tr > th), .estimate-grid :deep(.p-datatable-tbody > tr > td) { padding: .32rem .4rem; font-size: .8rem; }
+.estimate-grid :deep(.p-select-label), .estimate-grid :deep(.p-inputnumber-input), .estimate-grid :deep(.p-inputtext) { font-size: .8rem; padding-block: .34rem; }
+.est-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .7rem; margin-top: .75rem; }
+.est-summary-grid article { padding: .75rem .9rem; }
+.est-summary-grid h3 { margin: 0 0 .45rem; font-size: .88rem; }
 .est-summary-grid table { width: 100%; border-collapse: collapse; }
-.est-summary-grid td { padding: .3rem .2rem; border-bottom: 1px solid var(--surface-border); font-size: .88rem; }
+.est-summary-grid td { padding: .25rem .15rem; border-bottom: 1px solid var(--surface-border); font-size: .8rem; }
 .est-summary-grid td:nth-child(n+2) { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) { .est-selector-bar > label { min-width: 100%; } }
 </style>
