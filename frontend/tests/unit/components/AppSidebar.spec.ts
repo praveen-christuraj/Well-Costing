@@ -19,40 +19,24 @@ describe('AppSidebar', () => {
     const wrapper = mountNav()
 
     const links = wrapper.findAll('a')
-    expect(links).toHaveLength(13)
-    expect(links.map(link => link.attributes('href'))).toEqual([
-      '/dashboard',
-      '/master-data/primary-categories',
-      '/afe',
-      '/afe-cost-estimates',
-      '/daily-cost',
-      '/daily-cost/well-activities',
-      '/daily-cost/comparison',
-      '/cost-control',
-      '/reports',
-      '/assurance',
-      '/audit',
-      '/administration/dropdowns',
-      '/help',
-    ])
+    expect(links).toHaveLength(2)
+    expect(links.map(link => link.attributes('href'))).toEqual(['/dashboard', '/master-data'])
     expect(wrapper.text()).toContain('Dashboard')
-    expect(wrapper.text()).toContain('AFE')
-    expect(wrapper.text()).toContain('Daily Cost')
     expect(wrapper.text()).toContain('Master Data')
-    expect(wrapper.text()).toContain('Help')
   })
 
   it('groups the modules under section headings', () => {
     const wrapper = mountNav()
 
     const headings = wrapper.findAll('.layout-menuitem-root-text').map(node => node.text())
-    expect(headings).toEqual(['Home', 'Master Data', 'Planning', 'Execution', 'Configuration', 'Support'])
+    expect(headings).toEqual(['Home', 'Master Data'])
   })
 
-  it('renders no placeholder or hidden links', () => {
+  it('renders no link to a removed business module', () => {
     const wrapper = mountNav()
 
-    expect(wrapper.html()).not.toContain('/cost-library/services')
-    expect(wrapper.html()).not.toContain('/requirements')
+    for (const removed of ['/afe', '/daily-cost', '/cost-control', '/reports', '/assurance', '/audit', '/administration', '/help']) {
+      expect(wrapper.html()).not.toContain(`href="${removed}`)
+    }
   })
 })

@@ -73,41 +73,6 @@ class ConflictError(AppException):
     code = "conflict"
 
 
-class BusinessValidationError(AppException):
-    """A well-formed request violates confirmed structural validation."""
-
-    status_code = 422
-    code = "business_validation_error"
-
-
-class BusinessRulePendingError(AppException):
-    """A requested calculation depends on rules not yet confirmed."""
-
-    status_code = 422
-    code = "business_rule_pending"
-
-
-class WorkflowProfilePendingError(AppException):
-    """A requested transition depends on an unpublished workflow policy."""
-
-    status_code = 422
-    code = "workflow_profile_pending"
-
-
-class AfePolicyPendingError(AppException):
-    """AFE issuance depends on eligibility and snapshot rules not yet confirmed."""
-
-    status_code = 422
-    code = "afe_policy_pending"
-
-
-class CostStatePolicyPendingError(AppException):
-    """Cost-state posting depends on definitions and allocation rules not yet confirmed."""
-
-    status_code = 422
-    code = "cost_state_policy_pending"
-
-
 def _error_response(
     *, status_code: int, code: str, message: str, details: Any | None = None
 ) -> JSONResponse:

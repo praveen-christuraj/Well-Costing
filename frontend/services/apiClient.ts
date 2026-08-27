@@ -16,7 +16,7 @@ function isApiError(value: unknown): value is ApiError {
 
 /** FastAPI validation errors are returned as { detail: [...] }, while our
  * application errors use { error: ... }. Keep the field-level reason visible
- * to the form instead of reducing every bad AFE payload to "network error". */
+ * to the form instead of reducing every bad payload to "network error". */
 function validationErrorBody(value: unknown): ApiErrorBody | null {
   if (typeof value !== 'object' || value === null || !('detail' in value)) return null
   const detail = (value as { detail?: unknown }).detail

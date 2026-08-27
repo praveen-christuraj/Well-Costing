@@ -2,6 +2,65 @@
 
 All notable project changes are documented here.
 
+## 2026-08-27 — Restructure to an authenticated empty shell
+
+### Removed
+
+- **Every business module.** Master Data catalogues (primary/secondary/tertiary
+  categories, activities, cost codes, cost categories, units, vendors,
+  materials, services, tangibles, currencies, hole sections, drilling phases,
+  item prices, rate revisions, purchase orders, service orders), AFE, AFE Cost
+  Estimates, Daily Cost, Well Activities, Cost Analytics, Cost Control, Reports,
+  Assurance, Audit Log, Administration › Dropdown Sources and Help are gone —
+  pages, components, composables, services, stores, types and utilities.
+- **Backend modules.** The `afe`, `afe_estimates`, `afe_snapshots`, `assurance`,
+  `audit`, `calculations`, `cost_control`, `daily_cost`, `enterprise_config`,
+  `estimates`, `imports`, `master_data`, `procurement`, `rates`, `reference`,
+  `reporting`, `well_activities`, `well_costing` and `workflow` routes, with
+  their services, repositories, models and Pydantic schemas. The whole
+  `app/domain/` costing package and the `app/integrations/excel/` import/export
+  boundary are deleted, along with the `openpyxl` and `xlrd` dependencies.
+- **Database tables.** Every table outside `users`, `roles` and `user_roles` —
+  projects, wells, AFEs and AFE lines/sections/snapshots/audit logs, estimates
+  and versions, daily cost entries and lines, cost control staging and
+  transactions, the classification hierarchy, well activities, the catalogue and
+  its rates/revisions, procurement orders, enterprise configuration, workflow
+  profiles, reporting mappings and export attempts, import tracking, and the
+  global audit log.
+- **Module tests, documentation and fixtures.** Excel sample workbooks and
+  scenario data (`test_data/`), the phase reports, business-rule registers,
+  database/module specs, and the reporting contract.
+- Login no longer writes an audit-log row; the audit module it called is gone.
+
+### Changed
+
+- **Breaking — database.** The Alembic history was reset. The 28 revisions that
+  built the removed modules are replaced by a single baseline,
+  `20260827_0001_create_auth_tables`. A database that already carries the old
+  tables cannot be upgraded onto it: drop and recreate the schema (or provision
+  a fresh database) and run `alembic upgrade head`.
+- `CRITICAL_SCHEMA` in `app/db/schema.py` now covers only `users`, `roles` and
+  `user_roles`. A rebuilt module must register its tables there or schema drift
+  goes unreported by `/health`.
+- The API surface is `GET /live`, `GET /health`, `GET /ready`,
+  `POST /auth/login`, `GET /auth/me`. Nothing else is routed.
+- Business-rule exception types (`business_rule_pending`,
+  `workflow_profile_pending`, `afe_policy_pending`, `cost_state_policy_pending`,
+  `business_validation_error`) were dropped from the error envelope.
+- The sidebar now lists Dashboard and Master Data only; the topbar's Help link
+  is gone. The dashboard reports API, database, schema and version state instead
+  of AFE and Daily Cost figures.
+- `echarts` is no longer a frontend dependency.
+- Docs reduced to shell-level architecture, database, API, deployment and
+  testing. ADR-005/006/007 are marked superseded by the new ADR-008.
+
+### Added
+
+- `pages/master-data/index.vue` — an intentionally empty Master Data stub that
+  the rebuilt catalogues hang off.
+- ADR-008 recording the restructure decision and what a rebuilt module must
+  provide.
+
 ## 2026-08-26 — Submitted AFE pricing and scope-only consumables
 
 ### Changed

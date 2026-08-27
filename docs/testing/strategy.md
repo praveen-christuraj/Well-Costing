@@ -2,27 +2,37 @@
 
 ## Test pyramid
 
-### Domain unit tests
+### Unit tests
 
-Pure Python tests verify every costing rule without FastAPI, SQLAlchemy, Pydantic, or a database. Phase 1 uses an import-boundary test and confirms every unknown rule fails with the mandated `NotImplementedError`.
+Pure Python tests verify configuration, security, and URL-escaping rules
+without FastAPI, SQLAlchemy, Pydantic, or a database.
+
+When a business module returns, its calculation rules belong in a
+framework-free domain package covered by unit tests, plus an AST-based
+import-boundary test that rejects FastAPI, SQLAlchemy, or Pydantic imports
+inside it.
 
 ### Repository/service tests
 
-Later phases test persistence queries and application workflows separately. Transactional import and calculation workflows receive integration coverage.
+Persistence queries and application workflows are tested separately from HTTP.
+Transactional workflows receive integration coverage.
 
 ### API integration tests
 
-FastAPI `TestClient` tests verify the HTTP contract, authentication, normalized errors, dependencies, and database interactions.
+FastAPI `TestClient` tests verify the HTTP contract, authentication, normalized
+errors, dependencies, database interactions, and schema-drift reporting.
 
 ### Frontend unit/component tests
 
-Vitest and Vue Test Utils cover composables, reusable design-system components, bulk-grid behavior, and workflow state stores.
+Vitest and Vue Test Utils cover composables, reusable design-system components,
+navigation, and the application shell.
 
 ### End-to-end tests
 
-Playwright covers high-value user journeys. Phase 1 includes a smoke test that loads the shell and verifies locked roadmap modules.
+Playwright covers high-value user journeys. Today that is the smoke test that
+loads the shell and verifies a signed-out visitor is redirected to sign-in.
 
-## Phase 1 commands
+## Commands
 
 Backend:
 
@@ -44,21 +54,27 @@ npm run test:e2e
 
 ## Database coverage
 
-- CI uses PostgreSQL 16 for migrations and the configured database connection test.
+- CI uses PostgreSQL 16 for migrations and the configured database connection
+  test.
 - In-memory SQLite is allowed only for fast isolated fixture tests.
-- Features relying on PostgreSQL-specific behavior require PostgreSQL integration tests.
+- Features relying on PostgreSQL-specific behavior require PostgreSQL
+  integration tests.
 
 ## Golden regression discipline
 
-`test_data/scenarios/scenario-NNN/` will eventually contain:
+Numeric modules need certified scenarios before they ship. Reintroduce
+`test_data/scenarios/scenario-NNN/` with:
 
 - `description.md`
 - `input.json`
 - `expected_output.json`
 - source/approval metadata
 
-Later phases extend the same scenarios through AFE, build, estimate, AFE, actual, forecast, and dashboard outputs. Numeric changes require an explicit approved business-rule change and changelog entry.
+A numeric change then requires an explicit approved business-rule change and a
+changelog entry.
 
 ## CI gates
 
-A pull request cannot pass when linting, static typing, migrations, unit/integration tests, build, or smoke E2E fails. Coverage is reported for the backend with a Phase 1 minimum of 75%.
+A pull request cannot pass when linting, static typing, migrations,
+unit/integration tests, build, or smoke E2E fails. Coverage is reported for the
+backend with a minimum of 75%.

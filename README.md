@@ -1,32 +1,50 @@
 # Drilling Costing
 
-A modular-monolith web application replacing an interlinked Excel drilling-cost workflow while retaining bulk grid editing and Excel round trips.
+A modular-monolith web application for drilling cost management.
 
 ## Current delivery status
 
-**Active well-costing workflow.** The released application now follows one source chain: Master Data → AFE → AFE Cost Estimates → Daily Cost and Well Activities. Cost Analytics, Cost Control and Reports read this chain directly; retired Cost Builder versions, snapshots and financial staging batches are not connected to user-facing pages.
+**Restructured to an empty foundation.** Every business module has been removed
+— Master Data catalogues, AFE, AFE Cost Estimates, Daily Cost, Well Activities,
+Cost Analytics, Cost Control, Reports, Assurance, Audit Log, Administration and
+Help — together with their pages, API routes, services, models, and database
+tables.
 
-AFE lines use the Primary → Secondary classification configured in Master Data. AFE Cost Estimates show those exact user-defined values, while the selected rate basis controls calculation behaviour. Report and Audit Log results can be printed and exported.
+What is left is the shell the modules will be rebuilt inside:
 
-A free online UAT deployment path is now prepared for **Vercel Nuxt + Render FastAPI + Neon PostgreSQL 16**. It has not yet been provisioned in provider accounts. See the [free UAT deployment runbook](docs/deployment/free-uat-vercel-render-neon.md), including cold-start, quota, data-recovery, and Vercel Hobby eligibility limitations.
+- Authentication (sign-in, JWT bearer tokens, `users`/`roles`/`user_roles`)
+- The PrimeVue application shell: grouped sidebar, topbar, dark mode, theme
+  configurator
+- A **Dashboard** that reports API, database, and migration state
+- An intentionally **empty Master Data** page at `/master-data`
+
+The Alembic history was reset to a single baseline revision
+(`20260827_0001_create_auth_tables`). **An existing database cannot be migrated
+onto this baseline** — see [Database migrations](#database-migrations).
+
+The rationale and the expectations for a rebuilt module are recorded in
+[ADR-008](docs/architecture/decisions.md#adr-008--restructure-to-an-authenticated-empty-shell).
 
 ## Architecture
 
 ```text
 Nuxt 3 / Vue 3 frontend
-          | REST/JSON
+          | REST/JSON (relative /api/v1 proxy)
 FastAPI routes (thin)
           |
 Application services
-          |
-Pure Python domain (no framework imports)
           |
 SQLAlchemy repositories
           |
 PostgreSQL 16
 ```
 
-See [`docs/architecture/overview.md`](docs/architecture/overview.md) and the [industry-reference workflow](docs/architecture/industry-reference-workflow.md).
+See [`docs/architecture/overview.md`](docs/architecture/overview.md).
+
+The domain layer (`backend/app/domain/`) was removed with the costing rules. A
+rebuilt module should reintroduce it as a framework-free package with an
+AST-based import-boundary test rather than growing calculation logic inside
+services.
 
 ## Prerequisites — Windows, no Docker
 
@@ -109,7 +127,9 @@ Expected healthy response:
   "status": "healthy",
   "database": "connected",
   "environment": "development",
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "schema_status": "current",
+  "schema_message": null
 }
 ```
 
@@ -130,49 +150,16 @@ Open http://localhost:3000 and sign in with the local user you seeded. Nuxt call
 The application opens on the **Dashboard**. `frontend/utils/navigation.ts` is the
 single source of truth for which top-level modules are released; the sidebar, the
 `/` landing route, and the post-login redirect all read from it, so nothing can
-route users to a page that is not enabled yet.
+route users to a page that is not enabled yet. Today that list is Dashboard and
+Master Data.
 
 The shell follows the [PrimeVue Sakai](https://github.com/primefaces/sakai-vue)
 layout: a grouped sidebar, a topbar with a light/dark switch, and a theme
 configurator (preset, primary colour, surface palette, static or overlay menu)
 whose choice is remembered between sessions.
 
-**AFE** (`/afe`) is where a well's cost scope is entered — projects, wells, the AFE
-itself, and every AFE line on one page. A line records its Primary/Secondary
-classification, cost code, type, rate basis, and optional section; it does **not**
-ask for a planned quantity, UOM, or consumable usage/day. Consumables are scoped
-as per-unit lines, then their actual quantity and UOM are entered in **Daily
-Cost**. After the scope is submitted, **AFE Cost Estimates** is the only page that
-sets each line's estimated rate. See the [AFE data model](docs/database/afe.md)
-and the [Phase 3 API](docs/api/phase-3.md).
-
-**Master Data** (`/master-data/primary-categories`) maintains the raw reference data
-the AFE is built from. One classification — **Primary → Secondary → Tertiary
-Categories** — files everything: a catalogue item's category is its Secondary
-Category and its sub category its Tertiary Category, and a cost category takes
-its parent and second level from the same hierarchy. The register also holds
-vendors classified as third-party or in-house, service and purchase orders (kept
-purely for reference, never required to link to a service or an item), the
-catalogue items themselves — services, tangibles, mud chemicals, cement
-additives — and effective-dated tangible rates with a full revision log.
-Deleting a tangible removes its rate revisions with it, after a prompt that
-states exactly how many records will go. Services
-carry no master rate: they are priced per well in the well rate book, so a
-central revision never moves a well that is already drilling — see
-[well-scoped rate governance](docs/architecture/well-rate-governance.md). Every page has
-server-side pagination, filters, Excel-style bulk entry, clipboard paste, per-row
-edit and delete actions, an **Export** button that downloads the entity as an Excel
-workbook (re-importable unchanged), and a **Print** button that renders the loaded
-rows as a clean printable sheet. See
-[AFE reference data](docs/master-data/afe-reference-data.md).
-
-Which master-data section feeds which dropdown is itself configurable. Every
-picker in the application resolves through a registry of named slots and
-permitted sources, and a super administrator repoints them under
-**Administration › Dropdown Sources** — see the
-[dropdown source registry](docs/master-data/dropdown-source-registry.md).
-
-Master Data supports spreadsheet-style multi-row editing, bulk changes, clipboard paste, validated workbook imports, exports and printable registers. AFE Cost Estimates price the configured AFE scope, Daily Cost records actuals, and Reports generates AFE Register, AFE Cost Estimate Detail, Daily Cost, Cost Performance and Well Activity accountability workbooks.
+**Master Data** (`/master-data`) is an empty stub. It is the anchor the rebuilt
+catalogues hang off; it holds no grid, no service, and no table.
 
 ## Database migrations
 
@@ -186,6 +173,16 @@ alembic upgrade head
 ```
 
 Never modify an applied migration. Add a new revision for subsequent changes.
+
+**Reset baseline.** The 28 revisions that built the removed modules were deleted
+and replaced by `20260827_0001_create_auth_tables`. A database that already
+carries the old tables cannot be upgraded onto this baseline. Drop and recreate
+the schema (or provision a new database/branch) and then run
+`alembic upgrade head`.
+
+New tables must also be registered in `CRITICAL_SCHEMA` in
+`backend/app/db/schema.py`; that mapping is what `/health` compares against the
+live database to report `schema_outdated`.
 
 ## Backend quality commands
 
@@ -222,7 +219,7 @@ The repository contains provider configuration for one private GitHub monorepo:
 
 Follow [`docs/deployment/free-uat-vercel-render-neon.md`](docs/deployment/free-uat-vercel-render-neon.md). Free services have cold starts, quotas, limited recovery, and no production SLA. Vercel Hobby eligibility must be confirmed because its free plan is restricted to personal, non-commercial use.
 
-## Authentication scaffolding
+## Authentication
 
 The authentication foundation provides:
 
@@ -232,7 +229,9 @@ The authentication foundation provides:
 - Signed, expiring JWT access tokens
 - Minimal `users`, `roles`, and `user_roles` tables
 
-A production login page, refresh-token strategy, complete role/permission matrix, password policy, and rate limiting are deferred to their approved phases.
+A refresh-token strategy, complete role/permission matrix, password policy, and rate limiting are deferred.
+
+Login no longer writes an audit-log row — the audit module was removed with the restructure. Re-add audit logging when that module returns.
 
 No default administrator password or seeded production credential is committed.
 
@@ -273,9 +272,10 @@ To let a Supabase user administer the application, assign the `admin` role to th
 | `MIGRATION_DATABASE_URL` | Optional direct PostgreSQL URL for Alembic; recommended when runtime uses a pooler |
 | `SECRET_KEY` | JWT signing secret, minimum 32 characters; development default is rejected in hosted environments |
 | `CORS_ORIGINS` | JSON list of allowed browser origins |
-| `LOG_LEVEL` | Application/audit logger level |
+| `LOG_LEVEL` | Application logger level |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Access-token lifetime |
 | `API_V1_PREFIX` | Versioned API prefix |
+| `AUTO_MIGRATE` | `development`/`termux` only: apply pending migrations on startup |
 | `SUPABASE_URL` | Optional Supabase project URL; enables Supabase Auth sign-in when set with an API key |
 | `SUPABASE_ANON_KEY` | Optional Supabase anon/public key used for password sign-in |
 | `SUPABASE_SERVICE_ROLE_KEY` | Optional service-role key; used for sign-in when the anon key is absent |
@@ -289,25 +289,24 @@ To let a Supabase user administer the application, assign the `admin` role to th
 frontend/                 Nuxt/Vue application
 backend/app/api/          Thin FastAPI routes and dependencies
 backend/app/services/     Workflow orchestration
-backend/app/domain/       Framework-independent costing code
 backend/app/repositories/ SQLAlchemy data access
 backend/app/models/       Persistence models
-backend/app/integrations/ Excel and external-system boundaries
+backend/app/integrations/ External-system boundaries (Supabase Auth)
 backend/tests/            Unit and integration tests
 database/                 Database scripts/documentation placeholders
-docs/                     Architecture, database, Excel, rules, testing
- test_data/                Future anonymized files and golden scenarios
+docs/                     Architecture, database, API, deployment, testing
 ```
 
-## Business-rule safety
+## Contribution rules
 
-The Phase 5 calculation boundary raises:
-
-```text
-NotImplementedError: Business rule to be confirmed during Excel/business-rule discovery.
-```
-
-Calculation, workflow, AFE, and cost-state posting boundaries audit blocked attempts and return `business_rule_pending`, `workflow_profile_pending`, `afe_policy_pending`, and `cost_state_policy_pending`. Do not replace these boundaries until they have authoritative sources and certified regression expectations. See the pending-policy registers under `docs/rules/`.
+- Keep routes thin and calculations out of Vue components.
+- Use application services for transactions/workflows.
+- A rebuilt domain package must stay free of FastAPI, SQLAlchemy, and Pydantic.
+- Design all high-volume entry features bulk-first.
+- Add audit fields to every future financial/cost table, and register its tables
+  in `CRITICAL_SCHEMA`.
+- Never commit secrets, source business workbooks, or non-anonymized data.
+- Run all quality commands before opening a pull request.
 
 ## Troubleshooting
 
@@ -317,6 +316,12 @@ Calculation, workflow, AFE, and cost-state posting boundaries audit blocked atte
 2. Verify `DATABASE_URL` in `backend/.env`.
 3. Test the same credentials with `psql`.
 4. Run `alembic upgrade head`.
+
+### Health shows `database: schema_outdated`
+
+The live database is reachable but missing a table or column the code expects.
+Run `cd backend && alembic upgrade head` (the local dev servers do this on
+startup) and reload.
 
 ### Frontend cannot reach the API
 
@@ -332,13 +337,3 @@ For the current terminal only:
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
-
-## Contribution rules
-
-- Keep routes thin and calculations out of Vue components.
-- Use application services for transactions/workflows.
-- Keep `app/domain/` free from FastAPI, SQLAlchemy, and Pydantic.
-- Design all high-volume entry features bulk-first.
-- Add audit fields to every future financial/cost table.
-- Never commit secrets, source business workbooks, or non-anonymized data.
-- Run all quality commands before opening a pull request.

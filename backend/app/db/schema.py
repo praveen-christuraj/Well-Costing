@@ -36,54 +36,12 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]  # app/db/schema.py -> backend
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
 ALEMBIC_SCRIPTS = BACKEND_DIR / "alembic"
 
-# The active source chain. If any table/column is missing, planning, Daily
-# Cost, Cost Control and reporting cannot remain traceable.
+# The authentication foundation. If any of these tables/columns is missing,
+# sign-in cannot resolve a user and the API cannot authorise a request.
 CRITICAL_SCHEMA: dict[str, tuple[str, ...]] = {
-    "projects": ("code", "name", "is_active"),
-    "wells": ("code", "name", "status", "rates_locked_at", "rate_lock_reference"),
-    "afes": (
-        "well_id",
-        "code",
-        "title",
-        "status",
-        "revision_number",
-        "budget_amount",
-        "total_planned_days",
-        "total_planned_depth",
-        "depth_unit_id",
-        "reopen_remarks",
-        "reopened_at",
-        "reopened_by",
-        "deleted_at",
-        "deleted_by",
-        "is_active",
-    ),
-    "afe_lines": (
-        "afe_id",
-        "line_number",
-        "catalog_item_id",
-        "secondary_category_id",
-        "cost_code_id",
-        "unit_id",
-        "hole_section_id",
-        "rate_basis",
-        "daily_consumption",
-        "computed_quantity",
-        "quantity_override_reason",
-    ),
-    "afe_sections": ("afe_id", "sequence", "hole_section_id", "phase"),
-    "afe_audit_logs": ("afe_id", "action", "new_status", "created_at", "updated_at"),
-    "audit_logs": ("actor_id", "action", "entity_type", "created_at"),
-    "drilling_phases": ("code", "name", "sequence"),
-    "daily_cost_entries": ("well_id", "afe_id", "entry_date", "cumulative_cost", "sub_activity_id"),
-    "daily_cost_service_lines": ("daily_cost_entry_id", "afe_line_id", "amount"),
-    "daily_cost_consumable_lines": ("daily_cost_entry_id", "afe_line_id", "amount"),
-    "primary_categories": ("code", "name", "is_active"),
-    "secondary_categories": ("code", "name", "primary_category_id", "is_active"),
-    "tertiary_categories": ("code", "name", "secondary_category_id", "is_active"),
-    "activities": ("code", "name", "sequence", "is_active"),
-    "well_activities": ("well_id", "activity_id", "name", "is_active"),
-    "afe_cost_estimate_lines": ("afe_id", "afe_line_id", "unit_rate", "is_active"),
+    "users": ("email", "hashed_password", "auth_provider", "full_name", "is_active"),
+    "roles": ("name", "is_active"),
+    "user_roles": ("user_id", "role_id"),
 }
 
 REMEDIATION = (

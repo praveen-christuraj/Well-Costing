@@ -47,9 +47,6 @@ async function handleLogout(): Promise<void> {
     </div>
 
     <div class="layout-topbar-actions">
-      <NuxtLink to="/help" class="layout-topbar-action" aria-label="Help and user manual">
-        <i class="pi pi-question-circle" aria-hidden="true" />
-      </NuxtLink>
       <button
         type="button"
         class="layout-topbar-action"

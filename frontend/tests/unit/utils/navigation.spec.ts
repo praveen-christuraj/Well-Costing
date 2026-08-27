@@ -3,21 +3,7 @@ import { appNavigation, defaultLandingRoute, enabledNavigation, navigationGroups
 describe('application navigation', () => {
   it('only exposes modules that are enabled', () => {
     expect(enabledNavigation.every(item => item.enabled)).toBe(true)
-    expect(enabledNavigation.map(item => item.key)).toEqual([
-      'dashboard',
-      'master-data',
-      'afe',
-      'afe-cost-estimates',
-      'daily-cost',
-      'well-activities',
-      'cost-analytics',
-      'cost-control',
-      'reports',
-      'assurance',
-      'audit',
-      'dropdown-sources',
-      'help',
-    ])
+    expect(enabledNavigation.map(item => item.key)).toEqual(['dashboard', 'master-data'])
   })
 
   it('keeps every module reachable: no module is hidden or disabled', () => {
@@ -25,9 +11,20 @@ describe('application navigation', () => {
     expect(enabledNavigation.length).toBe(appNavigation.length)
   })
 
-  it('no longer offers a separate well-requirement module', () => {
-    expect(appNavigation.some(item => item.to.startsWith('/requirements'))).toBe(false)
-    expect(appNavigation.find(item => item.key === 'afe')?.to).toBe('/afe')
+  it('offers no removed business module', () => {
+    const removedPrefixes = [
+      '/afe',
+      '/afe-cost-estimates',
+      '/daily-cost',
+      '/cost-control',
+      '/reports',
+      '/assurance',
+      '/audit',
+      '/administration',
+      '/help',
+    ]
+    expect(appNavigation.filter(item => removedPrefixes.some(prefix => item.to.startsWith(prefix))))
+      .toEqual([])
   })
 
   it('lands on the dashboard after sign-in', () => {

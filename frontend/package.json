@@ -22,7 +22,6 @@
     "@pinia/nuxt": "^0.11.2",
     "@primeuix/themes": "^1.2.3",
     "@primevue/nuxt-module": "^4.3.7",
-    "echarts": "^6.1.0",
     "h3": "^1.15.11",
     "nuxt": "^3.17.7",
     "ofetch": "^1.4.1",

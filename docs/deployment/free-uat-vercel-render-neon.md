@@ -4,7 +4,7 @@
 
 This is a zero-cost **testing topology**, not production authorization. It provides an online URL for remote testers while preserving the current Nuxt SSR, persistent FastAPI, Alembic, and PostgreSQL architecture.
 
-No authoritative financial formulas, workflow publication, AFE policy, posting policy, or reporting metric policy is activated by deployment. Use synthetic data only.
+The deployed build contains authentication and the application shell only — every business module was removed in the restructure. Use synthetic data only.
 
 ## Selected topology
 
@@ -175,10 +175,10 @@ Then verify:
 1. Initial cold request eventually succeeds.
 2. UAT administrator can sign in.
 3. An unauthenticated protected request returns 401.
-4. Enterprise Setup loads.
-5. One synthetic node type can be created and read back.
-6. Actor and timestamps are present.
-7. Pending formula/workflow/AFE/posting boundaries remain blocked.
+4. The dashboard loads and reports a connected database.
+5. `/api/v1/health` reports `"schema_status": "current"`.
+6. The Master Data stub renders its empty state.
+7. No route outside `/live`, `/health`, `/ready`, and `/auth/*` is served.
 
 ## Database releases and recovery
 
