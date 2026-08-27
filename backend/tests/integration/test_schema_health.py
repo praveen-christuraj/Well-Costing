@@ -20,7 +20,7 @@ from tests.conftest import TEST_PASSWORD
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 AUTH_JSON = {"email": "engineer@example.com", "password": TEST_PASSWORD}
-BASELINE_REVISION = "20260827_0001"
+BASELINE_REVISION = "20260827_0002"
 
 
 @pytest.fixture
@@ -214,6 +214,4 @@ def test_migrations_round_trip_on_sqlite(tmp_path: Path) -> None:
     engine.dispose()
 
     assert version == BASELINE_REVISION
-    assert {"users", "roles", "user_roles", "alembic_version"} <= tables
-    # No business tables survive the restructure.
-    assert not {table for table in tables if table.startswith(("afe", "daily_cost", "cost_"))}
+    assert {"users", "roles", "user_roles", "uom", "currencies", "phases", "activities", "hole_sections", "audit_logs", "alembic_version"} <= tables

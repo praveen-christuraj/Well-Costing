@@ -1,11 +1,5 @@
 /**
  * Single source of truth for the application's navigation.
- *
- * The sidebar renders these groups in order. `appNavigation` keeps the flat
- * list of top-level modules that other code (and the tests) rely on.
- *
- * The application was restructured down to its shell: authentication plus a
- * Master Data stub. Add modules back here as they are rebuilt.
  */
 export interface AppNavigationItem {
   key: string
@@ -24,6 +18,7 @@ export interface AppNavigationGroup {
 export const appNavigation: AppNavigationItem[] = [
   { key: 'dashboard', label: 'Dashboard', icon: 'pi pi-home', to: '/dashboard', enabled: true },
   { key: 'master-data', label: 'Master Data', icon: 'pi pi-book', to: '/master-data', enabled: true },
+  { key: 'audit-logs', label: 'Audit Log', icon: 'pi pi-history', to: '/audit-logs', enabled: true },
 ]
 
 /** Modules the user can actually open today. */
@@ -31,7 +26,7 @@ export const enabledNavigation: AppNavigationItem[] = appNavigation.filter(item 
 
 const GROUPS: { key: string, label: string, keys: string[] }[] = [
   { key: 'home', label: 'Home', keys: ['dashboard'] },
-  { key: 'foundation', label: 'Master Data', keys: ['master-data'] },
+  { key: 'foundation', label: 'Master Data & Auditing', keys: ['master-data', 'audit-logs'] },
 ]
 
 /** Sidebar model: the enabled modules arranged into labelled groups. */
