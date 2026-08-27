@@ -14,6 +14,12 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from app.db.migration_ops import (
+    create_index_if_missing,
+    create_table_if_missing,
+    drop_index_if_present,
+    drop_table_if_present,
+)
 
 revision: str = "20260827_0001"
 down_revision: str | None = None
@@ -22,7 +28,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.create_table(
+    create_table_if_missing(
         "users",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("email", sa.String(length=320), nullable=False),
@@ -54,9 +60,9 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_users")),
     )
-    op.create_index(op.f("ix_users_email"), "users", ["email"], unique=True)
+    create_index_if_missing(op.f("ix_users_email"), "users", ["email"], unique=True)
 
-    op.create_table(
+    create_table_if_missing(
         "roles",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("name", sa.String(length=100), nullable=False),
@@ -76,9 +82,9 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_roles")),
     )
-    op.create_index(op.f("ix_roles_name"), "roles", ["name"], unique=True)
+    create_index_if_missing(op.f("ix_roles_name"), "roles", ["name"], unique=True)
 
-    op.create_table(
+    create_table_if_missing(
         "user_roles",
         sa.Column("user_id", sa.Uuid(), nullable=False),
         sa.Column("role_id", sa.Uuid(), nullable=False),
@@ -105,8 +111,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("user_roles")
-    op.drop_index(op.f("ix_roles_name"), table_name="roles")
-    op.drop_table("roles")
-    op.drop_index(op.f("ix_users_email"), table_name="users")
-    op.drop_table("users")
+    drop_table_if_present("user_roles")
+    drop_index_if_present(op.f("ix_roles_name"), "roles")
+    drop_table_if_present("roles")
+    drop_index_if_present(op.f("ix_users_email"), "users")
+    drop_table_if_present("users")
