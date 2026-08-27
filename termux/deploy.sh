@@ -106,6 +106,20 @@ update_code() {
     # Clear built output so it rebuilds with the new code.
     rm -rf .output
     ok "Node dependencies updated, .output cleared"
+
+    # Self-heal a missing backend/.env (recreate it) and re-prompt for the
+    # database if it still holds the placeholder. Without this, migrations
+    # would run against the built-in localhost:5432 default — and nothing on
+    # this phone listens there, so they would fail with 'connection refused'.
+    if [ ! -f "$BACKEND_ENV" ]; then
+        log "backend/.env is missing — recreating it..."
+        write_backend_env
+    fi
+    if ! prompt_for_database_url; then
+        warn "DATABASE_URL not set — skipping migrations."
+        warn "Edit backend/.env, then re-run: bash termux/deploy.sh"
+        exit 0
+    fi
 }
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────

@@ -268,27 +268,64 @@ lsof -i :8000 || ss -tlnp | grep 8000
 fuser -k 8000/tcp
 ```
 
-#### Problem: Database connection refused
+#### Problem: Database connection refused (`port 5432 ... Connection refused`)
 
-The Termux setup uses Supabase (cloud PostgreSQL) by default. If you don't have
-or want Supabase, comment out `DATABASE_URL` in `backend/.env` and the app will
-attempt to connect to the default value — but a local PostgreSQL is needed.
+```
+sqlalchemy.exc.OperationalError: (psycopg.OperationalError) connection failed:
+connection to server at "127.0.0.1", port 5432 failed: Connection refused
+```
+
+Nothing on the phone listens on port 5432: the Termux deployment never starts a
+local PostgreSQL server, and `backend/.env` either has no active `DATABASE_URL`
+line or points at `localhost`. With no URL configured, the backend falls back to
+its built-in default (`...@localhost:5432/drilling_costing`), which cannot work.
+
+The deploy/start/migrate scripts now preflight this and stop with instructions
+before printing a stack trace. To fix it, pick one of the options below, then
+re-run `bash termux/deploy.sh` (or `bash termux/migrate.sh`).
 
 **Option A: Use Supabase (recommended for Termux)**
 1. Create a free Supabase account.
 2. Go to Project Settings → Database → Connection string.
 3. Copy the "Transaction pooler" URI (port 6543).
-4. Update `DATABASE_URL` in `backend/.env`.
+4. Put it on the `DATABASE_URL=` line of `backend/.env` (replace the line — do
+   not comment it out; a commented-out line re-enables the broken default).
 
 **Option B: Local PostgreSQL on Termux**
+
+Termux's `postgresql` package and the Debian container share the phone's
+network, so a server started in Termux is reachable at `127.0.0.1:5432` from
+inside the container — use the **TCP** URL, not the Unix-socket URL (the
+socket directory is not visible inside the container):
+
 ```bash
 pkg install -y postgresql
 initdb ~/postgres-data
-pg_ctl -D ~/postgres-data -l ~/postgres-log start
-createdb drilling_costing
-# Update backend/.env:
-# DATABASE_URL=postgresql+psycopg:///drilling_costing
+pg_ctl -D ~/postgres-data -l ~/postgres.log start
+createuser --superuser drilling_costing
+createdb --owner=drilling_costing drilling_costing
 ```
+
+Then in `backend/.env`:
+
+```
+DATABASE_URL=postgresql+psycopg://drilling_costing@127.0.0.1:5432/drilling_costing
+```
+
+Note: PostgreSQL does not survive a phone reboot — run
+`pg_ctl -D ~/postgres-data -l ~/postgres.log start` again after restarting.
+
+**Option C: SQLite on this phone (fully offline, dev environment)**
+
+Re-run `bash termux/deploy.sh` and choose option 2, or set in `backend/.env`:
+
+```
+ENVIRONMENT=development
+DATABASE_URL=sqlite:////<absolute-path-to-repo>/data/drilling.db
+```
+
+`ENVIRONMENT` must be `development` for SQLite: the `termux` environment
+hard-requires PostgreSQL (see `backend/app/core/config.py`).
 
 #### Problem: Memory/RAM errors
 
