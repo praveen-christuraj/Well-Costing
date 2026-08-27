@@ -21,6 +21,14 @@ export interface GridColumn {
   placeholder?: string
   /** Options for `select` columns. */
   options?: GridSelectOption[] | ComputedRef<GridSelectOption[]>
+  /**
+   * Per-row options for `select` columns — used for dependent dropdowns
+   * (e.g. tangible subcategories filtered by the row's category). Takes
+   * precedence over `options` when provided.
+   */
+  optionsFor?: (row: Record<string, unknown>) => GridSelectOption[]
+  /** Called after a select cell changes (after the row is marked dirty). */
+  onCellChange?: (row: EditableGridRow) => void
   /** Exclude the column from the Excel paste order. */
   noPaste?: boolean
   /** Value seeded into newly added rows. */

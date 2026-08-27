@@ -363,28 +363,18 @@ const importHint = computed(() => {
   return 'Headers: code, name, symbol (if applicable), description. Flexible date parsing supported.'
 })
 
-const importTemplate = computed<{ filename: string, csv: string } | undefined>(() => {
-  if (activeTab.value === TAB_VENDORS) {
-    return {
-      filename: 'vendors_template.csv',
-      csv: 'vendor_code,vendor_name,contact,description\nVEND001,Acme Drilling Services,+1-555-0100,Primary drilling contractor\nVEND002,Baker Tools Inc,baker@example.com,Tool supplier\n',
-    }
-  }
-  if (activeTab.value === TAB_PO) {
-    return {
-      filename: 'purchase_orders_template.csv',
-      csv: 'po_type,vendor_code,po_so_number,effective_date,value,is_amendment,amendment_number,remarks\nPO,VEND001,PO-2024-001,2024-01-15,50000,No,,Initial purchase order\nSO,VEND002,SO-2024-002,15/01/2024,75000.50,No,,Service order for maintenance\nPO,VEND001,PO-2024-001,2024-02-01,55000,Yes,1,Amendment for additional work\n',
-    }
-  }
-  const mod = currentModule.value
-  if (!mod) return undefined
-  const headers = mod.symbolField
-    ? `${mod.codeField},${mod.nameField},${mod.symbolField},description\n`
-    : `${mod.codeField},${mod.nameField},description\n`
-  const sample = mod.symbolField
-    ? 'CODE1,Sample Name,SYM,Sample description\n'
-    : 'CODE1,Sample Name,Sample description\n'
-  return { filename: `${mod.key}_template.csv`, csv: headers + sample }
+// Backend-served XLSX templates: download, fill with data, upload the same
+// file. Every importable master-data module exposes an /import-template route.
+const importTemplateEndpoint = computed<string>(() => {
+  if (activeTab.value === TAB_VENDORS) return '/master-data/vendors/import-template'
+  if (activeTab.value === TAB_PO) return '/master-data/purchase-orders/import-template'
+  return `/master-data/${currentModule.value?.key ?? 'uom'}/import-template`
+})
+
+const importTemplateFilename = computed<string>(() => {
+  if (activeTab.value === TAB_VENDORS) return 'vendors_template.xlsx'
+  if (activeTab.value === TAB_PO) return 'purchase_orders_template.xlsx'
+  return `${(currentModule.value?.key ?? 'uom').replace(/-/g, '_')}_template.xlsx`
 })
 
 function exportCurrent(format: 'xlsx' | 'csv'): void {
@@ -800,7 +790,8 @@ onMounted(() => {
       :title="importTitle"
       :endpoint="importEndpoint"
       :hint="importHint"
-      :template="importTemplate"
+      :template-endpoint="importTemplateEndpoint"
+      :template-filename="importTemplateFilename"
       @committed="activeGrid?.reload()"
     />
 

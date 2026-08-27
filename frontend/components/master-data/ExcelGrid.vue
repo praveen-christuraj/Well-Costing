@@ -181,6 +181,16 @@ function cellOptions(col: GridColumn): GridSelectOption[] {
   return Array.isArray(opts) ? opts : (opts?.value ?? [])
 }
 
+/** Select options for one row — dependent dropdowns narrow them per row. */
+function rowCellOptions(col: GridColumn, row: EditableGridRow): GridSelectOption[] {
+  return col.optionsFor ? col.optionsFor(row) : cellOptions(col)
+}
+
+function handleSelectChange(row: EditableGridRow, col: GridColumn): void {
+  markDirty(row)
+  col.onCellChange?.(row)
+}
+
 function displayValue(row: EditableGridRow, col: GridColumn): string {
   if (col.compute) return col.compute(row) || ''
   if (col.type === 'slot') {
@@ -190,7 +200,7 @@ function displayValue(row: EditableGridRow, col: GridColumn): string {
   const value = row[col.field]
   if (col.type === 'checkbox') return value ? 'Yes' : 'No'
   if (col.type === 'select') {
-    const match = cellOptions(col).find(option => option.value === value)
+    const match = rowCellOptions(col, row).find(option => option.value === value)
     return match ? match.label : value == null ? '' : String(value)
   }
   if (value == null || value === '') return ''
@@ -604,17 +614,17 @@ defineExpose({
           <div v-else-if="col.type === 'select'" class="cell" :data-cell="cellId(data, col)">
             <Select
               v-model="data[col.field]"
-              :options="cellOptions(col)"
+              :options="rowCellOptions(col, data)"
               option-label="label"
               option-value="value"
               :placeholder="col.placeholder ?? 'Select…'"
-              :filter="cellOptions(col).length > 8"
+              :filter="rowCellOptions(col, data).length > 8"
               show-clear
               fluid
               size="small"
               class="cell-select"
               :class="{ 'cell-invalid': invalidCell(data, col) }"
-              @change="markDirty(data)"
+              @change="handleSelectChange(data, col)"
             />
           </div>
           <div v-else-if="col.type === 'checkbox'" class="cell cell-center" :data-cell="cellId(data, col)">

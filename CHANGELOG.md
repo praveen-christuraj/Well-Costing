@@ -2,6 +2,37 @@
 
 All notable project changes are documented here.
 
+## 2026-08-27 — Working Import buttons with fill-and-upload templates; category-dependent tangible subcategories
+
+### Fixed
+
+- The **Import** button on every Master Data / Services / Consumables /
+  Tangibles tab opened nothing: the shared import dialog bound PrimeVue's
+  `Dialog` with `v-model`, but the component toggles visibility through
+  `visible` (`v-model:visible`). The dialog now opens on every tab.
+- The manage-dialog **Bulk Add** for dropdown lists called a path the API did
+  not register (`/configs/{type}/bulk`); the route now exists and accepts the
+  dialog's payload.
+
+### Added
+
+- **Download → fill → upload import loop.** Every importable module (UOM,
+  Currencies, Phases, Activities, Hole Sections, Vendors, PO/SO, Services,
+  Mud Chemicals, Drill Bits, Tangibles) serves a styled XLSX template from
+  `/import-template`: header row matching the parser, in-cell dropdowns for
+  enum columns (scope, category, provider type, UOM, currency, vendor code,
+  PO type, Yes/No), and an Instructions sheet with example rows. The Import
+  dialog gained numbered steps, drag & drop, extension/15 MB validation and an
+  "import another file" reset — an untouched template imports zero rows.
+- **Tangible subcategories depend on categories.** `catalogue_configs` gains
+  `parent_value` (migration `20260827_0006`); the Subcategories manage dialog
+  requires picking the category first, lists/adds values per category, allows
+  the same name under different categories, and can move legacy unassigned
+  values under a category. In the Tangibles grid the Subcategory dropdown
+  only offers values configured under the row's Category (changing the
+  category clears an invalid subcategory), and the API rejects or re-validates
+  mismatched pairs on create, update and bulk import.
+
 ## 2026-08-27 — Currency backfill fits VARCHAR(10) on UUID primary keys
 
 `alembic upgrade head` aborted on Termux with

@@ -14,6 +14,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -36,12 +37,20 @@ class CatalogueConfig(Base, TimestampMixin, AuditMixin, MasterDataSoftDeleteMixi
 
     __tablename__ = "catalogue_configs"
     __table_args__ = (
-        UniqueConstraint("config_type", "value", name="uq_catalogue_configs_type_value"),
+        UniqueConstraint(
+            "config_type", "parent_value", "value",
+            name="uq_catalogue_configs_type_parent_value",
+        ),
+        Index("ix_catalogue_configs_type_parent", "config_type", "parent_value"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     config_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     value: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Parent value for dependent dropdowns (e.g. a tangible subcategory stores
+    # the category it belongs to). NULL for top-level config types and for
+    # legacy values created before the dependency existed.
+    parent_value: Mapped[str | None] = mapped_column(String(200), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     system_seeded: Mapped[bool] = mapped_column(

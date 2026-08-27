@@ -178,6 +178,107 @@ def row_get(row: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def template_xlsx_response(
+    filename: str,
+    headers: list[str],
+    sample_rows: list[list[Any]] | None = None,
+    dropdowns: dict[int, list[str]] | None = None,
+    note: str | None = None,
+) -> Any:
+    """Build a ready-to-fill XLSX import template.
+
+    The 'Import' sheet mirrors the upload parser exactly (same header names,
+    nothing else), so the user can download it, fill it with data and upload
+    the very same file — an untouched template simply imports zero rows.
+    Header cells are styled, the header row is frozen, columns are sized and
+    enum columns get in-cell dropdown validation where practical. Example rows
+    and guidance live on a separate 'Instructions' sheet so they can never be
+    mistaken for data by the parser.
+    """
+
+    from fastapi import Response
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Import"
+    ws.append(headers)
+
+    header_fill = PatternFill(start_color="0F766E", end_color="0F766E", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    thin = Side(style="thin", color="94A3B8")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    for col_idx in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(vertical="center", wrap_text=True)
+        cell.border = border
+        ws.column_dimensions[get_column_letter(col_idx)].width = max(14, min(34, len(headers[col_idx - 1]) + 8))
+    ws.row_dimensions[1].height = 24
+    ws.freeze_panes = "A2"
+
+    # Guidance + examples live on a separate sheet so a filled template can be
+    # uploaded as-is without the parser treating anything as extra data rows.
+    guide = wb.create_sheet("Instructions")
+    guide.column_dimensions["A"].width = 110
+    title_cell = guide.cell(row=1, column=1, value="How to use this template")
+    title_cell.font = Font(bold=True, size=12, color="0F766E")
+    lines = [
+        "1. Fill the 'Import' sheet with your data — one record per row, starting at row 2.",
+        "2. Keep the header row exactly as it is; the import matches columns by header name.",
+        "3. Upload this same file from the Import dialog on the page.",
+    ]
+    if note:
+        lines += ["", f"Note: {note}"]
+    for offset, line in enumerate(lines, start=3):
+        cell = guide.cell(row=offset, column=1, value=line)
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+        cell.font = Font(color="334155", size=10)
+    if sample_rows:
+        example_title = guide.cell(row=len(lines) + 5, column=1, value="Example rows (for reference — do not paste into the Import sheet unchanged)")
+        example_title.font = Font(bold=True, size=11, color="0F766E")
+        start_row = len(lines) + 6
+        example_header_fill = PatternFill(start_color="E2E8F0", end_color="E2E8F0", fill_type="solid")
+        for col_idx, header in enumerate(headers, start=1):
+            cell = guide.cell(row=start_row + 1, column=col_idx, value=header)
+            cell.font = Font(bold=True, size=10)
+            cell.fill = example_header_fill
+            guide.column_dimensions[get_column_letter(col_idx)].width = max(
+                guide.column_dimensions[get_column_letter(col_idx)].width or 0,
+                min(30, len(header) + 6),
+            )
+        for row_offset, row in enumerate(sample_rows, start=2):
+            for col_idx, value in enumerate(row, start=1):
+                guide.cell(row=start_row + row_offset, column=col_idx, value=value).font = Font(size=10)
+
+    # Data rows start at row 2; validation covers a generous fill range.
+    for col_idx, choices in (dropdowns or {}).items():
+        if not choices:
+            continue
+        formula = '"' + ",".join(str(choice) for choice in choices[:60]) + '"'
+        if len(formula) > 255:  # Excel list-validation formula limit
+            continue
+        validation = DataValidation(type="list", formula1=formula, allow_blank=True)
+        validation.error = "Pick a value from the dropdown list."
+        validation.errorTitle = "Invalid value"
+        column = get_column_letter(col_idx)
+        validation.add(f"{column}2:{column}1000")
+        ws.add_data_validation(validation)
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    return Response(
+        content=bio.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}.xlsx"},
+    )
+
+
 def spreadsheet_response(rows: list[list[Any]], headers: list[str], filename: str, fmt: str) -> Any:
     """Build a CSV or XLSX download Response from header + row lists."""
 

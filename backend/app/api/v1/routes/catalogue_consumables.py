@@ -30,6 +30,7 @@ from app.services.import_helpers import (
     read_tabular_file,
     row_get,
     spreadsheet_response,
+    template_xlsx_response,
 )
 
 router = APIRouter(prefix="/catalogue/mud-chemicals", tags=["catalogue-mud-chemicals"])
@@ -432,17 +433,34 @@ def permanent_delete_chemical(
 # Bulk import
 # ---------------------------------------------------------------------------
 
-IMPORT_TEMPLATE = (
-    "chemical_name,part_number,uom,unit_rate,currency,effective_date,description\n"
-    "Bentonite,BEN-200,kg,2.50,USD,2026-01-15,Primary viscosifier\n"
-    "Barite,BAR-400,kg,3.20,USD,15/02/2026,Weighting agent\n"
-)
+IMPORT_HEADERS = ["chemical_name", "part_number", "uom", "unit_rate", "currency", "effective_date", "description"]
 
 
 @router.get("/import-template")
-def download_template() -> Response:
-    return Response(content=IMPORT_TEMPLATE, media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=mud_chemicals_template.csv"})
+def download_template(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> Response:
+    """XLSX template — download, fill with data, upload the same file."""
+
+    uoms = [str(code) for code in db.scalars(
+        select(UnitOfMeasurement.unit_code).where(UnitOfMeasurement.is_deleted == False)
+        .order_by(UnitOfMeasurement.unit_code)
+    ).all()]
+    currencies = [str(code) for code in db.scalars(
+        select(Currency.currency_code).where(Currency.is_deleted == False)
+        .order_by(Currency.currency_code)
+    ).all()]
+    return template_xlsx_response(
+        "mud_chemicals_template",
+        IMPORT_HEADERS,
+        sample_rows=[
+            ["Bentonite", "BEN-200", "kg", 2.50, "USD", "2026-01-15", "Primary viscosifier"],
+            ["Barite", "BAR-400", "kg", 3.20, "USD", "15/02/2026", "Weighting agent"],
+        ],
+        dropdowns={3: uoms, 5: currencies},
+        note="Chemical codes are generated automatically on import; re-importing an existing chemical with a new rate appends a rate revision.",
+    )
 
 
 @router.post("/import", response_model=BulkImportResponse)

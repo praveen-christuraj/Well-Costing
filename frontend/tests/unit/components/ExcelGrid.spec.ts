@@ -126,3 +126,85 @@ describe('ExcelGrid', () => {
     })
   })
 })
+
+describe('ExcelGrid dependent dropdowns', () => {
+  const categories = ['Casing', 'Tubing']
+  const subByCategory: Record<string, string[]> = {
+    Casing: ['Surface', 'Intermediate'],
+    Tubing: ['Standard'],
+  }
+
+  function mountDependentGrid(onCellChange?: (row: Record<string, unknown>) => void) {
+    const records = [
+      { id: 1, category: 'Casing', subcategory: 'Surface' },
+    ]
+    const categoryColumn: GridColumn = {
+      field: 'category',
+      header: 'Category',
+      type: 'select',
+      options: categories.map(value => ({ label: value, value })),
+    }
+    if (onCellChange) {
+      const hook = onCellChange
+      categoryColumn.onCellChange = row => hook(row)
+    }
+    return mount(ExcelGrid, {
+      props: {
+        title: 'Tangibles',
+        singular: 'tangible',
+        columns: [
+          categoryColumn,
+          {
+            field: 'subcategory',
+            header: 'Subcategory',
+            type: 'select' as const,
+            optionsFor: (row: Record<string, unknown>) =>
+              (subByCategory[String(row.category)] ?? []).map(value => ({ label: value, value })),
+          },
+        ],
+        loadRecords: vi.fn().mockResolvedValue(records),
+        toRow: (record: Record<string, unknown>) => ({
+          _id: record.id,
+          category: record.category,
+          subcategory: record.subcategory,
+        }),
+        toPayload: (row: Record<string, unknown>) => ({
+          category: row.category,
+          subcategory: row.subcategory,
+        }),
+        createRecord: vi.fn().mockResolvedValue({ id: 99 }),
+        updateRecord: vi.fn().mockResolvedValue({}),
+        deleteRecord: vi.fn().mockResolvedValue(undefined),
+      },
+    })
+  }
+
+  function visibleSelectLabels(wrapper: ReturnType<typeof mountDependentGrid>): string[] {
+    return wrapper.findAll('tbody .p-select-label').map(label => label.text().trim())
+  }
+
+  it('offers only the subcategories of the selected category', async () => {
+    const wrapper = mountDependentGrid()
+    await flushPromises()
+    // Row category=Casing shows its subcategory; Tubing-only values stay hidden.
+    expect(visibleSelectLabels(wrapper)).toContain('Surface')
+    const subSelect = wrapper.findAllComponents({ name: 'Select' }).at(1)
+    expect(subSelect?.props('options')).toEqual([
+      { label: 'Surface', value: 'Surface' },
+      { label: 'Intermediate', value: 'Intermediate' },
+    ])
+  })
+
+  it('re-filters dependent options when the parent cell changes and runs the change hook', async () => {
+    const changes: Record<string, unknown>[] = []
+    const wrapper = mountDependentGrid(row => changes.push({ ...row }))
+    await flushPromises()
+    const categorySelect = wrapper.findAllComponents({ name: 'Select' }).at(0)
+    await categorySelect?.vm.$emit('update:modelValue', 'Tubing')
+    await categorySelect?.vm.$emit('change', { value: 'Tubing' })
+    await flushPromises()
+    expect(changes).toHaveLength(1)
+    const subSelect = wrapper.findAllComponents({ name: 'Select' }).at(1)
+    expect(subSelect?.props('options')).toEqual([{ label: 'Standard', value: 'Standard' }])
+  })
+})

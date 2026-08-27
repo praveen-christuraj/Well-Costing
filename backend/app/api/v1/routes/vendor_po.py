@@ -28,6 +28,7 @@ from app.schemas.master_data import (
     VendorSupplierOut,
 )
 from app.services.audit import log_audit
+from app.services.import_helpers import template_xlsx_response
 
 router = APIRouter(prefix="/master-data", tags=["master-data-extended"])
 
@@ -248,6 +249,23 @@ def export_vendors(
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": "attachment; filename=vendors_export.xlsx"},
         )
+
+
+@router.get("/vendors/import-template")
+def download_vendors_template(
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """XLSX template — download, fill with data, upload the same file."""
+
+    return template_xlsx_response(
+        "vendors_template",
+        ["vendor_code", "vendor_name", "contact", "description"],
+        sample_rows=[
+            ["VEND001", "Acme Drilling Services", "+1-555-0100", "Primary drilling contractor"],
+            ["VEND002", "Baker Tools Inc", "baker@example.com", "Tool supplier"],
+        ],
+        note="Keep the header row unchanged; fill one vendor per row below it.",
+    )
 
 
 @router.get("/vendors", response_model=list[VendorSupplierOut])
@@ -837,6 +855,32 @@ async def bulk_upload_attachments(
 
     return BulkAttachmentUploadResponse(
         uploaded_count=uploaded, error_count=err_count, errors=errors[:20], success=err_count == 0
+    )
+
+
+@router.get("/purchase-orders/import-template")
+def download_purchase_orders_template(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """XLSX template with Type dropdown and the configured vendor codes."""
+
+    vendor_codes = [str(code) for code in db.scalars(
+        select(VendorSupplier.vendor_code).where(VendorSupplier.is_deleted == False)
+        .order_by(VendorSupplier.vendor_code)
+    ).all()]
+    return template_xlsx_response(
+        "purchase_orders_template",
+        ["po_type", "vendor_code", "po_so_number", "effective_date", "value",
+         "is_amendment", "amendment_number", "remarks"],
+        sample_rows=[
+            ["PO", "VEND001", "PO-2026-001", "2026-01-15", 50000, "No", "", "Initial purchase order"],
+            ["SO", "VEND002", "SO-2026-002", "15/02/2026", 75000.50, "No", "", "Service order for maintenance"],
+            ["PO", "VEND001", "PO-2026-001", "2026-03-01", 55000, "Yes", 1, "Amendment for additional work"],
+        ],
+        dropdowns={1: sorted(PO_TYPES), 2: vendor_codes, 6: ["Yes", "No"]},
+        note=("Dates accept flexible formats (YYYY-MM-DD or DD/MM/YYYY). Amendment numbers must "
+              "be between 1 and 200. Vendors must already exist — use the Vendors tab or its import first."),
     )
 
 

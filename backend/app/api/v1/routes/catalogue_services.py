@@ -24,6 +24,7 @@ from app.services.import_helpers import (
     read_tabular_file,
     row_get,
     spreadsheet_response,
+    template_xlsx_response,
 )
 
 router = APIRouter(prefix="/catalogue/services", tags=["catalogue-services"])
@@ -320,17 +321,30 @@ def permanent_delete_service(
 # Bulk import
 # ---------------------------------------------------------------------------
 
-IMPORT_TEMPLATE = (
-    "service_name,provider_type,vendor_code,description\n"
-    "Mud Logging Services,3rd Party,VEND001,Mud logging while drilling\n"
-    "Rig Maintenance,Inhouse,,Scheduled rig maintenance by internal crew\n"
-)
+IMPORT_HEADERS = ["service_name", "provider_type", "vendor_code", "description"]
 
 
 @router.get("/import-template")
-def download_services_template() -> Response:
-    return Response(content=IMPORT_TEMPLATE, media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=services_template.csv"})
+def download_services_template(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> Response:
+    """XLSX template — download, fill with data, upload the same file."""
+
+    vendor_codes = [str(code) for code in db.scalars(
+        select(VendorSupplier.vendor_code).where(VendorSupplier.is_deleted == False)
+        .order_by(VendorSupplier.vendor_code)
+    ).all()]
+    return template_xlsx_response(
+        "services_template",
+        IMPORT_HEADERS,
+        sample_rows=[
+            ["Mud Logging Services", "3rd Party", "VEND001", "Mud logging while drilling"],
+            ["Rig Maintenance", "Inhouse", "", "Scheduled rig maintenance by internal crew"],
+        ],
+        dropdowns={2: sorted(PROVIDER_TYPES), 3: vendor_codes},
+        note="Service codes are generated automatically on import.",
+    )
 
 
 @router.post("/import", response_model=BulkImportResponse)
