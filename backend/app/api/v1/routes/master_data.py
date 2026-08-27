@@ -2,7 +2,7 @@
 
 import csv
 import io
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
@@ -210,7 +210,7 @@ def soft_delete_record(
         raise HTTPException(status_code=404, detail="Record not found")
 
     instance.is_deleted = True
-    instance.deleted_at = datetime.now(timezone.utc)
+    instance.deleted_at = datetime.now(UTC)
     db.commit()
 
     code_val = str(getattr(instance, code_field))

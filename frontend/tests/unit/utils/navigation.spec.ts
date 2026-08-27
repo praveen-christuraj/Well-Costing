@@ -3,7 +3,7 @@ import { appNavigation, defaultLandingRoute, enabledNavigation, navigationGroups
 describe('application navigation', () => {
   it('only exposes modules that are enabled', () => {
     expect(enabledNavigation.every(item => item.enabled)).toBe(true)
-    expect(enabledNavigation.map(item => item.key)).toEqual(['dashboard', 'master-data'])
+    expect(enabledNavigation.map(item => item.key)).toEqual(['dashboard', 'master-data', 'audit-logs'])
   })
 
   it('keeps every module reachable: no module is hidden or disabled', () => {
@@ -19,12 +19,17 @@ describe('application navigation', () => {
       '/cost-control',
       '/reports',
       '/assurance',
-      '/audit',
       '/administration',
       '/help',
     ]
-    expect(appNavigation.filter(item => removedPrefixes.some(prefix => item.to.startsWith(prefix))))
-      .toEqual([])
+    // audit-logs is valid, not removed; only generic /audit without -logs should be considered removed
+    const removedAuditExact = ['/audit', '/audit/']
+    const filtered = appNavigation.filter(item => {
+      if (removedPrefixes.some(prefix => item.to.startsWith(prefix))) return true
+      if (removedAuditExact.includes(item.to)) return true
+      return false
+    })
+    expect(filtered).toEqual([])
   })
 
   it('lands on the dashboard after sign-in', () => {
