@@ -128,13 +128,55 @@ def add_missing_columns(table_name: str, *columns: Any, schema: str | None = Non
             forced_nullable = True
         _add_column(table_name, column, schema)
         if forced_nullable and isinstance(column.type, (sa.String, sa.Text)):
-            target = sa.table(table_name, sa.column(column.name), schema=schema)
-            op.execute(
-                target.update()
-                .where(sa.column(column.name).is_(None))
-                .values(**{column.name: ""})
-            )
-            logger.info("Backfilled %r.%r with an empty string.", table_name, column.name)
+            is_code_column = column.name.endswith("_code")
+            bind = op.get_bind()
+            insp_cols = {c["name"] for c in _inspector().get_columns(table_name, schema=schema)}
+            if is_code_column and "id" in insp_cols:
+                try:
+                    result = bind.execute(
+                        sa.text(f'SELECT id FROM "{table_name}" WHERE "{column.name}" IS NULL OR "{column.name}" = \'\'')
+                    )
+                    rows = result.fetchall()
+                except Exception:
+                    rows = []
+                existing_codes: set[str] = set()
+                try:
+                    r2 = bind.execute(
+                        sa.text(f'SELECT "{column.name}" FROM "{table_name}" WHERE "{column.name}" IS NOT NULL AND "{column.name}" != \'\'')
+                    )
+                    existing_codes = {str(r[0]) for r in r2 if r[0] is not None}
+                except Exception:
+                    existing_codes = set()
+
+                for (row_id,) in rows:
+                    base = f"C{row_id}" if table_name == "currencies" else f"TMP{row_id}"
+                    candidate = base
+                    suffix = 0
+                    while candidate in existing_codes:
+                        suffix += 1
+                        if table_name == "currencies":
+                            candidate = f"C{row_id}_{suffix}"[:10]
+                        else:
+                            candidate = f"{base}_{suffix}"[:50]
+                        if suffix > 1000:
+                            import uuid
+
+                            candidate = uuid.uuid4().hex[:8].upper()[:10] if table_name == "currencies" else uuid.uuid4().hex[:12]
+                            break
+                    bind.execute(
+                        sa.text(f'UPDATE "{table_name}" SET "{column.name}" = :code WHERE id = :id'),
+                        {"code": candidate, "id": row_id},
+                    )
+                    existing_codes.add(candidate)
+                logger.info("Backfilled %r.%r with unique placeholders.", table_name, column.name)
+            else:
+                target = sa.table(table_name, sa.column(column.name), schema=schema)
+                op.execute(
+                    target.update()
+                    .where(sa.column(column.name).is_(None))
+                    .values(**{column.name: ""})
+                )
+                logger.info("Backfilled %r.%r with an empty string.", table_name, column.name)
 
 
 def create_table_if_missing(table_name: str, *columns: Any, **kwargs: Any) -> None:
