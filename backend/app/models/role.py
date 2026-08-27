@@ -1,4 +1,4 @@
-"""Role model for the Phase 1 authentication foundation."""
+"""Named authorization role."""
 
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4

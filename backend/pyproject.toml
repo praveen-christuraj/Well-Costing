@@ -13,10 +13,8 @@ dependencies = [
   "email-validator>=2.2,<3",
   "fastapi>=0.115,<1",
   "httpx>=0.28,<1",
-  "openpyxl>=3.1,<4",
   "psycopg[binary]>=3.2,<4",
   "python-multipart>=0.0.20,<1",
-  "xlrd>=2.0,<3",
   "pydantic>=2.10,<3",
   "pydantic-settings>=2.7,<3",
   "PyJWT>=2.10,<3",
@@ -83,10 +81,6 @@ asyncio_mode = "auto"
 [tool.coverage.run]
 branch = true
 source = ["app"]
-omit = [
-  "app/repositories/entities.py",
-  "app/services/entities.py",
-]
 
 [tool.coverage.report]
 show_missing = true
