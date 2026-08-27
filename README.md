@@ -158,8 +158,10 @@ layout: a grouped sidebar, a topbar with a light/dark switch, and a theme
 configurator (preset, primary colour, surface palette, static or overlay menu)
 whose choice is remembered between sessions.
 
-**Master Data** (`/master-data`) is an empty stub. It is the anchor the rebuilt
-catalogues hang off; it holds no grid, no service, and no table.
+**Master Data** (`/master-data`) is a spreadsheet-style catalogue for UOM,
+Currencies, Phases, Activities, Hole Sections, Vendors/Suppliers and PO/SO.
+Add a single row or five at a time, paste from Excel, then Save All. Print
+outputs the table only (title, filters, data — not the data-entry chrome).
 
 ## Database migrations
 
@@ -231,7 +233,7 @@ The authentication foundation provides:
 
 A refresh-token strategy, complete role/permission matrix, password policy, and rate limiting are deferred.
 
-Login no longer writes an audit-log row — the audit module was removed with the restructure. Re-add audit logging when that module returns.
+A successful sign-in writes a `LOGIN` row to the audit log (failed attempts are not recorded). Catalogue create/update/delete/import/export actions are also audited.
 
 No default administrator password or seeded production credential is committed.
 

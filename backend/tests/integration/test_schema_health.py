@@ -20,7 +20,7 @@ from tests.conftest import TEST_PASSWORD
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 AUTH_JSON = {"email": "engineer@example.com", "password": TEST_PASSWORD}
-BASELINE_REVISION = "20260827_0003"
+BASELINE_REVISION = "20260827_0004"
 
 
 @pytest.fixture

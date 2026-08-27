@@ -31,7 +31,7 @@ onMounted(() => void checkHealth())
   <div class="dashboard-page">
     <PageHeader
       title="Dashboard"
-      description="Platform overview. The business modules have been cleared during the restructure."
+      description="Platform overview — API, database and schema health, plus the catalogues now in Master Data."
     >
       <template #actions>
         <Button
@@ -136,15 +136,15 @@ onMounted(() => void checkHealth())
           <ol class="dashboard-flow">
             <li>
               <strong>Authentication</strong>
-              <span>Sign-in, bearer tokens, users and roles</span>
+              <span>Sign-in, bearer tokens, users and roles — each sign-in is audit-logged</span>
             </li>
             <li>
               <strong>Master Data</strong>
-              <span>Empty stub awaiting the rebuilt catalogues</span>
+              <span>UOM, Currencies, Phases, Activities, Hole Sections, Vendors/Suppliers and PO/SO</span>
             </li>
             <li>
-              <strong>Removed</strong>
-              <span>AFE, AFE Cost Estimates, Daily Cost, Well Activities, Cost Control, Cost Analytics, Reports, Assurance, Audit Log and Administration</span>
+              <strong>Audit Log</strong>
+              <span>Create, update, delete, restore, import, export and login history</span>
             </li>
           </ol>
         </div>

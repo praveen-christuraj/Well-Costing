@@ -1,9 +1,23 @@
 """Pydantic schemas for Master Data modules."""
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+
+def _blank_if_none(value: object) -> object:
+    """Coerce NULL legacy columns to empty strings so list endpoints never 500."""
+
+    return "" if value is None else value
+
+
+def _false_if_none(value: object) -> object:
+    return False if value is None else value
+
+
+BlankStr = Annotated[str, BeforeValidator(_blank_if_none)]
+FlagBool = Annotated[bool, BeforeValidator(_false_if_none)]
 
 
 class UOMBase(BaseModel):
@@ -24,12 +38,16 @@ class UOMUpdate(BaseModel):
     description: str | None = None
 
 
-class UOMOut(UOMBase):
+class UOMOut(BaseModel):
     id: int
-    is_deleted: bool
-    deleted_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
+    unit_code: BlankStr = ""
+    unit_name: BlankStr = ""
+    unit_symbol: BlankStr = ""
+    description: str | None = None
+    is_deleted: FlagBool = False
+    deleted_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -52,12 +70,16 @@ class CurrencyUpdate(BaseModel):
     description: str | None = None
 
 
-class CurrencyOut(CurrencyBase):
+class CurrencyOut(BaseModel):
     id: int
-    is_deleted: bool
-    deleted_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
+    currency_code: BlankStr = ""
+    currency_name: BlankStr = ""
+    currency_symbol: BlankStr = ""
+    description: str | None = None
+    is_deleted: FlagBool = False
+    deleted_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -78,12 +100,15 @@ class PhaseUpdate(BaseModel):
     description: str | None = None
 
 
-class PhaseOut(PhaseBase):
+class PhaseOut(BaseModel):
     id: int
-    is_deleted: bool
-    deleted_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
+    phase_code: BlankStr = ""
+    phase_name: BlankStr = ""
+    description: str | None = None
+    is_deleted: FlagBool = False
+    deleted_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -104,12 +129,15 @@ class ActivityUpdate(BaseModel):
     description: str | None = None
 
 
-class ActivityOut(ActivityBase):
+class ActivityOut(BaseModel):
     id: int
-    is_deleted: bool
-    deleted_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
+    activity_code: BlankStr = ""
+    activity_name: BlankStr = ""
+    description: str | None = None
+    is_deleted: FlagBool = False
+    deleted_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -130,12 +158,15 @@ class HoleSectionUpdate(BaseModel):
     description: str | None = None
 
 
-class HoleSectionOut(HoleSectionBase):
+class HoleSectionOut(BaseModel):
     id: int
-    is_deleted: bool
-    deleted_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
+    section_code: BlankStr = ""
+    section_name: BlankStr = ""
+    description: str | None = None
+    is_deleted: FlagBool = False
+    deleted_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -158,12 +189,16 @@ class VendorSupplierUpdate(BaseModel):
     description: str | None = None
 
 
-class VendorSupplierOut(VendorSupplierBase):
+class VendorSupplierOut(BaseModel):
     id: int
-    is_deleted: bool
-    deleted_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
+    vendor_code: BlankStr = ""
+    vendor_name: BlankStr = ""
+    contact: str | None = None
+    description: str | None = None
+    is_deleted: FlagBool = False
+    deleted_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -205,22 +240,22 @@ class PurchaseOrderUpdate(BaseModel):
 
 class PurchaseOrderOut(BaseModel):
     id: int
-    po_type: str
+    po_type: BlankStr = ""
     vendor_id: int
-    po_so_number: str
-    effective_date: date | None
-    value: float | None
-    is_amendment: bool
-    amendment_number: int | None
-    remarks: str | None
-    attachment_path: str | None
-    attachment_original_name: str | None
-    attachment_mime_type: str | None
-    attachment_size: int | None
-    is_deleted: bool
-    deleted_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
+    po_so_number: BlankStr = ""
+    effective_date: date | None = None
+    value: float | None = None
+    is_amendment: FlagBool = False
+    amendment_number: int | None = None
+    remarks: str | None = None
+    attachment_path: str | None = None
+    attachment_original_name: str | None = None
+    attachment_mime_type: str | None = None
+    attachment_size: int | None = None
+    is_deleted: FlagBool = False
+    deleted_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
     vendor_code: str | None = None
     vendor_name: str | None = None
     vendor_display: str | None = None

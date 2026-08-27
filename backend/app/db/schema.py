@@ -42,6 +42,14 @@ CRITICAL_SCHEMA: dict[str, tuple[str, ...]] = {
     "users": ("email", "hashed_password", "auth_provider", "full_name", "is_active"),
     "roles": ("name", "is_active"),
     "user_roles": ("user_id", "role_id"),
+    "uom": ("unit_code", "unit_name", "unit_symbol", "is_deleted"),
+    "currencies": ("currency_code", "currency_name", "currency_symbol", "is_deleted"),
+    "phases": ("phase_code", "phase_name", "is_deleted"),
+    "activities": ("activity_code", "activity_name", "is_deleted"),
+    "hole_sections": ("section_code", "section_name", "is_deleted"),
+    "audit_logs": ("timestamp", "action", "module"),
+    "vendor_suppliers": ("vendor_code", "vendor_name", "is_deleted"),
+    "purchase_orders_service_orders": ("po_type", "vendor_id", "po_so_number", "is_deleted"),
 }
 
 REMEDIATION = (

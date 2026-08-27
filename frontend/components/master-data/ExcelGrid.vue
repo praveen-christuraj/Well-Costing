@@ -11,7 +11,7 @@
  * The grid owns row state only; all persistence flows through the host page's
  * `loadRecords` / `createRecord` / `updateRecord` / `deleteRecord` functions.
  */
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
 import Column from 'primevue/column'
@@ -43,6 +43,8 @@ const props = defineProps<{
   deleteRecord: (id: number) => Promise<unknown>
   /** Text describing the expected paste column order. */
   pasteHint?: string
+  /** Extra line printed under the title (active filters, etc.). */
+  printSubtitle?: string
 }>()
 
 const emit = defineEmits<{
@@ -68,6 +70,7 @@ const pasteText = ref('')
 const bulkVisible = ref(false)
 const bulkField = ref('')
 const bulkValue = ref('')
+const printedAt = ref('')
 
 let uid = 0
 function nextKey(): string {
@@ -168,7 +171,36 @@ function markDirty(row: EditableGridRow): void {
   row._error = null
 }
 
-function addRows(count = 5): void {
+function stampPrintedAt(): void {
+  printedAt.value = new Date().toLocaleString()
+}
+
+function displayValue(row: EditableGridRow, col: GridColumn): string {
+  if (col.type === 'slot') {
+    if (col.field === 'attachment') return String(row.attachment_original_name ?? '')
+    return ''
+  }
+  const value = row[col.field]
+  if (col.type === 'checkbox') return value ? 'Yes' : 'No'
+  if (col.type === 'select') {
+    const match = col.options?.find(option => option.value === value)
+    return match ? match.label : value == null ? '' : String(value)
+  }
+  if (value == null || value === '') return ''
+  return String(value)
+}
+
+const printColumns = computed(() => props.columns.filter(col => col.type !== 'slot' || col.field === 'attachment'))
+
+const printMeta = computed(() => {
+  const parts = [`${filteredRows.value.length} row(s)`]
+  if (search.value.trim()) parts.push(`Search: ${search.value.trim()}`)
+  if (props.printSubtitle) parts.push(props.printSubtitle)
+  if (printedAt.value) parts.push(`Printed ${printedAt.value}`)
+  return parts.join(' · ')
+})
+
+function addRows(count = 1): void {
   const added = Array.from({ length: count }, () => blankRow())
   rows.value = [...added, ...rows.value]
   dFirst.value = 0
@@ -456,7 +488,14 @@ function onPage(event: { first: number }): void {
   dFirst.value = event.first
 }
 
-onMounted(() => void load())
+onMounted(() => {
+  void load()
+  if (typeof window !== 'undefined') window.addEventListener('beforeprint', stampPrintedAt)
+})
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') window.removeEventListener('beforeprint', stampPrintedAt)
+})
 
 defineExpose({
   /** Number of rows with unsaved changes. */
@@ -473,7 +512,8 @@ defineExpose({
         <InputText v-model="search" :placeholder="`Search ${title.toLowerCase()}…`" size="small" />
       </div>
       <div class="grid-toolbar__actions">
-        <Button label="+5 Rows" icon="pi pi-plus" size="small" severity="secondary" outlined @click="addRows(5)" />
+        <Button label="Add row" icon="pi pi-plus" size="small" severity="secondary" outlined data-testid="add-row" @click="addRows(1)" />
+        <Button label="+5 Rows" icon="pi pi-plus" size="small" severity="secondary" text data-testid="add-five-rows" @click="addRows(5)" />
         <Button label="Paste" icon="pi pi-clipboard" size="small" severity="secondary" outlined @click="pasteVisible = true" />
         <Button label="Duplicate" icon="pi pi-copy" size="small" severity="secondary" text :disabled="!selectedCount" @click="duplicateSelected" />
         <Button label="Bulk Edit" icon="pi pi-pencil" size="small" severity="secondary" text :disabled="!selectedCount" @click="bulkVisible = true" />
@@ -498,9 +538,9 @@ defineExpose({
       </div>
     </div>
 
-    <Message v-if="error" severity="error" class="mb-2" :closable="false">{{ error }}</Message>
-    <Message v-if="message && !saveErrors.length" severity="success" class="mb-2" :closable="false">{{ message }}</Message>
-    <Message v-if="saveErrors.length" severity="error" class="mb-2" :closable="false">
+    <Message v-if="error" severity="error" class="mb-2 no-print" :closable="false">{{ error }}</Message>
+    <Message v-if="message && !saveErrors.length" severity="success" class="mb-2 no-print" :closable="false">{{ message }}</Message>
+    <Message v-if="saveErrors.length" severity="error" class="mb-2 no-print" :closable="false">
       <div class="save-errors">
         <div v-for="(item, index) in saveErrors" :key="index">{{ item }}</div>
       </div>
@@ -522,7 +562,7 @@ defineExpose({
       size="small"
       scrollable
       scroll-height="58vh"
-      class="excel-grid"
+      class="excel-grid no-print"
       @page="onPage"
     >
       <Column selection-mode="multiple" header-style="width: 2.75rem" />
@@ -610,12 +650,35 @@ defineExpose({
 
       <template #empty>
         <div class="grid-empty">
-          No {{ title.toLowerCase() }} yet. Use <strong>+5 Rows</strong>, <strong>Paste</strong> from
-          Excel, or the <strong>Import</strong> button above to enter data in bulk, then
+          No {{ title.toLowerCase() }} yet. Use <strong>Add row</strong> for a single entry,
+          <strong>+5 Rows</strong> or <strong>Paste</strong> from Excel for bulk entry, then
           <strong>Save All</strong>.
         </div>
       </template>
     </DataTable>
+
+    <div class="print-sheet" aria-hidden="true">
+      <header class="print-sheet__header">
+        <p class="print-sheet__eyebrow">Drilling Costing</p>
+        <h1>{{ title }}</h1>
+        <p class="print-sheet__meta">{{ printMeta }}</p>
+      </header>
+      <table v-if="filteredRows.length" class="print-sheet__table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th v-for="col in printColumns" :key="col.field">{{ col.header }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(row, index) in filteredRows" :key="row._key">
+            <td>{{ index + 1 }}</td>
+            <td v-for="col in printColumns" :key="col.field">{{ displayValue(row, col) }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-else class="print-sheet__empty">No {{ title.toLowerCase() }} to print.</p>
+    </div>
 
     <Dialog v-model:visible="pasteVisible" modal :header="`Paste ${title} from Excel`" :style="{ width: '680px' }">
       <p class="paste-hint">
@@ -833,15 +896,7 @@ defineExpose({
   overflow-y: auto;
 }
 
-@media print {
-  .excel-grid :deep(td .p-inputtext),
-  .excel-grid :deep(td .p-select) {
-    border: none !important;
-    background: transparent !important;
-  }
-
-  .excel-grid :deep(.p-datatable-tbody > tr > td) {
-    padding: 0.2rem 0.4rem;
-  }
+.print-sheet {
+  display: none;
 }
 </style>

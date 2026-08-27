@@ -92,7 +92,10 @@ function genericToPayload(mod: ModuleDef) {
       [mod.nameField]: String(row.name ?? '').trim(),
       description: row.description ? String(row.description) : null,
     }
-    if (mod.symbolField) payload[mod.symbolField] = row.symbol ? String(row.symbol) : null
+    if (mod.symbolField) {
+      const symbol = String(row.symbol ?? '').trim()
+      payload[mod.symbolField] = symbol || String(row.code ?? '').trim() || null
+    }
     return payload
   }
 }
@@ -464,8 +467,9 @@ onMounted(() => {
 <template>
   <div class="master-data-page">
     <PageHeader
+      class="no-print"
       title="Master Data Configuration"
-      description="Spreadsheet-style bulk entry: type directly into the grid, add or paste multiple rows, then Save All in one go. UOM, Currencies, Phases, Activities, Hole Sections, Vendors/Suppliers and PO/SO Orders — with Import/Export, Print, Soft Delete and Audit."
+      description="Spreadsheet-style bulk entry: type directly into the grid, add a single row or paste multiple rows, then Save All in one go. UOM, Currencies, Phases, Activities, Hole Sections, Vendors/Suppliers and PO/SO Orders — with Import/Export, Print, Soft Delete and Audit."
     />
 
     <div class="tabs no-print">
@@ -547,6 +551,7 @@ onMounted(() => {
         :create-record="(payload: Record<string, unknown>) => api.post('/master-data/purchase-orders', payload)"
         :update-record="(id: number, payload: Record<string, unknown>) => api.put(`/master-data/purchase-orders/${id}`, payload)"
         :delete-record="(id: number) => api.delete(`/master-data/purchase-orders/${id}`)"
+        :print-subtitle="poTypeFilter ? `Type filter: ${poTypeFilter}` : 'All types'"
         @dirty="tabDirty = $event"
       >
         <template #toolbar-extra>

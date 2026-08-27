@@ -42,7 +42,7 @@ function mountGrid(overrides: Record<string, unknown> = {}) {
 }
 
 function toolbarButton(wrapper: ReturnType<typeof mountGrid>, label: string) {
-  return wrapper.findAll('button').find(button => button.text().includes(label))
+  return wrapper.find('.grid-toolbar__actions').findAll('button').find(button => button.text().includes(label))
 }
 
 describe('ExcelGrid', () => {
@@ -52,6 +52,17 @@ describe('ExcelGrid', () => {
     const inputs = wrapper.findAll('input.p-inputtext')
     expect(inputs.map(input => (input.element as HTMLInputElement).value)).toContain('Metre')
     expect(wrapper.text()).toContain('Showing')
+  })
+
+  it('adds a single blank row', async () => {
+    const wrapper = mountGrid()
+    await flushPromises()
+    const before = wrapper.findAll('input.p-inputtext').length
+    await wrapper.get('[data-testid="add-row"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('input.p-inputtext').length).toBe(before + 3)
+    expect(wrapper.vm.dirtyCount).toBe(1)
+    expect(wrapper.find('.print-sheet h1').text()).toBe('Units')
   })
 
   it('adds five blank rows at once and reports the unsaved count', async () => {

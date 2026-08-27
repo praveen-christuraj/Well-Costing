@@ -74,6 +74,7 @@ describe('Master data page (excel-type bulk entry)', () => {
     // Entry forms are gone: no dialog forms, only the grid + toolbar actions.
     expect(wrapper.text()).not.toContain('New Entry')
     expect(findButton(wrapper, 'Save All')).toBeTruthy()
+    expect(findButton(wrapper, 'Add row')).toBeTruthy()
     expect(findButton(wrapper, '+5 Rows')).toBeTruthy()
     expect(findButton(wrapper, 'Paste')).toBeTruthy()
   })
@@ -101,7 +102,7 @@ describe('Master data page (excel-type bulk entry)', () => {
     expect(api.post).toHaveBeenCalledWith('/master-data/uom', {
       unit_code: 'U-1',
       unit_name: 'Unit 1',
-      unit_symbol: null,
+      unit_symbol: 'U-1',
       description: null,
     })
     expect(wrapper.text()).toContain('Saved 5 row(s)')
