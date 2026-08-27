@@ -365,9 +365,91 @@ ensure_backend_toolchain() {
 }
 
 # ─── Migrations ──────────────────────────────────────────────────────────────
+
+# Echo the active DATABASE_URL from backend/.env (comments ignored, last one
+# wins, dotenv-compatible "export " prefix allowed). Empty output means the
+# URL is not configured — in that case the app falls back to its built-in
+# default (drilling_costing@localhost:5432), which nothing on this phone
+# serves, so every migration would die with a connection-refused traceback.
+active_database_url() {
+    [ -f "$BACKEND_ENV" ] || return 0
+    grep -E '^[[:space:]]*(export[[:space:]]+)?DATABASE_URL=' "$BACKEND_ENV" 2>/dev/null \
+        | tail -1 \
+        | sed -E 's/^[[:space:]]*(export[[:space:]]+)?DATABASE_URL=//; s/[[:space:]]+$//' \
+        | tr -d '"' || true
+}
+
+# Preflight: refuse to run migrations against a database that cannot work.
+# Prints actionable guidance and returns 1 when configuration is missing.
+check_database_url() {
+    local url
+    if [ ! -f "$BACKEND_ENV" ]; then
+        err "backend/.env not found — no database is configured."
+        err "  Run 'bash termux/deploy.sh' (it creates the file and asks for a database),"
+        err "  or copy backend/.env.example to backend/.env and set DATABASE_URL."
+        return 1
+    fi
+    url=$(active_database_url)
+    if [ -z "$url" ]; then
+        err "backend/.env has no active DATABASE_URL line (missing or commented out)."
+        err "  Unset, the backend falls back to localhost:5432 — but nothing on this"
+        err "  phone runs PostgreSQL there, so migrations fail with"
+        err "  'connection to server at \"127.0.0.1\", port 5432 ... Connection refused'."
+        err "  Fix: put your Supabase 'Transaction pooler' URI on the DATABASE_URL line"
+        err "       of backend/.env, or run 'bash termux/deploy.sh' to pick a database."
+        return 1
+    fi
+    if [[ "$url" == *"postgres.XXXX:PASSWORD"* ]]; then
+        err "backend/.env still contains the placeholder DATABASE_URL (postgres.XXXX:PASSWORD...)."
+        err "  Fix: paste your real Supabase URI into backend/.env, or run 'bash termux/deploy.sh'."
+        return 1
+    fi
+    if [[ "$url" == *"@localhost:"* || "$url" == *"@127.0.0.1:"* ]]; then
+        warn "DATABASE_URL points at PostgreSQL on this phone (localhost:5432)."
+        warn "  Nothing in this deployment starts a PostgreSQL server, so the connection"
+        warn "  will be REFUSED unless you installed Termux's native 'postgresql' package"
+        warn "  and started it (see DEPLOYMENT.md → 'Local PostgreSQL on Termux')."
+    fi
+    if [[ "$url" == postgresql+psycopg:///* ]]; then
+        warn "DATABASE_URL uses the local Unix socket (no host in the URL)."
+        warn "  The PostgreSQL socket of a Termux-native server is not visible inside"
+        warn "  the Debian container — use 127.0.0.1:5432 in the URL instead."
+    fi
+    return 0
+}
+
 run_migrations() {
+    check_database_url || die "Migrations skipped — fix DATABASE_URL above, then re-run this script."
     log "Running database migrations (inside Debian)..."
-    backend_shell "$VENV_NAME/bin/python -m alembic upgrade head"
+    local migration_log="$TERMUX_DIR/migration.log"
+    local status
+    set +e
+    backend_shell "$VENV_NAME/bin/python -m alembic upgrade head" 2>&1 | tee "$migration_log"
+    status=${PIPESTATUS[0]}
+    set -e
+    if [ "$status" -ne 0 ]; then
+        err "Migrations FAILED (exit $status) — full log: termux/migration.log"
+        if grep -q "port 5432 failed: Connection refused" "$migration_log"; then
+            err ""
+            err "  Nothing is listening on 127.0.0.1:5432 — no PostgreSQL server is"
+            err "  running on this phone, so the URL in backend/.env cannot be reached."
+            err "  Pick one of:"
+            err "    1) Supabase (recommended): put the 'Transaction pooler' URI"
+            err "       (port 6543) in backend/.env → DATABASE_URL, then re-run."
+            err "    2) Native Termux PostgreSQL: see DEPLOYMENT.md →"
+            err "       'Local PostgreSQL on Termux' (pkg install, initdb, pg_ctl start)."
+        elif grep -qiE "name (or service not known|resolution)|nodename nor servname|TranslateFailed|failed to resolve" "$migration_log"; then
+            err ""
+            err "  The database hostname in backend/.env could not be resolved."
+            err "  Check DATABASE_URL for typos (e.g. the placeholder 'aws-0-REGION')"
+            err "  and confirm the phone has internet access."
+        elif grep -qiE "password authentication failed|authentication failed" "$migration_log"; then
+            err ""
+            err "  The database rejected the credentials in backend/.env DATABASE_URL."
+            err "  Check user/password — percent-encode special characters (@ → %40, % → %25)."
+        fi
+        die "Fix the database configuration above, then re-run this script."
+    fi
     ok "Migrations applied"
 }
 
@@ -594,10 +676,14 @@ prompt_for_database_url() {
         local SQLITE_PATH="$REPO_DIR/data/drilling.db"
         mkdir -p "$REPO_DIR/data"
         local DB_URL_ESCAPED
-        DB_URL_ESCAPED=$(printf '%s' "sqlite:////$SQLITE_PATH" | sed -e 's/\\/\\\\/g' -e 's/|/\\|/g' -e 's/&/\\&/g')
+        DB_URL_ESCAPED=$(printf '%s' "sqlite:///$SQLITE_PATH" | sed -e 's/\\/\\\\/g' -e 's/|/\\|/g' -e 's/&/\\&/g')
         sed -i "s|^DATABASE_URL=.*|DATABASE_URL=$DB_URL_ESCAPED|" "$BACKEND_ENV"
-        sed -i 's|^# DATABASE_URL=sqlite://.*||' "$BACKEND_ENV"
+        # The app config forbids SQLite everywhere except the development
+        # environment ('termux' hard-requires PostgreSQL), so SQLite on the
+        # phone must run with ENVIRONMENT=development.
+        sed -i 's|^ENVIRONMENT=.*|ENVIRONMENT=development|' "$BACKEND_ENV"
         ok "SQLite selected — database file: $SQLITE_PATH"
+        warn "ENVIRONMENT switched to development (SQLite is only allowed there)."
         return 0
     fi
 
