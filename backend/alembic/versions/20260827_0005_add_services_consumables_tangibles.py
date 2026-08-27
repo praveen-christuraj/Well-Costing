@@ -95,26 +95,30 @@ def upgrade() -> None:
             str(row[0])
             for row in bind.execute(sa.text("SELECT subcategory_code FROM consumable_subcategories")).fetchall()
         }
-    # Insert with explicit integer booleans: sa.table() columns are untyped by
-    # default and would bind Python booleans as text ('true'/'false'), which
-    # SQLite would store as strings instead of 0/1.
-    seed_table = sa.table(
-        "consumable_subcategories",
-        sa.column("subcategory_code", sa.String),
-        sa.column("subcategory_name", sa.String),
-        sa.column("sort_order", sa.Integer),
-        sa.column("entry_enabled", sa.Integer),
-        sa.column("description", sa.Text),
-        sa.column("is_deleted", sa.Integer),
+    # Insert with typed parameters so booleans bind correctly on both
+    # backends: untyped sa.table() bulk_insert would send Python booleans as
+    # text ('true'/'false'), which PostgreSQL rejects against Boolean columns
+    # and SQLite stores as strings instead of 0/1.
+    insert_sql = sa.text(
+        "INSERT INTO consumable_subcategories "
+        "(subcategory_code, subcategory_name, sort_order, entry_enabled, "
+        " description, is_deleted, created_at, updated_at) "
+        "VALUES (:code, :name, :sort_order, :entry_enabled, :description, "
+        " false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
     )
-    to_seed = [
-        {"subcategory_code": code, "subcategory_name": name, "sort_order": sort_order,
-         "entry_enabled": 1 if entry_enabled else 0, "description": description, "is_deleted": 0}
-        for code, name, sort_order, entry_enabled, description in seed_subcategories
-        if code not in existing_codes
-    ]
-    if to_seed:
-        op.bulk_insert(seed_table, to_seed)
+    for code, name, sort_order, entry_enabled, description in seed_subcategories:
+        if code in existing_codes:
+            continue
+        bind.execute(
+            insert_sql,
+            {
+                "code": code,
+                "name": name,
+                "sort_order": sort_order,
+                "entry_enabled": bool(entry_enabled),
+                "description": description,
+            },
+        )
 
     # --- Services --------------------------------------------------------
     create_table_if_missing(
