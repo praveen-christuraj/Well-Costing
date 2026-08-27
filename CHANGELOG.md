@@ -2,6 +2,27 @@
 
 All notable project changes are documented here.
 
+## 2026-08-27 — One-off cleanup of the pre-restructure tables
+
+Databases provisioned before the module restructure still carried the removed modules'
+tables (AFE, AFE Cost Estimates, Daily Cost, Well Activities, Cost Control, Cost Builder,
+Reports, Assurance) while `alembic_version` pointed at a revision of the deleted history —
+a state neither `upgrade head` nor `downgrade base` can reconcile.
+
+### Added
+
+- `backend/scripts/temp_clean_database.py`, a **temporary** maintenance helper (delete it
+  once the databases are clean; `docs/database/overview.md` keeps the manual procedure).
+  It classifies every table/view in the target schema against `app/models`, drops what the
+  code no longer references, recreates the application's own tables through
+  `alembic upgrade head` when they cannot be reconciled in place (so `alembic_version`
+  ends up stamped correctly instead of `create_all`-built), and finishes with the same
+  drift check `/health` reports. Dry run by default; `--execute --confirm CLEAN` applies,
+  `--backup-dir` exports a CSV plus DDL of everything being destroyed first, `--keep`
+  spares named tables, `--prune-only` drops nothing but the stale objects, and hosted
+  environments are refused unless `--allow-hosted` is passed. Reads `DATABASE_URL` from the
+  backend settings, so it embeds no credentials.
+
 ## 2026-08-27 — Master Data 500s, login audit, print sheets, and Add row
 
 Currency, Activities, Hole Sections and the other catalogues returned a generic
