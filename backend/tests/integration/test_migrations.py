@@ -15,7 +15,7 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
-HEAD_REVISION = "20260827_0003"
+HEAD_REVISION = "20260827_0004"
 EXPECTED_TABLES = {
     "users",
     "roles",
@@ -124,8 +124,12 @@ def test_upgrade_completes_legacy_table_and_keeps_data(database_url: str) -> Non
 
     engine = create_engine(database_url)
     with engine.connect() as connection:
-        row = connection.execute(text("SELECT currency_code, created_at FROM currencies")).one()
+        row = connection.execute(
+            text("SELECT currency_code, currency_symbol, created_at FROM currencies")
+        ).one()
     engine.dispose()
     assert row.currency_code == "USD"
     # Columns added with a server default are backfilled for existing rows.
     assert row.created_at is not None
+    # Required string columns added onto a legacy table are filled, not left NULL.
+    assert row.currency_symbol == ""

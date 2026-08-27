@@ -1276,21 +1276,23 @@
 }
 
 @layer app {
-  /* ── Printable grid ──
-     The print block is rendered but hidden on screen; printing swaps it in and
-     drops the shell, toolbars, editors, and action column so the sheet shows
-     the data only. Works for both the Print button and the browser's Ctrl+P. */
+  /* ── Printable sheet ──
+     Interactive chrome is marked `.no-print`. A sibling `.print-sheet` holds
+     the title, filter line and a read-only table. Print button and Ctrl+P. */
+  .print-sheet,
   .eg__print {
     display: none;
   }
 
   @media print {
+    .no-print,
     .layout-topbar,
     .layout-sidebar,
     .layout-mask,
     .config-panel,
     .md-nav,
     .library-nav,
+    .page-header,
     .page-header__actions,
     .eg__filters,
     .eg__actions,
@@ -1298,8 +1300,12 @@
     .eg__pager,
     .eg__table,
     .uom-tip,
+    .p-datatable,
+    .p-paginator,
+    .p-dialog,
     .p-dialog-mask,
-    .p-toast {
+    .p-toast,
+    .p-message {
       display: none !important;
     }
 
@@ -1314,7 +1320,11 @@
     .layout-main,
     .layout-main-container,
     .library-page,
-    .eg {
+    .eg,
+    .grid-card,
+    .excel-grid-panel,
+    .audit-logs-page,
+    .master-data-page {
       margin: 0;
       padding: 0;
       border: 0;
@@ -1322,6 +1332,65 @@
       width: auto;
       max-width: none;
       background: white;
+    }
+
+    .print-sheet,
+    .eg__print {
+      display: block !important;
+    }
+
+    .print-sheet__eyebrow {
+      margin: 0 0 2px;
+      font-size: .68rem;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: #555;
+    }
+
+    .print-sheet__header h1 {
+      margin: 0 0 4px;
+      font-size: 1.25rem;
+    }
+
+    .print-sheet__meta {
+      margin: 0 0 10px;
+      color: #444;
+      font-size: .8rem;
+    }
+
+    .print-sheet__table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .72rem;
+    }
+
+    .print-sheet__table th,
+    .print-sheet__table td {
+      border: 1px solid #999;
+      padding: 3px 5px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .print-sheet__table thead th {
+      background: #e8eef1;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+    }
+
+    .print-sheet__table thead {
+      display: table-header-group;
+    }
+
+    .print-sheet__table tr {
+      break-inside: avoid;
+    }
+
+    .print-sheet__empty {
+      margin-top: 10px;
+      font-size: .8rem;
     }
 
     .eg__print {

@@ -1,47 +1,108 @@
 <script setup lang="ts">
 /**
- * Audit Log Page — Compact, paginated, with module/action filters,
- * Excel/CSV export, Print, and audit of every action.
- * Common template: Import (not needed), Export, Print, compact table.
+ * Audit Log — same shell as Master Data: PageHeader, card, compact table,
+ * filters, export and a print sheet that contains only the log (not chrome).
  */
-import { ref, computed, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import Button from 'primevue/button'
 import PageHeader from '~/components/design-system/PageHeader.vue'
 
 definePageMeta({ middleware: 'auth' })
 
+interface AuditLogRow {
+  id: number
+  timestamp: string
+  user_email: string | null
+  action: string
+  module: string
+  entity_code: string | null
+  details: string | null
+  ip_address: string | null
+}
+
+const KNOWN_MODULES = [
+  'Authentication',
+  'Unit of Measurements',
+  'Currency',
+  'Phases',
+  'Activities',
+  'Hole Sections',
+  'Vendors/Suppliers',
+  'Purchase Orders/Service Orders',
+  'Audit',
+]
+
+const KNOWN_ACTIONS = [
+  'LOGIN',
+  'CREATE',
+  'UPDATE',
+  'SOFT_DELETE',
+  'RESTORE',
+  'PERMANENT_DELETE',
+  'BULK_IMPORT',
+  'EXPORT',
+]
+
 const api = useApi()
 
-const logs = ref<any[]>([])
+const logs = ref<AuditLogRow[]>([])
 const loading = ref(false)
+const error = ref<string | null>(null)
 const selectedModule = ref('')
 const selectedAction = ref('')
 const searchQuery = ref('')
 const page = ref(1)
 const pageSize = ref(20)
+const printedAt = ref('')
 
-async function loadLogs() {
+async function loadLogs(): Promise<void> {
   loading.value = true
+  error.value = null
   try {
-    let url = '/audit-logs?limit=1000&'
-    if (selectedModule.value) url += `module=${encodeURIComponent(selectedModule.value)}&`
-    if (selectedAction.value) url += `action=${encodeURIComponent(selectedAction.value)}&`
-    logs.value = await api.get<any[]>(url)
+    const params = new URLSearchParams({ limit: '1000' })
+    if (selectedModule.value) params.set('module', selectedModule.value)
+    if (selectedAction.value) params.set('action', selectedAction.value)
+    logs.value = await api.get<AuditLogRow[]>(`/audit-logs?${params.toString()}`)
     page.value = 1
-  } catch (err) {
-    console.error('Failed to load audit logs', err)
-  } finally {
+  }
+  catch (caught: unknown) {
+    error.value = caught instanceof Error ? caught.message : 'Audit logs could not be loaded'
+    logs.value = []
+  }
+  finally {
     loading.value = false
   }
 }
 
 onMounted(() => {
-  loadLogs()
+  void loadLogs()
+  if (typeof window !== 'undefined') window.addEventListener('beforeprint', stampPrintedAt)
+})
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') window.removeEventListener('beforeprint', stampPrintedAt)
+})
+
+watch([selectedModule, selectedAction], () => {
+  void loadLogs()
+})
+
+const moduleOptions = computed(() => {
+  const fromLogs = logs.value.map(log => log.module).filter(Boolean)
+  return [...new Set([...KNOWN_MODULES, ...fromLogs])].sort((a, b) => a.localeCompare(b))
+})
+
+const actionOptions = computed(() => {
+  const fromLogs = logs.value.map(log => log.action).filter(Boolean)
+  return [...new Set([...KNOWN_ACTIONS, ...fromLogs])]
 })
 
 const filteredLogs = computed(() => {
-  if (!searchQuery.value) return logs.value
-  const q = searchQuery.value.toLowerCase()
-  return logs.value.filter(l => `${l.user_email} ${l.action} ${l.module} ${l.entity_code} ${l.details}`.toLowerCase().includes(q))
+  if (!searchQuery.value.trim()) return logs.value
+  const query = searchQuery.value.toLowerCase()
+  return logs.value.filter(log =>
+    `${log.user_email} ${log.action} ${log.module} ${log.entity_code} ${log.details} ${log.ip_address}`.toLowerCase().includes(query),
+  )
 })
 
 const paginatedLogs = computed(() => {
@@ -51,120 +112,347 @@ const paginatedLogs = computed(() => {
 
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredLogs.value.length / pageSize.value)))
 
-async function exportLogs(format: 'xlsx' | 'csv') {
-  try {
-    let url = `/audit-logs/export?format=${format}&`
-    if (selectedModule.value) url += `module=${encodeURIComponent(selectedModule.value)}&`
-    if (selectedAction.value) url += `action=${encodeURIComponent(selectedAction.value)}&`
+const printFilters = computed(() => {
+  const parts: string[] = []
+  parts.push(selectedModule.value ? `Module: ${selectedModule.value}` : 'Module: All')
+  parts.push(selectedAction.value ? `Action: ${selectedAction.value}` : 'Action: All')
+  if (searchQuery.value.trim()) parts.push(`Search: ${searchQuery.value.trim()}`)
+  parts.push(`${filteredLogs.value.length} log(s)`)
+  if (printedAt.value) parts.push(`Printed ${printedAt.value}`)
+  return parts.join(' · ')
+})
 
-    const blob = await api.download(url)
-    const blobUrl = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = blobUrl
-    a.download = `audit_logs_export.${format}`
-    a.click()
-    window.URL.revokeObjectURL(blobUrl)
-    loadLogs()
-  } catch (err: any) {
-    alert(err.message || 'Export failed')
+function stampPrintedAt(): void {
+  printedAt.value = new Date().toLocaleString()
+}
+
+function actionClass(action: string): string {
+  switch (action) {
+    case 'CREATE':
+    case 'LOGIN':
+      return 'badge badge--green'
+    case 'UPDATE':
+      return 'badge badge--blue'
+    case 'SOFT_DELETE':
+      return 'badge badge--amber'
+    case 'PERMANENT_DELETE':
+      return 'badge badge--red'
+    case 'RESTORE':
+    case 'BULK_IMPORT':
+      return 'badge badge--purple'
+    default:
+      return 'badge badge--muted'
   }
 }
 
-function printLogs() {
+function formatTimestamp(value: string | null): string {
+  if (!value) return '—'
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
+}
+
+async function exportLogs(format: 'xlsx' | 'csv'): Promise<void> {
+  try {
+    const params = new URLSearchParams({ format })
+    if (selectedModule.value) params.set('module', selectedModule.value)
+    if (selectedAction.value) params.set('action', selectedAction.value)
+    const blob = await api.download(`/audit-logs/export?${params.toString()}`)
+    const blobUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = `audit_logs_export.${format}`
+    link.click()
+    window.URL.revokeObjectURL(blobUrl)
+  }
+  catch (caught: unknown) {
+    window.alert(caught instanceof Error ? caught.message : 'Export failed')
+  }
+}
+
+function printLogs(): void {
+  stampPrintedAt()
   window.print()
 }
 </script>
 
 <template>
-  <div class="audit-logs-page p-4 max-w-[1600px] mx-auto">
+  <div class="audit-logs-page">
     <PageHeader
+      class="no-print"
       title="System Audit Log"
-      description="Comprehensive audit trail recording every CREATE, UPDATE, SOFT_DELETE, RESTORE, PERMANENT_DELETE, BULK_IMPORT, EXPORT across all modules including Vendors/Suppliers and PO/SO."
+      description="Every sign-in and every catalogue change — create, update, soft delete, restore, permanent delete, bulk import and export — with the acting user and timestamp."
     />
 
-    <div class="bg-surface-0 dark:bg-surface-900 rounded-lg shadow-sm border border-surface-200 dark:border-surface-700 p-4">
-      <!-- Toolbar & Filters -->
-      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-        <div class="flex items-center gap-2 flex-wrap">
-          <InputText v-model="selectedModule" placeholder="Filter module..." class="text-xs w-36 h-8" />
-          <InputText v-model="selectedAction" placeholder="Filter action..." class="text-xs w-32 h-8" />
-          <InputText v-model="searchQuery" placeholder="Search logs..." class="text-xs w-48 h-8" />
-          <Button label="Search" icon="pi pi-search" size="small" severity="secondary" outlined @click="loadLogs" class="!text-xs" />
-          <Button label="Refresh" icon="pi pi-refresh" size="small" severity="secondary" outlined @click="loadLogs" class="!text-xs" />
-          <span class="text-[11px] text-surface-500 ml-2">{{ filteredLogs.length }} logs</span>
+    <section class="grid-card">
+      <div class="toolbar no-print">
+        <div class="toolbar__filters">
+          <select v-model="selectedModule" class="filter-select" aria-label="Filter by module">
+            <option value="">All modules</option>
+            <option v-for="module in moduleOptions" :key="module" :value="module">{{ module }}</option>
+          </select>
+          <select v-model="selectedAction" class="filter-select" aria-label="Filter by action">
+            <option value="">All actions</option>
+            <option v-for="action in actionOptions" :key="action" :value="action">{{ action }}</option>
+          </select>
+          <div class="search">
+            <i class="pi pi-search" />
+            <input v-model="searchQuery" type="search" placeholder="Search logs…" class="search__input">
+          </div>
+          <Button label="Refresh" icon="pi pi-refresh" size="small" severity="secondary" outlined :loading="loading" @click="loadLogs" />
+          <span class="count">{{ filteredLogs.length }} logs</span>
         </div>
-        <div class="flex items-center gap-1.5">
-          <Button label="XLSX" icon="pi pi-file-excel" size="small" severity="success" outlined @click="exportLogs('xlsx')" class="!text-xs" />
-          <Button label="CSV" icon="pi pi-file" size="small" severity="help" outlined @click="exportLogs('csv')" class="!text-xs" />
-          <Button label="Print" icon="pi pi-print" size="small" severity="secondary" outlined @click="printLogs" class="!text-xs" />
-          <select v-model="pageSize" class="text-xs border rounded px-2 h-8 bg-surface-0 dark:bg-surface-900">
-            <option :value="10">10</option>
-            <option :value="20">20</option>
-            <option :value="50">50</option>
-            <option :value="100">100</option>
+        <div class="toolbar__actions">
+          <Button label="XLSX" icon="pi pi-file-excel" size="small" severity="success" outlined @click="exportLogs('xlsx')" />
+          <Button label="CSV" icon="pi pi-file" size="small" severity="secondary" outlined @click="exportLogs('csv')" />
+          <Button label="Print" icon="pi pi-print" size="small" severity="secondary" text @click="printLogs" />
+          <select v-model="pageSize" class="filter-select" aria-label="Rows per page">
+            <option :value="10">10 / page</option>
+            <option :value="20">20 / page</option>
+            <option :value="50">50 / page</option>
+            <option :value="100">100 / page</option>
           </select>
         </div>
       </div>
 
-      <!-- Compact Table -->
-      <div class="overflow-x-auto border border-surface-200 dark:border-surface-700 rounded-md max-h-[70vh] overflow-y-auto">
-        <table class="w-full text-left border-collapse text-[11px]">
-          <thead class="sticky top-0 z-10">
-            <tr class="bg-surface-100 dark:bg-surface-800 text-surface-700 dark:text-surface-300 font-semibold border-b">
-              <th class="p-2 w-12">ID</th>
-              <th class="p-2">Timestamp</th>
-              <th class="p-2">User</th>
-              <th class="p-2">Action</th>
-              <th class="p-2">Module</th>
-              <th class="p-2">Entity Code</th>
-              <th class="p-2">Details</th>
-              <th class="p-2">IP</th>
+      <p v-if="error" class="error-copy no-print">{{ error }}</p>
+
+      <div class="table-scroll no-print">
+        <table class="audit-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Timestamp</th>
+              <th>User</th>
+              <th>Action</th>
+              <th>Module</th>
+              <th>Entity</th>
+              <th>Details</th>
+              <th>IP</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="8" class="p-6 text-center text-surface-500 text-xs"><i class="pi pi-spin pi-spinner"></i> Loading audit logs...</td></tr>
-            <tr v-else-if="paginatedLogs.length === 0"><td colspan="8" class="p-6 text-center text-surface-500 text-xs">No audit logs found. Actions will appear here.</td></tr>
-            <tr v-for="log in paginatedLogs" :key="log.id" class="border-b border-surface-100 dark:border-surface-800 hover:bg-surface-50 dark:hover:bg-surface-800/50 text-xs">
-              <td class="p-1.5 font-mono text-[10px] text-surface-400">#{{ log.id }}</td>
-              <td class="p-1.5 whitespace-nowrap text-[11px]">{{ new Date(log.timestamp).toLocaleString() }}</td>
-              <td class="p-1.5 font-medium text-[11px] max-w-[120px] truncate" :title="log.user_email">{{ log.user_email }}</td>
-              <td class="p-1.5">
-                <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold"
-                  :class="{
-                    'bg-green-100 text-green-800': log.action === 'CREATE',
-                    'bg-blue-100 text-blue-800': log.action === 'UPDATE',
-                    'bg-amber-100 text-amber-800': log.action === 'SOFT_DELETE',
-                    'bg-red-100 text-red-800': log.action === 'PERMANENT_DELETE',
-                    'bg-purple-100 text-purple-800': log.action === 'RESTORE' || log.action === 'BULK_IMPORT',
-                    'bg-surface-200 text-surface-800': log.action === 'EXPORT'
-                  }"
-                >{{ log.action }}</span>
-              </td>
-              <td class="p-1.5 font-medium text-primary text-[11px] max-w-[140px] truncate" :title="log.module">{{ log.module }}</td>
-              <td class="p-1.5 font-mono text-[11px]">{{ log.entity_code || '—' }}</td>
-              <td class="p-1.5 text-surface-600 dark:text-surface-400 max-w-[260px] truncate text-[11px]" :title="log.details">{{ log.details || '—' }}</td>
-              <td class="p-1.5 font-mono text-[10px] text-surface-500">{{ log.ip_address || '—' }}</td>
+            <tr v-if="loading">
+              <td colspan="8" class="empty-cell"><i class="pi pi-spin pi-spinner" /> Loading audit logs…</td>
+            </tr>
+            <tr v-else-if="paginatedLogs.length === 0">
+              <td colspan="8" class="empty-cell">No audit logs match the current filters. Sign-in and catalogue changes appear here.</td>
+            </tr>
+            <tr v-for="log in paginatedLogs" :key="log.id">
+              <td class="mono muted">#{{ log.id }}</td>
+              <td class="nowrap">{{ formatTimestamp(log.timestamp) }}</td>
+              <td class="truncate" :title="log.user_email ?? ''">{{ log.user_email || '—' }}</td>
+              <td><span :class="actionClass(log.action)">{{ log.action }}</span></td>
+              <td class="module">{{ log.module }}</td>
+              <td class="mono">{{ log.entity_code || '—' }}</td>
+              <td class="truncate muted" :title="log.details ?? ''">{{ log.details || '—' }}</td>
+              <td class="mono muted">{{ log.ip_address || '—' }}</td>
             </tr>
           </tbody>
         </table>
       </div>
-      <div class="flex items-center justify-between mt-3 text-xs">
-        <span class="text-surface-500">Page {{ page }} of {{ totalPages }} — {{ filteredLogs.length }} total (showing {{ paginatedLogs.length }})</span>
-        <div class="flex gap-1">
-          <Button label="Prev" size="small" severity="secondary" outlined :disabled="page <= 1" @click="page--" class="!text-xs" />
-          <Button label="Next" size="small" severity="secondary" outlined :disabled="page >= totalPages" @click="page++" class="!text-xs" />
+
+      <div class="pager no-print">
+        <span>Page {{ page }} of {{ totalPages }} — {{ filteredLogs.length }} total</span>
+        <div class="pager__buttons">
+          <Button label="Prev" size="small" severity="secondary" outlined :disabled="page <= 1" @click="page--" />
+          <Button label="Next" size="small" severity="secondary" outlined :disabled="page >= totalPages" @click="page++" />
         </div>
       </div>
-      <div class="mt-3 p-2 bg-surface-50 dark:bg-surface-800 rounded text-[11px] text-surface-600">
-        <strong>Audit Coverage:</strong> All actions from now are audited — CREATE, UPDATE, SOFT_DELETE (moves to Deleted Entries tab), RESTORE, PERMANENT_DELETE, BULK_IMPORT, EXPORT. Includes Vendors/Suppliers and PO/SO with attachment upload tracking. Common template: Export (XLSX/CSV) and Print available on every page.
+
+      <div class="print-sheet" aria-hidden="true">
+        <header class="print-sheet__header">
+          <p class="print-sheet__eyebrow">Drilling Costing</p>
+          <h1>System Audit Log</h1>
+          <p class="print-sheet__meta">{{ printFilters }}</p>
+        </header>
+        <table v-if="filteredLogs.length" class="print-sheet__table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Timestamp</th>
+              <th>User</th>
+              <th>Action</th>
+              <th>Module</th>
+              <th>Entity</th>
+              <th>Details</th>
+              <th>IP</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="log in filteredLogs" :key="`print-${log.id}`">
+              <td>{{ log.id }}</td>
+              <td>{{ formatTimestamp(log.timestamp) }}</td>
+              <td>{{ log.user_email || '—' }}</td>
+              <td>{{ log.action }}</td>
+              <td>{{ log.module }}</td>
+              <td>{{ log.entity_code || '—' }}</td>
+              <td>{{ log.details || '—' }}</td>
+              <td>{{ log.ip_address || '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else class="print-sheet__empty">No audit logs match the current filters.</p>
       </div>
-    </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
-@media print {
-  .audit-logs-page button, .audit-logs-page input, .audit-logs-page select { display: none !important; }
-  .audit-logs-page .overflow-x-auto { overflow: visible !important; max-height: none !important; }
+.audit-logs-page {
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.grid-card {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  box-shadow: var(--app-shadow);
+  padding: 1rem;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.toolbar__filters,
+.toolbar__actions,
+.pager__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.filter-select,
+.search__input {
+  height: 2rem;
+  font-size: 0.78rem;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-surface);
+  color: var(--app-ink);
+  padding: 0 0.5rem;
+}
+
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search .pi-search {
+  position: absolute;
+  left: 0.55rem;
+  color: var(--app-muted);
+  font-size: 0.75rem;
+  pointer-events: none;
+}
+
+.search__input {
+  padding-left: 1.7rem;
+  width: 14rem;
+}
+
+.count {
+  font-size: 0.72rem;
+  color: var(--app-muted);
+}
+
+.table-scroll {
+  overflow: auto;
+  max-height: 65vh;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  text-align: left;
+}
+
+.audit-table th {
+  position: sticky;
+  top: 0;
+  background: var(--app-bg);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--app-muted);
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.audit-table td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--app-border);
+  vertical-align: top;
+}
+
+.module {
+  color: var(--app-teal);
+  font-weight: 600;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.muted {
+  color: var(--app-muted);
+  font-size: 0.72rem;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.truncate {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-cell {
+  padding: 1.5rem !important;
+  text-align: center;
+  color: var(--app-muted);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--app-muted);
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.badge--green { background: #dcfce7; color: #166534; }
+.badge--blue { background: #dbeafe; color: #1e40af; }
+.badge--amber { background: #fef3c7; color: #92400e; }
+.badge--red { background: #fee2e2; color: #991b1b; }
+.badge--purple { background: #f3e8ff; color: #6b21a8; }
+.badge--muted { background: var(--app-bg); color: var(--app-ink); }
+
+.print-sheet {
+  display: none;
 }
 </style>

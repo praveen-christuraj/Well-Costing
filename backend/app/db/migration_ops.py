@@ -117,6 +117,7 @@ def add_missing_columns(table_name: str, *columns: Any, schema: str | None = Non
     for column in columns:
         if not isinstance(column, sa.Column) or column.name in existing:
             continue
+        forced_nullable = False
         if not column.nullable and column.server_default is None:
             logger.warning(
                 "Column %r.%r is missing and NOT NULL without a default; adding it as nullable.",
@@ -124,7 +125,16 @@ def add_missing_columns(table_name: str, *columns: Any, schema: str | None = Non
                 column.name,
             )
             column.nullable = True
+            forced_nullable = True
         _add_column(table_name, column, schema)
+        if forced_nullable and isinstance(column.type, (sa.String, sa.Text)):
+            target = sa.table(table_name, sa.column(column.name), schema=schema)
+            op.execute(
+                target.update()
+                .where(sa.column(column.name).is_(None))
+                .values(**{column.name: ""})
+            )
+            logger.info("Backfilled %r.%r with an empty string.", table_name, column.name)
 
 
 def create_table_if_missing(table_name: str, *columns: Any, **kwargs: Any) -> None:

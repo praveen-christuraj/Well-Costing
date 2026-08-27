@@ -2,6 +2,34 @@
 
 All notable project changes are documented here.
 
+## 2026-08-27 — Master Data 500s, login audit, print sheets, and Add row
+
+Currency, Activities, Hole Sections and the other catalogues returned a generic
+500 ("An unexpected error occurred") when listing legacy rows with NULL required
+strings, or when saving a row without a symbol. Print dumped the whole shell
+including data-entry controls. The audit page still used Tailwind classes this
+app does not load, and a successful sign-in wrote no audit row.
+
+### Fixed
+
+- List/create/update for every master-data module tolerate NULL legacy columns,
+  ignore unknown payload keys, default a missing symbol to the code, and restore
+  a soft-deleted row when the same code is created again — so those tabs load
+  and save instead of 500ing.
+- Integrity/data errors return 409/400 instead of an opaque 500.
+- Print emits a dedicated sheet (title, filter line, read-only table) and hides
+  the shell, toolbars, editors and paginator. Ctrl+P uses the same layout.
+- Audit Log restyled to the current PageHeader / card / compact-table shell.
+
+### Added
+
+- Successful sign-in writes a `LOGIN` audit row (failed attempts do not).
+- **Add row** on every catalogue grid, so a single entry no longer requires
+  creating five rows and deleting four. **+5 Rows** remains for bulk entry.
+- Migration `20260827_0004` backfills NULL symbols/names on existing tables.
+- Master-data and audit tables are registered in `CRITICAL_SCHEMA` so `/health`
+  reports drift instead of leaving list endpoints to fail.
+
 ## 2026-08-27 — Migrations survive partially provisioned databases
 
 `alembic upgrade head` aborted with

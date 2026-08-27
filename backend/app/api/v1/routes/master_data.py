@@ -2,11 +2,13 @@
 
 import csv
 import io
+import logging
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from openpyxl import Workbook, load_workbook
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,6 +25,8 @@ from app.schemas.master_data import (
     UOMOut,
 )
 from app.services.audit import log_audit
+
+logger = logging.getLogger("app")
 
 router = APIRouter(prefix="/master-data", tags=["master-data"])
 
@@ -70,11 +74,60 @@ MODULE_CONFIG = {
 }
 
 
+PROTECTED_FIELDS = {"id", "created_at", "updated_at", "created_by", "updated_by"}
+
+
 def _get_config(module: str) -> dict[str, Any]:
     cfg = MODULE_CONFIG.get(module)
     if not cfg:
         raise HTTPException(status_code=404, detail=f"Module '{module}' not found")
     return cfg
+
+
+def _allowed_fields(model: Any) -> set[str]:
+    return set(model.__table__.columns.keys()) - PROTECTED_FIELDS
+
+
+def _clean_payload(model: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    allowed = _allowed_fields(model)
+    return {key: value for key, value in payload.items() if key in allowed}
+
+
+def _prepare_payload(cfg: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep only model columns and default a missing symbol to the code."""
+
+    cleaned = _clean_payload(cfg["model"], payload)
+    code_field = cfg["code_field"]
+    name_field = cfg["name_field"]
+    symbol_field = cfg["symbol_field"]
+    if code_field in cleaned and cleaned[code_field] is not None:
+        cleaned[code_field] = str(cleaned[code_field]).strip()
+    if name_field in cleaned and cleaned[name_field] is not None:
+        cleaned[name_field] = str(cleaned[name_field]).strip()
+    if symbol_field:
+        symbol = cleaned.get(symbol_field)
+        if symbol is None or (isinstance(symbol, str) and not symbol.strip()):
+            cleaned[symbol_field] = cleaned.get(code_field) or ""
+        else:
+            cleaned[symbol_field] = str(symbol).strip()
+    return cleaned
+
+
+def _to_out(cfg: dict[str, Any], record: Any) -> Any | None:
+    schema = cfg["out_schema"]
+    try:
+        return schema.model_validate(record)
+    except ValidationError:
+        data = {name: getattr(record, name, None) for name in schema.model_fields}
+        try:
+            return schema.model_validate(data)
+        except ValidationError:
+            logger.warning(
+                "Skipping unreadable %s record %s",
+                cfg["name"],
+                getattr(record, "id", None),
+            )
+            return None
 
 
 @router.get("/{module}")
@@ -86,10 +139,9 @@ def list_records(
     """List all active records for a master data module."""
     cfg = _get_config(module)
     model = cfg["model"]
-    out_schema = cfg["out_schema"]
     stmt = select(model).where(model.is_deleted == False).order_by(model.id.desc())
     records = db.scalars(stmt).all()
-    return [out_schema.model_validate(r) for r in records]
+    return [item for item in (_to_out(cfg, r) for r in records) if item is not None]
 
 
 @router.get("/{module}/deleted")
@@ -101,10 +153,9 @@ def list_deleted_records(
     """List soft-deleted records for a master data module."""
     cfg = _get_config(module)
     model = cfg["model"]
-    out_schema = cfg["out_schema"]
     stmt = select(model).where(model.is_deleted == True).order_by(model.deleted_at.desc())
     records = db.scalars(stmt).all()
-    return [out_schema.model_validate(r) for r in records]
+    return [item for item in (_to_out(cfg, r) for r in records) if item is not None]
 
 
 @router.post("/{module}")
@@ -119,15 +170,37 @@ def create_record(
     cfg = _get_config(module)
     model = cfg["model"]
     code_field = cfg["code_field"]
-    out_schema = cfg["out_schema"]
+    name_field = cfg["name_field"]
+    payload = _prepare_payload(cfg, payload)
 
     code_val = payload.get(code_field)
     if not code_val:
         raise HTTPException(status_code=400, detail=f"Field '{code_field}' is required")
+    if not payload.get(name_field):
+        raise HTTPException(status_code=400, detail=f"Field '{name_field}' is required")
 
     existing = db.scalar(select(model).where(getattr(model, code_field) == code_val))
-    if existing:
+    if existing and not existing.is_deleted:
         raise HTTPException(status_code=400, detail=f"Record with code '{code_val}' already exists")
+    if existing and existing.is_deleted:
+        for key, val in payload.items():
+            setattr(existing, key, val)
+        existing.is_deleted = False
+        existing.deleted_at = None
+        existing.updated_by = current_user.id
+        db.commit()
+        db.refresh(existing)
+        log_audit(
+            db,
+            user=current_user,
+            action="RESTORE",
+            module=cfg["name"],
+            entity_id=existing.id,
+            entity_code=str(code_val),
+            details=f"Restored existing deleted {cfg['name']} record {code_val} on create",
+            request=request,
+        )
+        return _to_out(cfg, existing)
 
     instance = model(**payload, created_by=current_user.id, updated_by=current_user.id)
     db.add(instance)
@@ -144,7 +217,7 @@ def create_record(
         details=f"Created {cfg['name']} record {code_val}",
         request=request,
     )
-    return out_schema.model_validate(instance)
+    return _to_out(cfg, instance)
 
 
 @router.put("/{module}/{record_id}")

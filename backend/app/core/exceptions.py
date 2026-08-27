@@ -9,7 +9,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
+
+try:
+    from fastapi.exceptions import ResponseValidationError
+except ImportError:  # pragma: no cover - FastAPI < 0.100
+    ResponseValidationError = None  # type: ignore[misc, assignment]
 
 from app.core.config import Settings
 
@@ -107,8 +112,44 @@ def register_exception_handlers(app: FastAPI, settings: Settings) -> None:
         return _error_response(
             status_code=exc.status_code,
             code="http_error",
-            message=exc.detail,
+            message=str(exc.detail),
             details=None,
+        )
+
+    def _integrity_message(exc: IntegrityError) -> str:
+        original = str(getattr(exc, "orig", exc)).lower()
+        if "unique" in original or "duplicate" in original:
+            return "A record with this code already exists"
+        if "not null" in original or "not-null" in original or "null value" in original:
+            return "A required field is missing"
+        return "The data could not be saved because it conflicts with existing records"
+
+    async def integrity_exception_handler(_request: Request, exc: IntegrityError) -> JSONResponse:
+        logger.warning("Database integrity error", extra={"error": str(getattr(exc, "orig", exc))})
+        return _error_response(
+            status_code=409,
+            code="conflict",
+            message=_integrity_message(exc),
+            details=str(getattr(exc, "orig", exc)) if settings.ENVIRONMENT == "development" else None,
+        )
+
+    async def data_exception_handler(_request: Request, exc: DataError) -> JSONResponse:
+        logger.warning("Database data error", extra={"error": str(getattr(exc, "orig", exc))})
+        return _error_response(
+            status_code=400,
+            code="validation_error",
+            message="The submitted data is not valid for this field",
+            details=str(getattr(exc, "orig", exc)) if settings.ENVIRONMENT == "development" else None,
+        )
+
+    async def response_validation_handler(_request: Request, exc: Exception) -> JSONResponse:
+        logger.exception("Response validation failed")
+        errors = getattr(exc, "errors", lambda: None)()
+        return _error_response(
+            status_code=500,
+            code="internal_error",
+            message="An unexpected error occurred",
+            details=errors if settings.ENVIRONMENT == "development" else None,
         )
 
     def _is_schema_drift(exc: Exception) -> bool:
@@ -154,6 +195,10 @@ def register_exception_handlers(app: FastAPI, settings: Settings) -> None:
     app.add_exception_handler(AppException, app_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(IntegrityError, integrity_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(DataError, data_exception_handler)  # type: ignore[arg-type]
+    if ResponseValidationError is not None:
+        app.add_exception_handler(ResponseValidationError, response_validation_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
 
 
