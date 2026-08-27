@@ -24,6 +24,13 @@ from app.db.migration_ops import (
     drop_table_if_present,
 )
 
+# Databases provisioned by an older build can hold these catalogue tables with
+# UUID primary keys and none of the code columns defined here. Such a table can
+# neither be mapped by the ORM nor referenced by the rate tables below
+# (PostgreSQL rejects the foreign key with DatatypeMismatch), so it is renamed
+# aside with this suffix and replaced by the table this revision defines.
+LEGACY_TABLE_SUFFIX = "pre_20260827_0005"
+
 revision: str = "20260827_0005"
 down_revision: str | None = "20260827_0004"
 branch_labels: str | Sequence[str] | None = None
@@ -56,6 +63,7 @@ def upgrade() -> None:
         *_audit_columns(),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_catalogue_configs")),
         sa.UniqueConstraint("config_type", "value", name=op.f("uq_catalogue_configs_type_value")),
+        incompatible_pk_suffix=LEGACY_TABLE_SUFFIX,
     )
     create_index_if_missing(op.f("ix_catalogue_configs_config_type"), "catalogue_configs", ["config_type"])
 
@@ -70,6 +78,7 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         *_audit_columns(),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_consumable_subcategories")),
+        incompatible_pk_suffix=LEGACY_TABLE_SUFFIX,
     )
     create_index_if_missing(
         op.f("ix_consumable_subcategories_subcategory_code"),
@@ -133,6 +142,7 @@ def upgrade() -> None:
         *_audit_columns(),
         sa.ForeignKeyConstraint(["vendor_id"], ["vendor_suppliers.id"], name=op.f("fk_services_vendor_id_vendor_suppliers")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_services")),
+        incompatible_pk_suffix=LEGACY_TABLE_SUFFIX,
     )
     create_index_if_missing(op.f("ix_services_service_code"), "services", ["service_code"], unique=True)
     create_index_if_missing(op.f("ix_services_service_name"), "services", ["service_name"])
@@ -152,6 +162,7 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         *_audit_columns(),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_mud_chemicals")),
+        incompatible_pk_suffix=LEGACY_TABLE_SUFFIX,
     )
     create_index_if_missing(op.f("ix_mud_chemicals_chemical_code"), "mud_chemicals", ["chemical_code"], unique=True)
     create_index_if_missing(op.f("ix_mud_chemicals_chemical_name"), "mud_chemicals", ["chemical_name"])
@@ -175,6 +186,7 @@ def upgrade() -> None:
         sa.Column("updated_by", sa.Uuid(), nullable=True),
         sa.ForeignKeyConstraint(["chemical_id"], ["mud_chemicals.id"], name=op.f("fk_mud_chemical_rates_chemical_id_mud_chemicals")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_mud_chemical_rates")),
+        incompatible_pk_suffix=LEGACY_TABLE_SUFFIX,
     )
     create_index_if_missing(op.f("ix_mud_chemical_rates_chemical_id"), "mud_chemical_rates", ["chemical_id"])
     create_index_if_missing(op.f("ix_mud_chemical_rates_effective_date"), "mud_chemical_rates", ["effective_date"])
@@ -200,6 +212,7 @@ def upgrade() -> None:
         sa.Column("remarks", sa.Text(), nullable=True),
         *_audit_columns(),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_drill_bits")),
+        incompatible_pk_suffix=LEGACY_TABLE_SUFFIX,
     )
     create_index_if_missing(op.f("ix_drill_bits_bit_code"), "drill_bits", ["bit_code"], unique=True)
     create_index_if_missing(op.f("ix_drill_bits_bit_name"), "drill_bits", ["bit_name"])
@@ -224,6 +237,7 @@ def upgrade() -> None:
         sa.Column("updated_by", sa.Uuid(), nullable=True),
         sa.ForeignKeyConstraint(["bit_id"], ["drill_bits.id"], name=op.f("fk_drill_bit_rates_bit_id_drill_bits")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_drill_bit_rates")),
+        incompatible_pk_suffix=LEGACY_TABLE_SUFFIX,
     )
     create_index_if_missing(op.f("ix_drill_bit_rates_bit_id"), "drill_bit_rates", ["bit_id"])
     create_index_if_missing(op.f("ix_drill_bit_rates_effective_date"), "drill_bit_rates", ["effective_date"])
@@ -249,6 +263,7 @@ def upgrade() -> None:
         sa.Column("remarks", sa.Text(), nullable=True),
         *_audit_columns(),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_tangibles")),
+        incompatible_pk_suffix=LEGACY_TABLE_SUFFIX,
     )
     create_index_if_missing(op.f("ix_tangibles_tangible_code"), "tangibles", ["tangible_code"], unique=True)
     create_index_if_missing(op.f("ix_tangibles_tangible_name"), "tangibles", ["tangible_name"])
@@ -274,6 +289,7 @@ def upgrade() -> None:
         sa.Column("updated_by", sa.Uuid(), nullable=True),
         sa.ForeignKeyConstraint(["tangible_id"], ["tangibles.id"], name=op.f("fk_tangible_rates_tangible_id_tangibles")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_tangible_rates")),
+        incompatible_pk_suffix=LEGACY_TABLE_SUFFIX,
     )
     create_index_if_missing(op.f("ix_tangible_rates_tangible_id"), "tangible_rates", ["tangible_id"])
     create_index_if_missing(op.f("ix_tangible_rates_effective_date"), "tangible_rates", ["effective_date"])

@@ -2,6 +2,39 @@
 
 All notable project changes are documented here.
 
+## 2026-08-27 — Legacy UUID-keyed catalogue tables no longer block migrations
+
+`alembic upgrade head` aborted on Termux with
+`psycopg.errors.DatatypeMismatch: foreign key constraint "fk_mud_chemical_rates_chemical_id_mud_chemicals" cannot be implemented … incompatible types: integer and uuid`
+while running `20260827_0005`. The database already held `services` and
+`mud_chemicals` from an older schema: UUID primary keys and none of the code
+columns this revision defines. Skipping the existing tables (the previous
+behaviour) left the new rate tables pointing at a key they cannot reference, so
+PostgreSQL rejected the `CREATE TABLE` and the deployment was stuck.
+
+### Fixed
+
+- `20260827_0005` replaces a pre-existing catalogue table whose primary key has
+  a different type from the declared one: the old table is renamed to
+  `<table>_pre_20260827_0005` with its rows intact, and the table the code
+  expects is created in its place. Index and constraint names move with it, so
+  the rebuilt table can reuse `pk_mud_chemicals` and friends.
+- A foreign key that points at a table this revision does not own and whose key
+  type does not match (a legacy UUID-keyed `vendor_suppliers`, say) is skipped
+  with a warning instead of failing the whole upgrade.
+- `termux/deploy.sh` recognises `DatatypeMismatch` and explains it, rather than
+  reporting the generic "tables already exist" hint.
+
+### Added
+
+- `create_table_if_missing(..., incompatible_pk_suffix=...)` plus the
+  type-family, primary-key-compatibility, quarantine and foreign-key helpers in
+  `app/db/migration_ops.py` that back it.
+- Migration tests for the legacy-table replacement and the skipped foreign key,
+  and an opt-in PostgreSQL test (`TEST_DATABASE_URL`) that reproduces the
+  original `DatatypeMismatch` — SQLite accepts a key mismatch, so only a real
+  PostgreSQL server proves this path.
+
 ## 2026-08-27 — Currency backfill fits VARCHAR(10) on UUID primary keys
 
 `alembic upgrade head` aborted on Termux with

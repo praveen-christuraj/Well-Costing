@@ -349,6 +349,44 @@ match the current models — record the schema as up to date:
 bash termux/backend-exec.sh python -m alembic stamp head
 ```
 
+#### Problem: Migrations fail with `incompatible types: integer and uuid` (`DatatypeMismatch`)
+
+```
+foreign key constraint "fk_mud_chemical_rates_chemical_id_mud_chemicals" cannot be implemented
+DETAIL:  Key columns "chemical_id" of the referencing table and "id" of the
+referenced table are of incompatible types: integer and uuid.
+```
+
+The database already holds one of the catalogue tables (`services`,
+`mud_chemicals`, `drill_bits`, `tangibles`) from an older schema, keyed by UUID
+and missing the code/name columns the application requires. Such a table cannot
+be adopted: the ORM maps these entities with integer ids, and PostgreSQL refuses
+every foreign key that references a key of a different type.
+
+Revision `20260827_0005` now handles this itself — it renames the incompatible
+table to `<table>_pre_20260827_0005` (rows included, so nothing is lost) and
+creates the table the code expects in its place. Update the deployment and
+re-run:
+
+```bash
+git pull
+bash termux/deploy.sh
+```
+
+The renamed tables are yours to deal with afterwards. Inspect or copy anything
+you need, then drop them:
+
+```sql
+SELECT * FROM mud_chemicals_pre_20260827_0005;
+DROP TABLE mud_chemicals_pre_20260827_0005;
+```
+
+The same revision skips — with a warning in `termux/migration.log` — any foreign
+key that points at a table it does not own and whose key type does not match
+(for example a legacy UUID-keyed `vendor_suppliers`). If your database is full
+of such tables it is an unrelated schema: point `DATABASE_URL` at an empty
+database instead of migrating it.
+
 #### Problem: Memory/RAM errors
 
 Termux on devices with less than 4 GB RAM can struggle with `npm run build`.

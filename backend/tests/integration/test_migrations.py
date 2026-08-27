@@ -7,6 +7,7 @@ upgrade aborted with ``DuplicateTable: relation "currencies" already exists``
 and the deployment could not move forward.
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -223,3 +224,143 @@ def test_upgrade_adds_currency_code_onto_uuid_legacy_table(database_url: str) ->
     assert row.currency_code not in (None, "")
     assert len(row.currency_code) <= 10
     assert row.currency_name == "Unknown"
+
+
+def _column_type(url: str, table: str, column: str) -> str:
+    engine = create_engine(url)
+    try:
+        for candidate in inspect(engine).get_columns(table):
+            if candidate["name"] == column:
+                return str(candidate["type"])
+    finally:
+        engine.dispose()
+    raise AssertionError(f"{table}.{column} does not exist")
+
+
+def _foreign_keys(url: str, table: str) -> list[dict]:
+    engine = create_engine(url)
+    try:
+        return list(inspect(engine).get_foreign_keys(table))
+    finally:
+        engine.dispose()
+
+
+def test_upgrade_replaces_legacy_uuid_catalogue_tables(database_url: str) -> None:
+    """A legacy catalogue table keyed by UUID is renamed aside, not adopted.
+
+    Reproduces the Termux failure where ``20260827_0005`` aborted with
+    ``DatatypeMismatch: Key columns "chemical_id" of the referencing table and
+    "id" of the referenced table are of incompatible types: integer and uuid``
+    because the database already held a UUID-keyed ``mud_chemicals``. The old
+    table cannot host the rate table's foreign key and the ORM cannot map it
+    either, so it is renamed aside with its rows and rebuilt as declared.
+    """
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE mud_chemicals ("
+                "id VARCHAR(36) PRIMARY KEY, part_number VARCHAR(100))"
+            )
+        )
+        connection.execute(
+            text("INSERT INTO mud_chemicals (id, part_number) VALUES ('legacy-1', 'P-1')")
+        )
+    engine.dispose()
+
+    command.upgrade(_alembic_config(database_url), "head")
+
+    assert _current_revision(database_url) == HEAD_REVISION
+    assert "mud_chemicals_pre_20260827_0005" in _tables(database_url)
+    assert _column_type(database_url, "mud_chemicals", "id") == "INTEGER"
+
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        kept = connection.execute(
+            text("SELECT part_number FROM mud_chemicals_pre_20260827_0005")
+        ).scalar_one()
+    engine.dispose()
+
+    # The legacy rows survive under the new name for a manual migration.
+    assert kept == "P-1"
+    # The rebuilt table is the one the rate history points at.
+    assert any(
+        foreign_key["referred_table"] == "mud_chemicals"
+        for foreign_key in _foreign_keys(database_url, "mud_chemical_rates")
+    )
+
+
+def test_upgrade_skips_foreign_key_to_legacy_uuid_table(database_url: str) -> None:
+    """An unusable foreign key is skipped instead of aborting the upgrade.
+
+    ``vendor_suppliers`` belongs to an earlier revision, so it is left alone
+    when its primary key does not match; the foreign keys pointing at it cannot
+    be created and are dropped with a warning rather than failing the migration.
+    """
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE vendor_suppliers ("
+                "id VARCHAR(36) PRIMARY KEY, "
+                "vendor_code VARCHAR(50), "
+                "vendor_name VARCHAR(200), "
+                "is_deleted BOOLEAN DEFAULT 0)"
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(_alembic_config(database_url), "head")
+
+    assert _current_revision(database_url) == HEAD_REVISION
+    assert "vendor_suppliers_pre_20260827_0005" not in _tables(database_url)
+    assert not [
+        foreign_key
+        for foreign_key in _foreign_keys(database_url, "services")
+        if foreign_key["referred_table"] == "vendor_suppliers"
+    ]
+
+
+POSTGRES_URL = os.environ.get("TEST_DATABASE_URL")
+
+
+@pytest.mark.skipif(
+    not POSTGRES_URL,
+    reason="set TEST_DATABASE_URL to an empty PostgreSQL database to run",
+)
+def test_upgrade_over_legacy_uuid_tables_on_postgresql() -> None:
+    """The reported failure needs PostgreSQL: only it rejects the mismatched key.
+
+    SQLite accepts a foreign key between an INTEGER and a VARCHAR column, so
+    the ``DatatypeMismatch`` this guards against can only be reproduced against
+    a real PostgreSQL server. Point ``TEST_DATABASE_URL`` at an empty database
+    (``postgresql+psycopg://user:pass@host/dbname``) to run it.
+    """
+
+    url = POSTGRES_URL
+    assert url is not None
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE IF EXISTS mud_chemical_rates CASCADE"))
+        connection.execute(text("DROP TABLE IF EXISTS mud_chemicals CASCADE"))
+        connection.execute(
+            text(
+                "CREATE TABLE mud_chemicals ("
+                "id uuid PRIMARY KEY DEFAULT gen_random_uuid(), "
+                "part_number VARCHAR(100))"
+            )
+        )
+        connection.execute(text("INSERT INTO mud_chemicals (part_number) VALUES ('P-1')"))
+    engine.dispose()
+
+    command.upgrade(_alembic_config(url), "head")
+
+    assert _current_revision(url) == HEAD_REVISION
+    assert "mud_chemicals_pre_20260827_0005" in _tables(url)
+    assert _column_type(url, "mud_chemicals", "id") == "INTEGER"
+    assert any(
+        foreign_key["referred_table"] == "mud_chemicals"
+        for foreign_key in _foreign_keys(url, "mud_chemical_rates")
+    )

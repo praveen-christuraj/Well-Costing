@@ -447,6 +447,17 @@ run_migrations() {
             err ""
             err "  The database rejected the credentials in backend/.env DATABASE_URL."
             err "  Check user/password — percent-encode special characters (@ → %40, % → %25)."
+        elif grep -qiE "DatatypeMismatch|incompatible types" "$migration_log"; then
+            err ""
+            err "  A table already in this database uses a different primary-key type"
+            err "  from the one the schema declares — a legacy UUID-keyed 'services' or"
+            err "  'mud_chemicals', for example — so PostgreSQL refuses the foreign key"
+            err "  that references it. Migrations now rename such a table to"
+            err "  '<table>_pre_<revision>' and rebuild it, so first make sure this"
+            err "  deployment is up to date:"
+            err "    git pull && bash termux/deploy.sh"
+            err "  If it persists, the database holds an unrelated schema: point"
+            err "  DATABASE_URL at an empty database instead."
         elif grep -qiE "DuplicateTable|already exists" "$migration_log"; then
             err ""
             err "  The database already contains tables a migration wants to create, and"
