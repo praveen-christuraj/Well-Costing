@@ -18,13 +18,115 @@ backends and so callers can log what was skipped.
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import uuid
 from typing import Any
 
 import sqlalchemy as sa
 from alembic import op
 
 logger = logging.getLogger("alembic.runtime.migration")
+
+# Default width used when a string column does not advertise a length (TEXT).
+_DEFAULT_STRING_LENGTH = 50
+
+
+def string_column_max_length(column_type: Any, default: int = _DEFAULT_STRING_LENGTH) -> int:
+    """Return the VARCHAR length of ``column_type``, or ``default`` when unbounded."""
+
+    length = getattr(column_type, "length", None)
+    if isinstance(length, int) and length > 0:
+        return length
+    return default
+
+
+def unique_placeholder_code(
+    row_id: object,
+    existing_codes: set[str],
+    max_length: int,
+    prefix: str = "",
+) -> str:
+    """Return a unique placeholder that always fits in ``max_length`` characters.
+
+    Concatenating a prefix with a UUID primary key (``C{uuid}``) overflows
+    short columns such as ``currencies.currency_code VARCHAR(10)`` and aborts
+    PostgreSQL with ``StringDataRightTruncation``. Integer ids that already
+    fit (``C1``, ``TMP5``) are kept as-is so existing backfills stay stable.
+    """
+
+    if max_length < 1:
+        max_length = 1
+
+    naive = f"{prefix}{row_id}"
+    if naive and len(naive) <= max_length and naive not in existing_codes:
+        return naive
+
+    seed = str(row_id)
+    for nonce in range(10_000):
+        digest = hashlib.sha1(f"{seed}:{nonce}".encode()).hexdigest()
+        if prefix and max_length > 1:
+            candidate = (prefix[0] + digest)[:max_length]
+        else:
+            candidate = digest[:max_length]
+        if candidate not in existing_codes:
+            return candidate
+
+    return uuid.uuid4().hex[:max_length]
+
+
+def backfill_unique_string_column(
+    table_name: str,
+    column_name: str,
+    *,
+    schema: str | None = None,
+    max_length: int | None = None,
+) -> None:
+    """Fill NULL/empty values of a unique string column with length-safe codes.
+
+    Used both when a missing ``*_code`` column is added onto a legacy table
+    and by the dedicated master-data backfill revision. Legacy deployments
+    may use UUID primary keys, so placeholders are sized to the live column.
+    """
+
+    inspector = _inspector()
+    if not inspector.has_table(table_name, schema=schema):
+        return
+    columns = {column["name"]: column for column in inspector.get_columns(table_name, schema=schema)}
+    if column_name not in columns or "id" not in columns:
+        return
+    if max_length is None:
+        max_length = string_column_max_length(columns[column_name]["type"])
+
+    bind = op.get_bind()
+    existing_codes: set[str] = set()
+    try:
+        result = bind.execute(
+            sa.text(
+                f"SELECT {column_name} FROM {table_name} "
+                f"WHERE {column_name} IS NOT NULL AND {column_name} != ''"
+            )
+        )
+        existing_codes = {str(row[0]) for row in result if row[0] is not None}
+    except Exception:
+        existing_codes = set()
+
+    try:
+        result = bind.execute(
+            sa.text(f"SELECT id FROM {table_name} WHERE {column_name} IS NULL OR {column_name} = ''")
+        )
+        rows = result.fetchall()
+    except Exception:
+        rows = []
+
+    prefix = "C" if table_name == "currencies" else "TMP"
+    for (row_id,) in rows:
+        candidate = unique_placeholder_code(row_id, existing_codes, max_length, prefix=prefix)
+        bind.execute(
+            sa.text(f"UPDATE {table_name} SET {column_name} = :code WHERE id = :id"),
+            {"code": candidate, "id": row_id},
+        )
+        existing_codes.add(candidate)
 
 
 def _inspector() -> sa.Inspector:
@@ -129,45 +231,14 @@ def add_missing_columns(table_name: str, *columns: Any, schema: str | None = Non
         _add_column(table_name, column, schema)
         if forced_nullable and isinstance(column.type, (sa.String, sa.Text)):
             is_code_column = column.name.endswith("_code")
-            bind = op.get_bind()
             insp_cols = {c["name"] for c in _inspector().get_columns(table_name, schema=schema)}
             if is_code_column and "id" in insp_cols:
-                try:
-                    result = bind.execute(
-                        sa.text(f'SELECT id FROM "{table_name}" WHERE "{column.name}" IS NULL OR "{column.name}" = \'\'')
-                    )
-                    rows = result.fetchall()
-                except Exception:
-                    rows = []
-                existing_codes: set[str] = set()
-                try:
-                    r2 = bind.execute(
-                        sa.text(f'SELECT "{column.name}" FROM "{table_name}" WHERE "{column.name}" IS NOT NULL AND "{column.name}" != \'\'')
-                    )
-                    existing_codes = {str(r[0]) for r in r2 if r[0] is not None}
-                except Exception:
-                    existing_codes = set()
-
-                for (row_id,) in rows:
-                    base = f"C{row_id}" if table_name == "currencies" else f"TMP{row_id}"
-                    candidate = base
-                    suffix = 0
-                    while candidate in existing_codes:
-                        suffix += 1
-                        if table_name == "currencies":
-                            candidate = f"C{row_id}_{suffix}"[:10]
-                        else:
-                            candidate = f"{base}_{suffix}"[:50]
-                        if suffix > 1000:
-                            import uuid
-
-                            candidate = uuid.uuid4().hex[:8].upper()[:10] if table_name == "currencies" else uuid.uuid4().hex[:12]
-                            break
-                    bind.execute(
-                        sa.text(f'UPDATE "{table_name}" SET "{column.name}" = :code WHERE id = :id'),
-                        {"code": candidate, "id": row_id},
-                    )
-                    existing_codes.add(candidate)
+                backfill_unique_string_column(
+                    table_name,
+                    column.name,
+                    schema=schema,
+                    max_length=string_column_max_length(column.type),
+                )
                 logger.info("Backfilled %r.%r with unique placeholders.", table_name, column.name)
             else:
                 target = sa.table(table_name, sa.column(column.name), schema=schema)

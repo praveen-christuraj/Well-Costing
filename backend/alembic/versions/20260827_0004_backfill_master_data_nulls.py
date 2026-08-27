@@ -10,13 +10,17 @@ was reconciled by ``20260827_0002``, required string columns such as
 without a default onto a table that already has rows). Listing those records
 then failed Pydantic validation and the API returned a generic 500.
 
-This revision fills remaining NULLs so the pages load.
+This revision fills remaining NULLs so the pages load. Unique ``*_code``
+placeholders are sized to the live column: concatenating ``C`` with a UUID
+primary key overflowed ``currencies.currency_code VARCHAR(10)`` on PostgreSQL
+(``StringDataRightTruncation``).
 """
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from app.db.migration_ops import backfill_unique_string_column
 
 revision: str = "20260827_0004"
 down_revision: str | None = "20260827_0003"
@@ -52,7 +56,6 @@ def _backfill_string(table_name: str, column_name: str, fallback_column: str | N
     columns = _table_columns(table_name)
     if column_name not in columns:
         return
-    bind = op.get_bind()
 
     if fallback_column and fallback_column in columns:
         op.execute(
@@ -64,7 +67,9 @@ def _backfill_string(table_name: str, column_name: str, fallback_column: str | N
 
     if fallback_column is None:
         # This is a unique ``*_code`` column. Setting multiple NULLs to '' violates
-        # the unique index (ix_*_code). Generate a unique placeholder per row.
+        # the unique index (ix_*_code). Generate a unique placeholder per row
+        # that fits the live VARCHAR length (UUID ids must not be concatenated
+        # raw into currency_code VARCHAR(10)).
         if "id" not in columns:
             # No id to key off - fall back to random short strings
             try:
@@ -84,44 +89,7 @@ def _backfill_string(table_name: str, column_name: str, fallback_column: str | N
                 )
             return
 
-        # Collect existing non-empty codes to avoid collisions
-        existing_codes: set[str] = set()
-        try:
-            result = bind.execute(
-                sa.text(f"SELECT {column_name} FROM {table_name} WHERE {column_name} IS NOT NULL AND {column_name} != ''")
-            )
-            existing_codes = {str(row[0]) for row in result if row[0] is not None}
-        except Exception:
-            existing_codes = set()
-
-        try:
-            result = bind.execute(sa.text(f"SELECT id FROM {table_name} WHERE {column_name} IS NULL OR {column_name} = ''"))
-            rows = result.fetchall()
-        except Exception:
-            rows = []
-
-        for (row_id,) in rows:
-            base = f"C{row_id}" if table_name == "currencies" else f"TMP{row_id}"
-            candidate = base
-            suffix = 0
-            while candidate in existing_codes:
-                suffix += 1
-                if table_name == "currencies":
-                    candidate = f"C{row_id}_{suffix}"[:10]
-                else:
-                    candidate = f"{base}_{suffix}"[:50]
-                if suffix > 1000:
-                    import uuid
-
-                    candidate = uuid.uuid4().hex[:8].upper()
-                    if table_name == "currencies":
-                        candidate = candidate[:10]
-                    break
-            bind.execute(
-                sa.text(f"UPDATE {table_name} SET {column_name} = :code WHERE id = :id"),
-                {"code": candidate, "id": row_id},
-            )
-            existing_codes.add(candidate)
+        backfill_unique_string_column(table_name, column_name)
     else:
         op.execute(sa.text(f"UPDATE {table_name} SET {column_name} = '' WHERE {column_name} IS NULL"))
 

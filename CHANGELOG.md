@@ -2,6 +2,23 @@
 
 All notable project changes are documented here.
 
+## 2026-08-27 — Currency backfill fits VARCHAR(10) on UUID primary keys
+
+`alembic upgrade head` aborted on Termux with
+`psycopg.errors.StringDataRightTruncation: value too long for type character varying(10)`
+while running `20260827_0004`. A pre-restructure `currencies` table can keep UUID
+primary keys; the backfill concatenated `C` with the full UUID
+(`Cfe8f4fe6-14dd-4eab-a8fb-a9ae2d367477`, 37 characters) into
+`currency_code VARCHAR(10)`.
+
+### Fixed
+
+- Unique `*_code` placeholders are sized to the live column. Integer ids still
+  produce short codes (`C1`); UUID ids hash into the available width so
+  PostgreSQL no longer rejects the update.
+- The same helper is used when `20260827_0002` adds a missing code column onto
+  a legacy table, so both paths survive UUID primary keys.
+
 ## 2026-08-27 — One-off cleanup of the pre-restructure tables
 
 Databases provisioned before the module restructure still carried the removed modules'

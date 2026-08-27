@@ -133,3 +133,93 @@ def test_upgrade_completes_legacy_table_and_keeps_data(database_url: str) -> Non
     assert row.created_at is not None
     # Required string columns added onto a legacy table are filled, not left NULL.
     assert row.currency_symbol == ""
+
+
+def test_upgrade_backfills_null_currency_code_for_uuid_primary_keys(database_url: str) -> None:
+    """Legacy currencies tables may use UUID ids; placeholders must fit VARCHAR(10).
+
+    Reproduces the Termux failure:
+    ``StringDataRightTruncation: value too long for type character varying(10)``
+    when revision ``20260827_0004`` concatenated ``C`` with the full UUID.
+    """
+
+    row_id = "fe8f4fe6-14dd-4eab-a8fb-a9ae2d367477"
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE currencies ("
+                "id VARCHAR(36) PRIMARY KEY, "
+                "currency_code VARCHAR(10), "
+                "currency_name VARCHAR(100))"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO currencies (id, currency_code, currency_name) "
+                "VALUES (:id, NULL, NULL)"
+            ),
+            {"id": row_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO currencies (id, currency_code, currency_name) "
+                "VALUES (:id, 'USD', 'Dollar')"
+            ),
+            {"id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+        )
+    engine.dispose()
+
+    command.upgrade(_alembic_config(database_url), "head")
+
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text("SELECT id, currency_code, currency_name, currency_symbol FROM currencies")
+        ).fetchall()
+    engine.dispose()
+
+    assert _current_revision(database_url) == HEAD_REVISION
+    codes = [row.currency_code for row in rows]
+    assert all(code not in (None, "") for code in codes)
+    assert all(len(code) <= 10 for code in codes)
+    assert "USD" in codes
+    assert len(set(codes)) == len(codes)
+
+
+def test_upgrade_adds_currency_code_onto_uuid_legacy_table(database_url: str) -> None:
+    """A legacy currencies table missing currency_code still upgrades.
+
+    ``20260827_0002`` adds the column as nullable and must backfill a unique
+    placeholder that fits VARCHAR(10) rather than ``C{uuid}``.
+    """
+
+    row_id = "fe8f4fe6-14dd-4eab-a8fb-a9ae2d367477"
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE currencies ("
+                "id VARCHAR(36) PRIMARY KEY, "
+                "currency_name VARCHAR(100))"
+            )
+        )
+        connection.execute(
+            text("INSERT INTO currencies (id, currency_name) VALUES (:id, 'Unknown')"),
+            {"id": row_id},
+        )
+    engine.dispose()
+
+    command.upgrade(_alembic_config(database_url), "head")
+
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        row = connection.execute(
+            text("SELECT currency_code, currency_name FROM currencies")
+        ).one()
+    engine.dispose()
+
+    assert _current_revision(database_url) == HEAD_REVISION
+    assert row.currency_code not in (None, "")
+    assert len(row.currency_code) <= 10
+    assert row.currency_name == "Unknown"
