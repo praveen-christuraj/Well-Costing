@@ -1,7 +1,15 @@
 """SQLAlchemy model exports used by Alembic metadata discovery."""
 
 from app.models.audit_log import AuditLog
-from app.models.master_data import Activity, Currency, HoleSection, Phase, UnitOfMeasurement
+from app.models.master_data import (
+    Activity,
+    Currency,
+    HoleSection,
+    Phase,
+    PurchaseOrderServiceOrder,
+    UnitOfMeasurement,
+    VendorSupplier,
+)
 from app.models.role import Role
 from app.models.user import User, user_roles
 
@@ -13,6 +21,8 @@ __all__ = [
     "Phase",
     "Role",
     "UnitOfMeasurement",
+    "VendorSupplier",
+    "PurchaseOrderServiceOrder",
     "User",
     "user_roles",
 ]
