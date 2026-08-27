@@ -704,32 +704,32 @@ function handlePOAttachmentSelect(event: any) {
       <button
         v-for="(mod, index) in modules"
         :key="mod.key"
+        @click="activeTab = index"
         class="px-4 py-2.5 font-medium text-xs border-b-2 whitespace-nowrap transition-colors"
         :class="activeTab === index ? 'border-primary text-primary font-semibold bg-primary/5' : 'border-transparent text-surface-600 dark:text-surface-400 hover:text-surface-900'"
-        @click="activeTab = index"
       >
         {{ mod.label }}
       </button>
       <button
+        @click="activeTab = 5"
         class="px-4 py-2.5 font-medium text-xs border-b-2 whitespace-nowrap transition-colors"
         :class="activeTab === 5 ? 'border-primary text-primary font-semibold bg-primary/5' : 'border-transparent text-surface-600 dark:text-surface-400 hover:text-surface-900'"
-        @click="activeTab = 5"
       >
-        <i class="pi pi-truck mr-1"/> Vendors/Suppliers
+        <i class="pi pi-truck mr-1"></i> Vendors/Suppliers
       </button>
       <button
+        @click="activeTab = 6"
         class="px-4 py-2.5 font-medium text-xs border-b-2 whitespace-nowrap transition-colors"
         :class="activeTab === 6 ? 'border-primary text-primary font-semibold bg-primary/5' : 'border-transparent text-surface-600 dark:text-surface-400 hover:text-surface-900'"
-        @click="activeTab = 6"
       >
-        <i class="pi pi-file-edit mr-1"/> PO/SO Orders
+        <i class="pi pi-file-edit mr-1"></i> PO/SO Orders
       </button>
       <button
+        @click="activeTab = 7; loadAllDeleted()"
         class="px-4 py-2.5 font-medium text-xs border-b-2 whitespace-nowrap transition-colors text-red-600 dark:text-red-400"
         :class="activeTab === 7 ? 'border-red-600 font-semibold bg-red-50 dark:bg-red-900/20' : 'border-transparent hover:text-red-700'"
-        @click="activeTab = 7; loadAllDeleted()"
       >
-        <i class="pi pi-trash mr-1"/> Deleted Entries
+        <i class="pi pi-trash mr-1"></i> Deleted Entries
       </button>
     </div>
 
@@ -737,11 +737,11 @@ function handlePOAttachmentSelect(event: any) {
     <div v-if="activeTab < modules.length && currentModule" class="bg-surface-0 dark:bg-surface-900 rounded-lg shadow-sm border border-surface-200 dark:border-surface-700 p-4">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div class="flex items-center gap-1.5 flex-wrap">
-          <Button label="Add" icon="pi pi-plus" size="small" severity="primary" class="!text-xs !py-1" @click="openAddDialog" />
-          <Button label="Import" icon="pi pi-upload" size="small" severity="secondary" outlined class="!text-xs" @click="showImportDialog = true" />
-          <Button label="XLSX" icon="pi pi-file-excel" size="small" severity="success" outlined class="!text-xs" @click="exportData('xlsx')" />
-          <Button label="CSV" icon="pi pi-file" size="small" severity="help" outlined class="!text-xs" @click="exportData('csv')" />
-          <Button label="Print" icon="pi pi-print" size="small" severity="secondary" outlined class="!text-xs" @click="printTable" />
+          <Button label="Add" icon="pi pi-plus" size="small" severity="primary" @click="openAddDialog" class="!text-xs !py-1" />
+          <Button label="Import" icon="pi pi-upload" size="small" severity="secondary" outlined @click="showImportDialog = true" class="!text-xs" />
+          <Button label="XLSX" icon="pi pi-file-excel" size="small" severity="success" outlined @click="exportData('xlsx')" class="!text-xs" />
+          <Button label="CSV" icon="pi pi-file" size="small" severity="help" outlined @click="exportData('csv')" class="!text-xs" />
+          <Button label="Print" icon="pi pi-print" size="small" severity="secondary" outlined @click="printTable" class="!text-xs" />
           <span class="text-[11px] text-surface-500 ml-2">{{ filteredRecords.length }} records</span>
         </div>
         <div class="flex items-center gap-2">
@@ -768,7 +768,7 @@ function handlePOAttachmentSelect(event: any) {
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td :colspan="currentModule.symbolField ? 6 : 5" class="p-6 text-center text-surface-500"><i class="pi pi-spin pi-spinner"/> Loading...</td></tr>
+            <tr v-if="loading"><td :colspan="currentModule.symbolField ? 6 : 5" class="p-6 text-center text-surface-500"><i class="pi pi-spin pi-spinner"></i> Loading...</td></tr>
             <tr v-else-if="paginatedRecords.length === 0"><td :colspan="currentModule.symbolField ? 6 : 5" class="p-6 text-center text-surface-500">No records. Add or Import.</td></tr>
             <tr v-for="item in paginatedRecords" :key="item.id" class="border-b border-surface-100 dark:border-surface-800 hover:bg-surface-50 dark:hover:bg-surface-800/50">
               <td class="p-2 font-mono text-[11px] text-surface-500">#{{ item.id }}</td>
@@ -777,8 +777,8 @@ function handlePOAttachmentSelect(event: any) {
               <td v-if="currentModule.symbolField" class="p-2 font-semibold text-xs">{{ item[currentModule.symbolField] }}</td>
               <td class="p-2 text-surface-600 dark:text-surface-400 text-[11px] max-w-[240px] truncate" :title="item.description">{{ item.description || '—' }}</td>
               <td class="p-2 text-right">
-                <button class="p-1 mx-0.5 text-surface-600 hover:text-primary" title="Edit" @click="openEditDialog(item)"><i class="pi pi-pencil text-xs"/></button>
-                <button class="p-1 mx-0.5 text-red-500 hover:text-red-700" title="Delete" @click="softDelete(item)"><i class="pi pi-trash text-xs"/></button>
+                <button @click="openEditDialog(item)" class="p-1 mx-0.5 text-surface-600 hover:text-primary" title="Edit"><i class="pi pi-pencil text-xs"></i></button>
+                <button @click="softDelete(item)" class="p-1 mx-0.5 text-red-500 hover:text-red-700" title="Delete"><i class="pi pi-trash text-xs"></i></button>
               </td>
             </tr>
           </tbody>
@@ -787,8 +787,8 @@ function handlePOAttachmentSelect(event: any) {
       <div class="flex items-center justify-between mt-3 text-xs">
         <span class="text-surface-500">Page {{ currentPage }} of {{ totalPages }} — {{ filteredRecords.length }} total</span>
         <div class="flex gap-1">
-          <Button label="Prev" size="small" severity="secondary" outlined :disabled="currentPage <= 1" class="!text-xs" @click="currentPage--" />
-          <Button label="Next" size="small" severity="secondary" outlined :disabled="currentPage >= totalPages" class="!text-xs" @click="currentPage++" />
+          <Button label="Prev" size="small" severity="secondary" outlined :disabled="currentPage <= 1" @click="currentPage--" class="!text-xs" />
+          <Button label="Next" size="small" severity="secondary" outlined :disabled="currentPage >= totalPages" @click="currentPage++" class="!text-xs" />
         </div>
       </div>
     </div>
@@ -797,11 +797,11 @@ function handlePOAttachmentSelect(event: any) {
     <div v-else-if="activeTab === 5" class="bg-surface-0 dark:bg-surface-900 rounded-lg shadow-sm border border-surface-200 dark:border-surface-700 p-4">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div class="flex items-center gap-1.5 flex-wrap">
-          <Button label="Add Vendor" icon="pi pi-plus" size="small" severity="primary" class="!text-xs" @click="openAddVendor" />
-          <Button label="Import Bulk" icon="pi pi-upload" size="small" severity="secondary" outlined class="!text-xs" @click="showVendorImport = true" />
-          <Button label="XLSX" icon="pi pi-file-excel" size="small" severity="success" outlined class="!text-xs" @click="exportVendors('xlsx')" />
-          <Button label="CSV" icon="pi pi-file" size="small" severity="help" outlined class="!text-xs" @click="exportVendors('csv')" />
-          <Button label="Print" icon="pi pi-print" size="small" severity="secondary" outlined class="!text-xs" @click="printTable" />
+          <Button label="Add Vendor" icon="pi pi-plus" size="small" severity="primary" @click="openAddVendor" class="!text-xs" />
+          <Button label="Import Bulk" icon="pi pi-upload" size="small" severity="secondary" outlined @click="showVendorImport = true" class="!text-xs" />
+          <Button label="XLSX" icon="pi pi-file-excel" size="small" severity="success" outlined @click="exportVendors('xlsx')" class="!text-xs" />
+          <Button label="CSV" icon="pi pi-file" size="small" severity="help" outlined @click="exportVendors('csv')" class="!text-xs" />
+          <Button label="Print" icon="pi pi-print" size="small" severity="secondary" outlined @click="printTable" class="!text-xs" />
           <span class="text-[11px] text-surface-500 ml-2">{{ filteredVendors.length }} vendors</span>
         </div>
         <div class="flex items-center gap-2">
@@ -828,7 +828,7 @@ function handlePOAttachmentSelect(event: any) {
             </tr>
           </thead>
           <tbody>
-            <tr v-if="vendorLoading"><td colspan="6" class="p-6 text-center"><i class="pi pi-spin pi-spinner"/> Loading...</td></tr>
+            <tr v-if="vendorLoading"><td colspan="6" class="p-6 text-center"><i class="pi pi-spin pi-spinner"></i> Loading...</td></tr>
             <tr v-else-if="paginatedVendors.length === 0"><td colspan="6" class="p-6 text-center text-surface-500">No vendors. Add or Import.</td></tr>
             <tr v-for="item in paginatedVendors" :key="item.id" class="border-b border-surface-100 dark:border-surface-800 hover:bg-surface-50">
               <td class="p-2 font-mono text-[11px] text-surface-500">#{{ item.id }}</td>
@@ -837,9 +837,9 @@ function handlePOAttachmentSelect(event: any) {
               <td class="p-2 text-[11px] text-surface-600 max-w-[180px] truncate" :title="item.contact">{{ item.contact || '—' }}</td>
               <td class="p-2 text-[11px] text-surface-600 max-w-[200px] truncate" :title="item.description">{{ item.description || '—' }}</td>
               <td class="p-2 text-right">
-                <button class="p-1 mx-0.5 text-blue-600 hover:text-blue-800" title="View" @click="openViewVendor(item)"><i class="pi pi-eye text-xs"/></button>
-                <button class="p-1 mx-0.5 text-surface-600 hover:text-primary" title="Edit" @click="openEditVendor(item)"><i class="pi pi-pencil text-xs"/></button>
-                <button class="p-1 mx-0.5 text-red-500 hover:text-red-700" title="Delete" @click="softDeleteVendor(item)"><i class="pi pi-trash text-xs"/></button>
+                <button @click="openViewVendor(item)" class="p-1 mx-0.5 text-blue-600 hover:text-blue-800" title="View"><i class="pi pi-eye text-xs"></i></button>
+                <button @click="openEditVendor(item)" class="p-1 mx-0.5 text-surface-600 hover:text-primary" title="Edit"><i class="pi pi-pencil text-xs"></i></button>
+                <button @click="softDeleteVendor(item)" class="p-1 mx-0.5 text-red-500 hover:text-red-700" title="Delete"><i class="pi pi-trash text-xs"></i></button>
               </td>
             </tr>
           </tbody>
@@ -848,8 +848,8 @@ function handlePOAttachmentSelect(event: any) {
       <div class="flex items-center justify-between mt-3 text-xs">
         <span class="text-surface-500">Page {{ vendorPage }} of {{ vendorTotalPages }} — {{ filteredVendors.length }} total</span>
         <div class="flex gap-1">
-          <Button label="Prev" size="small" severity="secondary" outlined :disabled="vendorPage <= 1" class="!text-xs" @click="vendorPage--" />
-          <Button label="Next" size="small" severity="secondary" outlined :disabled="vendorPage >= vendorTotalPages" class="!text-xs" @click="vendorPage++" />
+          <Button label="Prev" size="small" severity="secondary" outlined :disabled="vendorPage <= 1" @click="vendorPage--" class="!text-xs" />
+          <Button label="Next" size="small" severity="secondary" outlined :disabled="vendorPage >= vendorTotalPages" @click="vendorPage++" class="!text-xs" />
         </div>
       </div>
     </div>
@@ -858,12 +858,12 @@ function handlePOAttachmentSelect(event: any) {
     <div v-else-if="activeTab === 6" class="bg-surface-0 dark:bg-surface-900 rounded-lg shadow-sm border border-surface-200 dark:border-surface-700 p-4">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div class="flex items-center gap-1.5 flex-wrap">
-          <Button label="Add PO/SO" icon="pi pi-plus" size="small" severity="primary" class="!text-xs" @click="openAddPO" />
-          <Button label="Import Bulk" icon="pi pi-upload" size="small" severity="secondary" outlined class="!text-xs" @click="showPOImport = true" />
-          <Button label="Bulk Attach" icon="pi pi-paperclip" size="small" severity="secondary" outlined class="!text-xs" @click="showBulkAttachDialog = true" />
-          <Button label="XLSX" icon="pi pi-file-excel" size="small" severity="success" outlined class="!text-xs" @click="exportPO('xlsx')" />
-          <Button label="CSV" icon="pi pi-file" size="small" severity="help" outlined class="!text-xs" @click="exportPO('csv')" />
-          <Button label="Print" icon="pi pi-print" size="small" severity="secondary" outlined class="!text-xs" @click="printTable" />
+          <Button label="Add PO/SO" icon="pi pi-plus" size="small" severity="primary" @click="openAddPO" class="!text-xs" />
+          <Button label="Import Bulk" icon="pi pi-upload" size="small" severity="secondary" outlined @click="showPOImport = true" class="!text-xs" />
+          <Button label="Bulk Attach" icon="pi pi-paperclip" size="small" severity="secondary" outlined @click="showBulkAttachDialog = true" class="!text-xs" />
+          <Button label="XLSX" icon="pi pi-file-excel" size="small" severity="success" outlined @click="exportPO('xlsx')" class="!text-xs" />
+          <Button label="CSV" icon="pi pi-file" size="small" severity="help" outlined @click="exportPO('csv')" class="!text-xs" />
+          <Button label="Print" icon="pi pi-print" size="small" severity="secondary" outlined @click="printTable" class="!text-xs" />
           <span class="text-[11px] text-surface-500 ml-2">{{ filteredPO.length }} orders</span>
         </div>
         <div class="flex items-center gap-2">
@@ -902,7 +902,7 @@ function handlePOAttachmentSelect(event: any) {
             </tr>
           </thead>
           <tbody>
-            <tr v-if="poLoading"><td colspan="11" class="p-6 text-center"><i class="pi pi-spin pi-spinner"/> Loading PO/SO...</td></tr>
+            <tr v-if="poLoading"><td colspan="11" class="p-6 text-center"><i class="pi pi-spin pi-spinner"></i> Loading PO/SO...</td></tr>
             <tr v-else-if="paginatedPO.length === 0"><td colspan="11" class="p-6 text-center text-surface-500">No PO/SO found. Add or Import bulk.</td></tr>
             <tr v-for="item in paginatedPO" :key="item.id" class="border-b border-surface-100 dark:border-surface-800 hover:bg-surface-50 text-xs">
               <td class="p-2 font-mono text-[10px]">#{{ item.id }}</td>
@@ -911,17 +911,17 @@ function handlePOAttachmentSelect(event: any) {
               <td class="p-2 font-mono font-medium">{{ item.po_so_number }}</td>
               <td class="p-2 whitespace-nowrap">{{ item.effective_date ? new Date(item.effective_date).toLocaleDateString() : '—' }}</td>
               <td class="p-2 text-right font-mono">{{ item.value != null ? Number(item.value).toLocaleString() : '—' }}</td>
-              <td class="p-2 text-center"><i v-if="item.is_amendment" class="pi pi-check text-green-600"/><span v-else class="text-surface-400">—</span></td>
+              <td class="p-2 text-center"><i v-if="item.is_amendment" class="pi pi-check text-green-600"></i><span v-else class="text-surface-400">—</span></td>
               <td class="p-2 text-center">{{ item.amendment_number || '—' }}</td>
               <td class="p-2 max-w-[120px] truncate text-[11px]" :title="item.remarks">{{ item.remarks || '—' }}</td>
               <td class="p-2 text-center">
-                <button v-if="item.attachment_original_name" class="text-blue-600 hover:text-blue-800" :title="item.attachment_original_name" @click="downloadPOAttachment(item)"><i class="pi pi-paperclip"/> <span class="text-[10px]">{{ item.attachment_original_name.length > 12 ? item.attachment_original_name.substring(0,12)+'...' : item.attachment_original_name }}</span></button>
+                <button v-if="item.attachment_original_name" @click="downloadPOAttachment(item)" class="text-blue-600 hover:text-blue-800" :title="item.attachment_original_name"><i class="pi pi-paperclip"></i> <span class="text-[10px]">{{ item.attachment_original_name.length > 12 ? item.attachment_original_name.substring(0,12)+'...' : item.attachment_original_name }}</span></button>
                 <span v-else class="text-surface-400">—</span>
               </td>
               <td class="p-2 text-right">
-                <button class="p-1 mx-0.5 text-blue-600 hover:text-blue-800" title="View" @click="openViewPO(item)"><i class="pi pi-eye text-[11px]"/></button>
-                <button class="p-1 mx-0.5 text-surface-600 hover:text-primary" title="Edit" @click="openEditPO(item)"><i class="pi pi-pencil text-[11px]"/></button>
-                <button class="p-1 mx-0.5 text-red-500 hover:text-red-700" title="Delete" @click="softDeletePO(item)"><i class="pi pi-trash text-[11px]"/></button>
+                <button @click="openViewPO(item)" class="p-1 mx-0.5 text-blue-600 hover:text-blue-800" title="View"><i class="pi pi-eye text-[11px]"></i></button>
+                <button @click="openEditPO(item)" class="p-1 mx-0.5 text-surface-600 hover:text-primary" title="Edit"><i class="pi pi-pencil text-[11px]"></i></button>
+                <button @click="softDeletePO(item)" class="p-1 mx-0.5 text-red-500 hover:text-red-700" title="Delete"><i class="pi pi-trash text-[11px]"></i></button>
               </td>
             </tr>
           </tbody>
@@ -930,8 +930,8 @@ function handlePOAttachmentSelect(event: any) {
       <div class="flex items-center justify-between mt-3 text-xs">
         <span class="text-surface-500">Page {{ poPage }} of {{ poTotalPages }} — {{ filteredPO.length }} total</span>
         <div class="flex gap-1">
-          <Button label="Prev" size="small" severity="secondary" outlined :disabled="poPage <= 1" class="!text-xs" @click="poPage--" />
-          <Button label="Next" size="small" severity="secondary" outlined :disabled="poPage >= poTotalPages" class="!text-xs" @click="poPage++" />
+          <Button label="Prev" size="small" severity="secondary" outlined :disabled="poPage <= 1" @click="poPage--" class="!text-xs" />
+          <Button label="Next" size="small" severity="secondary" outlined :disabled="poPage >= poTotalPages" @click="poPage++" class="!text-xs" />
         </div>
       </div>
       <div class="mt-3 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-[11px] text-blue-800 dark:text-blue-300">
@@ -965,8 +965,8 @@ function handlePOAttachmentSelect(event: any) {
               <td class="p-2 text-xs max-w-[300px] truncate">{{ item.name || item.vendor_name || item.description || item.remarks || '—' }}</td>
               <td class="p-2 text-[11px] text-surface-500">{{ item.deleted_at ? new Date(item.deleted_at).toLocaleString() : '—' }}</td>
               <td class="p-2 text-right">
-                <Button label="Restore" size="small" severity="success" outlined class="!text-[11px] !py-0.5" @click="restoreRecord(item, item.moduleKey)" />
-                <Button label="Del" size="small" severity="danger" outlined class="!text-[11px] !py-0.5 ml-1" @click="permanentDelete(item, item.moduleKey)" />
+                <Button label="Restore" size="small" severity="success" outlined @click="restoreRecord(item, item.moduleKey)" class="!text-[11px] !py-0.5" />
+                <Button label="Del" size="small" severity="danger" outlined @click="permanentDelete(item, item.moduleKey)" class="!text-[11px] !py-0.5 ml-1" />
               </td>
             </tr>
           </tbody>
@@ -976,15 +976,15 @@ function handlePOAttachmentSelect(event: any) {
 
     <!-- Generic Add/Edit Dialog -->
     <Dialog v-model:visible="showDialog" :header="isEditing ? 'Edit Entry' : 'New Entry'" :style="{ width: '28rem' }" modal>
-      <div v-if="currentModule" class="space-y-3 pt-2">
+      <div class="space-y-3 pt-2" v-if="currentModule">
         <div><label class="block text-[11px] font-semibold uppercase mb-1">Code *</label><InputText v-model="formData.code" class="w-full text-sm" placeholder="Code" /></div>
         <div><label class="block text-[11px] font-semibold uppercase mb-1">Name *</label><InputText v-model="formData.name" class="w-full text-sm" placeholder="Name" /></div>
         <div v-if="currentModule.symbolField"><label class="block text-[11px] font-semibold uppercase mb-1">Symbol *</label><InputText v-model="formData.symbol" class="w-full text-sm" placeholder="Symbol" /></div>
         <div><label class="block text-[11px] font-semibold uppercase mb-1">Description</label><Textarea v-model="formData.description" rows="2" class="w-full text-sm" /></div>
       </div>
       <template #footer>
-        <Button label="Cancel" severity="secondary" text size="small" @click="showDialog = false" />
-        <Button :label="isEditing ? 'Update' : 'Create'" severity="primary" size="small" @click="saveRecord" />
+        <Button label="Cancel" severity="secondary" text @click="showDialog = false" size="small" />
+        <Button :label="isEditing ? 'Update' : 'Create'" severity="primary" @click="saveRecord" size="small" />
       </template>
     </Dialog>
 
@@ -992,11 +992,11 @@ function handlePOAttachmentSelect(event: any) {
     <Dialog v-model:visible="showImportDialog" header="Bulk Import (CSV / XLSX)" :style="{ width: '32rem' }" modal>
       <div class="space-y-3 pt-2 text-xs">
         <p class="text-surface-600">Upload CSV/XLSX. Headers: code, name, symbol (if applicable), description. Flexible date parsing supported.</p>
-        <Button label="Download Template" icon="pi pi-download" size="small" severity="secondary" outlined class="!text-xs" @click="downloadTemplate" />
+        <Button label="Download Template" icon="pi pi-download" size="small" severity="secondary" outlined @click="downloadTemplate" class="!text-xs" />
         <div class="border-2 border-dashed border-surface-300 rounded p-4 text-center">
-          <input type="file" accept=".csv,.xlsx,.xls" class="block w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:bg-primary/10 file:text-primary" @change="handleFileSelect" >
+          <input type="file" accept=".csv,.xlsx,.xls" @change="handleFileSelect" class="block w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:bg-primary/10 file:text-primary" />
         </div>
-        <div v-if="importing" class="text-center py-2"><i class="pi pi-spin pi-spinner"/> Importing...</div>
+        <div v-if="importing" class="text-center py-2"><i class="pi pi-spin pi-spinner"></i> Importing...</div>
         <div v-if="importResult" class="p-3 rounded bg-surface-100 dark:bg-surface-800 space-y-1">
           <div>Imported: {{ importResult.imported_count }}</div>
           <div v-if="importResult.error_count" class="text-red-500">Errors: {{ importResult.error_count }}
@@ -1005,8 +1005,8 @@ function handlePOAttachmentSelect(event: any) {
         </div>
       </div>
       <template #footer>
-        <Button label="Close" severity="secondary" text size="small" @click="showImportDialog = false" />
-        <Button label="Import" severity="primary" :loading="importing" size="small" @click="executeImport" />
+        <Button label="Close" severity="secondary" text @click="showImportDialog = false" size="small" />
+        <Button label="Import" severity="primary" :loading="importing" @click="executeImport" size="small" />
       </template>
     </Dialog>
 
@@ -1019,8 +1019,8 @@ function handlePOAttachmentSelect(event: any) {
         <div><label class="block text-[11px] font-semibold uppercase mb-1">Description</label><Textarea v-model="vendorForm.description" rows="2" class="w-full text-sm" placeholder="Optional..." /></div>
       </div>
       <template #footer>
-        <Button label="Cancel" severity="secondary" text size="small" @click="showVendorDialog = false" />
-        <Button :label="isEditingVendor ? 'Update' : 'Create'" severity="primary" size="small" @click="saveVendor" />
+        <Button label="Cancel" severity="secondary" text @click="showVendorDialog = false" size="small" />
+        <Button :label="isEditingVendor ? 'Update' : 'Create'" severity="primary" @click="saveVendor" size="small" />
       </template>
     </Dialog>
 
@@ -1032,20 +1032,20 @@ function handlePOAttachmentSelect(event: any) {
         <div class="grid grid-cols-3 gap-2"><span class="font-semibold">Description:</span><span class="col-span-2">{{ vendorViewData.description || '—' }}</span></div>
         <div class="grid grid-cols-3 gap-2"><span class="font-semibold">Created:</span><span class="col-span-2">{{ vendorViewData.created_at ? new Date(vendorViewData.created_at).toLocaleString() : '—' }}</span></div>
       </div>
-      <template #footer><Button label="Close" severity="secondary" size="small" @click="showVendorView = false" /></template>
+      <template #footer><Button label="Close" severity="secondary" @click="showVendorView = false" size="small" /></template>
     </Dialog>
 
     <Dialog v-model:visible="showVendorImport" header="Bulk Import Vendors (CSV / XLSX)" :style="{ width: '32rem' }" modal>
       <div class="space-y-3 pt-2 text-xs">
         <p>Headers: vendor_code, vendor_name, contact, description. Flexible validation.</p>
-        <Button label="Download Template" icon="pi pi-download" size="small" severity="secondary" outlined class="!text-xs" @click="downloadVendorTemplate" />
-        <div class="border-2 border-dashed rounded p-4 text-center"><input type="file" accept=".csv,.xlsx,.xls" class="block w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:bg-primary/10 file:text-primary" @change="handleVendorFileSelect" ></div>
-        <div v-if="vendorImporting" class="text-center"><i class="pi pi-spin pi-spinner"/> Importing...</div>
+        <Button label="Download Template" icon="pi pi-download" size="small" severity="secondary" outlined @click="downloadVendorTemplate" class="!text-xs" />
+        <div class="border-2 border-dashed rounded p-4 text-center"><input type="file" accept=".csv,.xlsx,.xls" @change="handleVendorFileSelect" class="block w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:bg-primary/10 file:text-primary" /></div>
+        <div v-if="vendorImporting" class="text-center"><i class="pi pi-spin pi-spinner"></i> Importing...</div>
         <div v-if="vendorImportResult" class="p-3 rounded bg-surface-100 dark:bg-surface-800"><div>Imported: {{ vendorImportResult.imported_count }}</div><div v-if="vendorImportResult.error_count" class="text-red-500">Errors: {{ vendorImportResult.error_count }}<ul class="list-disc pl-4"><li v-for="(e,i) in vendorImportResult.errors" :key="i">{{ e }}</li></ul></div></div>
       </div>
       <template #footer>
-        <Button label="Close" severity="secondary" text size="small" @click="showVendorImport = false" />
-        <Button label="Import" severity="primary" :loading="vendorImporting" size="small" @click="executeVendorImport" />
+        <Button label="Close" severity="secondary" text @click="showVendorImport = false" size="small" />
+        <Button label="Import" severity="primary" :loading="vendorImporting" @click="executeVendorImport" size="small" />
       </template>
     </Dialog>
 
@@ -1067,11 +1067,11 @@ function handlePOAttachmentSelect(event: any) {
         </div>
         <div><label class="block text-[11px] font-semibold uppercase mb-1">PO/SO Number *</label><InputText v-model="poForm.po_so_number" class="w-full text-sm" placeholder="e.g. PO-2024-001" /></div>
         <div class="grid grid-cols-2 gap-3">
-          <div><label class="block text-[11px] font-semibold uppercase mb-1">Effective Date (optional)</label><InputText v-model="poForm.effective_date" type="date" class="w-full text-sm" /></div>
+          <div><label class="block text-[11px] font-semibold uppercase mb-1">Effective Date (optional)</label><InputText type="date" v-model="poForm.effective_date" class="w-full text-sm" /></div>
           <div><label class="block text-[11px] font-semibold uppercase mb-1">Value (currency, optional)</label><InputText v-model="poForm.value" class="w-full text-sm" placeholder="e.g. 50000 or $50,000.00" /></div>
         </div>
         <div class="flex items-center gap-3 p-2 bg-surface-50 dark:bg-surface-800 rounded">
-          <label class="flex items-center gap-2 cursor-pointer"><input v-model="poForm.is_amendment" type="checkbox" class="rounded" > <span class="font-semibold">Amendment?</span></label>
+          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" v-model="poForm.is_amendment" class="rounded" /> <span class="font-semibold">Amendment?</span></label>
           <div v-if="poForm.is_amendment" class="flex items-center gap-2">
             <label class="text-[11px] font-semibold">If Yes *</label>
             <select v-model="poForm.amendment_number" class="border rounded px-2 py-1 text-sm bg-surface-0 dark:bg-surface-900">
@@ -1083,13 +1083,13 @@ function handlePOAttachmentSelect(event: any) {
         </div>
         <div><label class="block text-[11px] font-semibold uppercase mb-1">Remarks (optional)</label><Textarea v-model="poForm.remarks" rows="2" class="w-full text-sm" placeholder="Optional remarks..." /></div>
         <div><label class="block text-[11px] font-semibold uppercase mb-1">Upload Copy (pdf, docx, doc, xlsx, csv, xls, jpg, jpeg, png &lt;15MB)</label>
-          <input type="file" :accept="'.pdf,.docx,.doc,.xlsx,.xls,.csv,.jpg,.jpeg,.png'" class="block w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:bg-primary/10 file:text-primary" @change="handlePOAttachmentSelect" >
+          <input type="file" :accept="'.pdf,.docx,.doc,.xlsx,.xls,.csv,.jpg,.jpeg,.png'" @change="handlePOAttachmentSelect" class="block w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:bg-primary/10 file:text-primary" />
           <div v-if="poAttachmentFile" class="mt-1 text-[11px] text-green-600">Selected: {{ poAttachmentFile.name }} ({{ (poAttachmentFile.size/1024/1024).toFixed(2) }} MB)</div>
         </div>
       </div>
       <template #footer>
-        <Button label="Cancel" severity="secondary" text size="small" @click="showPODialog = false" />
-        <Button :label="isEditingPO ? 'Update' : 'Create'" severity="primary" size="small" @click="savePO" />
+        <Button label="Cancel" severity="secondary" text @click="showPODialog = false" size="small" />
+        <Button :label="isEditingPO ? 'Update' : 'Create'" severity="primary" @click="savePO" size="small" />
       </template>
     </Dialog>
 
@@ -1102,24 +1102,24 @@ function handlePOAttachmentSelect(event: any) {
         <div class="grid grid-cols-3 gap-2"><span class="font-semibold">Value:</span><span class="col-span-2 font-mono">{{ poViewData.value != null ? Number(poViewData.value).toLocaleString() : '—' }}</span></div>
         <div class="grid grid-cols-3 gap-2"><span class="font-semibold">Amendment:</span><span class="col-span-2">{{ poViewData.is_amendment ? `Yes — ${poViewData.amendment_number}` : 'No' }}</span></div>
         <div class="grid grid-cols-3 gap-2"><span class="font-semibold">Remarks:</span><span class="col-span-2 whitespace-pre-wrap">{{ poViewData.remarks || '—' }}</span></div>
-        <div class="grid grid-cols-3 gap-2"><span class="font-semibold">Attachment:</span><span class="col-span-2"><span v-if="poViewData.attachment_original_name" class="text-blue-600"><i class="pi pi-paperclip"/> {{ poViewData.attachment_original_name }} ({{ poViewData.attachment_size ? (poViewData.attachment_size/1024).toFixed(1)+' KB' : '' }}) <Button label="Download" size="small" severity="secondary" outlined class="!text-[11px] ml-2" @click="downloadPOAttachment(poViewData)" /></span><span v-else>— No attachment —</span></span></div>
+        <div class="grid grid-cols-3 gap-2"><span class="font-semibold">Attachment:</span><span class="col-span-2"><span v-if="poViewData.attachment_original_name" class="text-blue-600"><i class="pi pi-paperclip"></i> {{ poViewData.attachment_original_name }} ({{ poViewData.attachment_size ? (poViewData.attachment_size/1024).toFixed(1)+' KB' : '' }}) <Button label="Download" size="small" severity="secondary" outlined @click="downloadPOAttachment(poViewData)" class="!text-[11px] ml-2" /></span><span v-else>— No attachment —</span></span></div>
         <div class="grid grid-cols-3 gap-2"><span class="font-semibold">Created:</span><span class="col-span-2">{{ poViewData.created_at ? new Date(poViewData.created_at).toLocaleString() : '—' }}</span></div>
       </div>
-      <template #footer><Button label="Close" severity="secondary" size="small" @click="showPOView = false" /></template>
+      <template #footer><Button label="Close" severity="secondary" @click="showPOView = false" size="small" /></template>
     </Dialog>
 
     <Dialog v-model:visible="showPOImport" header="Bulk Import PO/SO (CSV / XLSX)" :style="{ width: '36rem' }" modal>
       <div class="space-y-3 pt-2 text-xs">
         <p>Headers: po_type (PO/SO/Callout/Others), vendor_code, po_so_number, effective_date (flexible), value, is_amendment (Yes/No), amendment_number (1-200), remarks. Vendor lookup by code or name.</p>
-        <Button label="Download Template" icon="pi pi-download" size="small" severity="secondary" outlined class="!text-xs" @click="downloadPOTemplate" />
-        <div class="border-2 border-dashed rounded p-4 text-center"><input type="file" accept=".csv,.xlsx,.xls" class="block w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:bg-primary/10 file:text-primary" @change="handlePOFileSelect" ></div>
-        <div v-if="poImporting" class="text-center"><i class="pi pi-spin pi-spinner"/> Importing...</div>
+        <Button label="Download Template" icon="pi pi-download" size="small" severity="secondary" outlined @click="downloadPOTemplate" class="!text-xs" />
+        <div class="border-2 border-dashed rounded p-4 text-center"><input type="file" accept=".csv,.xlsx,.xls" @change="handlePOFileSelect" class="block w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:bg-primary/10 file:text-primary" /></div>
+        <div v-if="poImporting" class="text-center"><i class="pi pi-spin pi-spinner"></i> Importing...</div>
         <div v-if="poImportResult" class="p-3 rounded bg-surface-100 dark:bg-surface-800"><div>Imported: {{ poImportResult.imported_count }}</div><div v-if="poImportResult.error_count" class="text-red-500">Errors: {{ poImportResult.error_count }}<ul class="list-disc pl-4 text-[11px]"><li v-for="(e,i) in poImportResult.errors" :key="i">{{ e }}</li></ul></div></div>
         <div class="p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-[11px]">After bulk import, upload attachments one by one via Edit, or use Bulk Attach (filename contains PO number).</div>
       </div>
       <template #footer>
-        <Button label="Close" severity="secondary" text size="small" @click="showPOImport = false" />
-        <Button label="Import" severity="primary" :loading="poImporting" size="small" @click="executePOImport" />
+        <Button label="Close" severity="secondary" text @click="showPOImport = false" size="small" />
+        <Button label="Import" severity="primary" :loading="poImporting" @click="executePOImport" size="small" />
       </template>
     </Dialog>
 
@@ -1127,14 +1127,14 @@ function handlePOAttachmentSelect(event: any) {
       <div class="space-y-3 pt-2 text-xs">
         <p>Name files as <code>PO_NUMBER.pdf</code> or <code>PO_NUMBER__AMENDMENT.pdf</code> to auto-match. Allowed: pdf, docx, doc, xlsx, csv, xls, jpg, jpeg, png &lt;15MB each.</p>
         <div class="border-2 border-dashed rounded p-4 text-center">
-          <input type="file" multiple :accept="'.pdf,.docx,.doc,.xlsx,.xls,.csv,.jpg,.jpeg,.png'" class="block w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:bg-primary/10 file:text-primary" @change="handleBulkAttachSelect" >
+          <input type="file" multiple :accept="'.pdf,.docx,.doc,.xlsx,.xls,.csv,.jpg,.jpeg,.png'" @change="handleBulkAttachSelect" class="block w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:bg-primary/10 file:text-primary" />
         </div>
-        <div v-if="bulkAttachUploading" class="text-center"><i class="pi pi-spin pi-spinner"/> Uploading...</div>
+        <div v-if="bulkAttachUploading" class="text-center"><i class="pi pi-spin pi-spinner"></i> Uploading...</div>
         <div v-if="bulkAttachResult" class="p-3 rounded bg-surface-100 dark:bg-surface-800"><div>Uploaded: {{ bulkAttachResult.uploaded_count }}</div><div v-if="bulkAttachResult.error_count" class="text-red-500">Errors: {{ bulkAttachResult.error_count }}<ul class="list-disc pl-4"><li v-for="(e,i) in bulkAttachResult.errors" :key="i">{{ e }}</li></ul></div></div>
       </div>
       <template #footer>
-        <Button label="Close" severity="secondary" text size="small" @click="showBulkAttachDialog = false" />
-        <Button label="Upload All" severity="primary" :loading="bulkAttachUploading" size="small" @click="executeBulkAttach" />
+        <Button label="Close" severity="secondary" text @click="showBulkAttachDialog = false" size="small" />
+        <Button label="Upload All" severity="primary" :loading="bulkAttachUploading" @click="executeBulkAttach" size="small" />
       </template>
     </Dialog>
   </div>

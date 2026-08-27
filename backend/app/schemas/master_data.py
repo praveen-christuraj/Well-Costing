@@ -1,8 +1,7 @@
 """Pydantic schemas for Master Data modules."""
 
 from datetime import date, datetime
-from typing import Literal
-
+from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 

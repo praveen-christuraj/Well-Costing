@@ -89,14 +89,14 @@ function printLogs() {
           <InputText v-model="selectedModule" placeholder="Filter module..." class="text-xs w-36 h-8" />
           <InputText v-model="selectedAction" placeholder="Filter action..." class="text-xs w-32 h-8" />
           <InputText v-model="searchQuery" placeholder="Search logs..." class="text-xs w-48 h-8" />
-          <Button label="Search" icon="pi pi-search" size="small" severity="secondary" outlined class="!text-xs" @click="loadLogs" />
-          <Button label="Refresh" icon="pi pi-refresh" size="small" severity="secondary" outlined class="!text-xs" @click="loadLogs" />
+          <Button label="Search" icon="pi pi-search" size="small" severity="secondary" outlined @click="loadLogs" class="!text-xs" />
+          <Button label="Refresh" icon="pi pi-refresh" size="small" severity="secondary" outlined @click="loadLogs" class="!text-xs" />
           <span class="text-[11px] text-surface-500 ml-2">{{ filteredLogs.length }} logs</span>
         </div>
         <div class="flex items-center gap-1.5">
-          <Button label="XLSX" icon="pi pi-file-excel" size="small" severity="success" outlined class="!text-xs" @click="exportLogs('xlsx')" />
-          <Button label="CSV" icon="pi pi-file" size="small" severity="help" outlined class="!text-xs" @click="exportLogs('csv')" />
-          <Button label="Print" icon="pi pi-print" size="small" severity="secondary" outlined class="!text-xs" @click="printLogs" />
+          <Button label="XLSX" icon="pi pi-file-excel" size="small" severity="success" outlined @click="exportLogs('xlsx')" class="!text-xs" />
+          <Button label="CSV" icon="pi pi-file" size="small" severity="help" outlined @click="exportLogs('csv')" class="!text-xs" />
+          <Button label="Print" icon="pi pi-print" size="small" severity="secondary" outlined @click="printLogs" class="!text-xs" />
           <select v-model="pageSize" class="text-xs border rounded px-2 h-8 bg-surface-0 dark:bg-surface-900">
             <option :value="10">10</option>
             <option :value="20">20</option>
@@ -122,15 +122,14 @@ function printLogs() {
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="8" class="p-6 text-center text-surface-500 text-xs"><i class="pi pi-spin pi-spinner"/> Loading audit logs...</td></tr>
+            <tr v-if="loading"><td colspan="8" class="p-6 text-center text-surface-500 text-xs"><i class="pi pi-spin pi-spinner"></i> Loading audit logs...</td></tr>
             <tr v-else-if="paginatedLogs.length === 0"><td colspan="8" class="p-6 text-center text-surface-500 text-xs">No audit logs found. Actions will appear here.</td></tr>
             <tr v-for="log in paginatedLogs" :key="log.id" class="border-b border-surface-100 dark:border-surface-800 hover:bg-surface-50 dark:hover:bg-surface-800/50 text-xs">
               <td class="p-1.5 font-mono text-[10px] text-surface-400">#{{ log.id }}</td>
               <td class="p-1.5 whitespace-nowrap text-[11px]">{{ new Date(log.timestamp).toLocaleString() }}</td>
               <td class="p-1.5 font-medium text-[11px] max-w-[120px] truncate" :title="log.user_email">{{ log.user_email }}</td>
               <td class="p-1.5">
-                <span
-class="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold"
                   :class="{
                     'bg-green-100 text-green-800': log.action === 'CREATE',
                     'bg-blue-100 text-blue-800': log.action === 'UPDATE',
@@ -152,8 +151,8 @@ class="px-1.5 py-0.5 rounded text-[10px] font-semibold"
       <div class="flex items-center justify-between mt-3 text-xs">
         <span class="text-surface-500">Page {{ page }} of {{ totalPages }} — {{ filteredLogs.length }} total (showing {{ paginatedLogs.length }})</span>
         <div class="flex gap-1">
-          <Button label="Prev" size="small" severity="secondary" outlined :disabled="page <= 1" class="!text-xs" @click="page--" />
-          <Button label="Next" size="small" severity="secondary" outlined :disabled="page >= totalPages" class="!text-xs" @click="page++" />
+          <Button label="Prev" size="small" severity="secondary" outlined :disabled="page <= 1" @click="page--" class="!text-xs" />
+          <Button label="Next" size="small" severity="secondary" outlined :disabled="page >= totalPages" @click="page++" class="!text-xs" />
         </div>
       </div>
       <div class="mt-3 p-2 bg-surface-50 dark:bg-surface-800 rounded text-[11px] text-surface-600">
