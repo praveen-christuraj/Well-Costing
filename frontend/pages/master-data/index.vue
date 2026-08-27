@@ -2,15 +2,23 @@
 /**
  * Master Data Management — excel-type bulk entry UI.
  *
- * No form/dialog data entry: every tab renders an always-editable spreadsheet
- * grid (multiple rows, inline cells, paste from Excel) with a single bulk
- * "Save All" commit. Import (CSV/XLSX upload), export, print, soft delete and
- * the deleted-entries trash remain available.
+ * Every tab renders an always-editable spreadsheet grid (or a scoped panel for
+ * the new catalogues) with Import (CSV/XLSX), XLSX/CSV export, Print, soft
+ * delete and a shared Deleted Entries (trash) tab. The Services, Consumables
+ * (Mud Chemicals, Cement Additives, Fuel, Drill Bits, Rate Revisions) and
+ * Tangibles catalogues live in dedicated components; each rate-bearing
+ * catalogue keeps an append-only rate revision history with export/print.
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import PageHeader from '~/components/design-system/PageHeader.vue'
 import ExcelGrid from '~/components/master-data/ExcelGrid.vue'
 import ImportDialog from '~/components/master-data/ImportDialog.vue'
+import MudChemicalsTab from '~/components/catalogue/MudChemicalsTab.vue'
+import DrillBitsTab from '~/components/catalogue/DrillBitsTab.vue'
+import PlaceholderPanel from '~/components/catalogue/PlaceholderPanel.vue'
+import RateHistoryPanel from '~/components/catalogue/RateHistoryPanel.vue'
+import ServicesTab from '~/components/catalogue/ServicesTab.vue'
+import TangiblesTab from '~/components/catalogue/TangiblesTab.vue'
 import type { EditableGridRow, GridColumn, GridSelectOption } from '~/types/grid'
 
 definePageMeta({ middleware: 'auth' })
@@ -26,7 +34,7 @@ interface ModuleDef {
   symbolField: string | null
 }
 
-// Tabs: 0-4 generic modules, 5 vendors, 6 PO/SO, 7 deleted entries
+// Tab indices follow the tab order rendered in the template.
 const modules: ModuleDef[] = [
   { key: 'uom', label: 'UOM', fullLabel: 'Unit of Measurements (UOM)', codeField: 'unit_code', nameField: 'unit_name', symbolField: 'unit_symbol' },
   { key: 'currencies', label: 'Currency', fullLabel: 'Currencies', codeField: 'currency_code', nameField: 'currency_name', symbolField: 'currency_symbol' },
@@ -35,12 +43,18 @@ const modules: ModuleDef[] = [
   { key: 'hole-sections', label: 'Hole Sections', fullLabel: 'Hole Sections', codeField: 'section_code', nameField: 'section_name', symbolField: null },
 ]
 
-const TAB_VENDORS = 5
-const TAB_PO = 6
-const TAB_DELETED = 7
+const TAB_SERVICES = 5
+const TAB_CONSUMABLES = 6
+const TAB_TANGIBLES = 7
+const TAB_VENDORS = 8
+const TAB_PO = 9
+const TAB_DELETED = 10
 
 const tabs = [
   ...modules.map(mod => ({ label: mod.label, icon: 'pi pi-table' })),
+  { label: 'Services', icon: 'pi pi-wrench' },
+  { label: 'Consumables', icon: 'pi pi-bolt' },
+  { label: 'Tangibles', icon: 'pi pi-box' },
   { label: 'Vendors/Suppliers', icon: 'pi pi-truck' },
   { label: 'PO/SO Orders', icon: 'pi pi-file-edit' },
   { label: 'Deleted Entries', icon: 'pi pi-trash' },
@@ -50,7 +64,24 @@ const activeTab = ref(0)
 const tabDirty = ref(false)
 const activeGrid = ref<InstanceType<typeof ExcelGrid> | null>(null)
 
+// Consumables inner sub-tabs
+const consumableSubTab = ref<'mud' | 'cement' | 'fuel' | 'bits' | 'rates'>('mud')
+const consumableSubTabs = [
+  { key: 'mud' as const, label: 'Mud Chemicals', icon: 'pi pi-flask' },
+  { key: 'cement' as const, label: 'Cement Additives', icon: 'pi pi-building' },
+  { key: 'fuel' as const, label: 'Fuel', icon: 'pi pi-gas-pump' },
+  { key: 'bits' as const, label: 'Drill Bits', icon: 'pi pi-circle' },
+  { key: 'rates' as const, label: 'Rate Revisions', icon: 'pi pi-history' },
+]
+
+// Tangibles inner sub-tabs
+const tangibleSubTab = ref<'items' | 'rates'>('items')
+
 const currentModule = computed<ModuleDef | null>(() => modules[activeTab.value] ?? null)
+// Non-null alias for the generic-module section, which only renders while the
+// active tab is one of the five generic modules (templates cannot narrow the
+// nullable computed across the element's props).
+const mod = computed<ModuleDef>(() => currentModule.value ?? modules[0] as ModuleDef)
 
 function switchTab(index: number): void {
   if (index === activeTab.value) return
@@ -98,18 +129,6 @@ function genericToPayload(mod: ModuleDef) {
     }
     return payload
   }
-}
-
-function genericCreate(mod: ModuleDef) {
-  return (payload: Record<string, unknown>) => api.post(`/master-data/${mod.key}`, payload)
-}
-
-function genericUpdate(mod: ModuleDef) {
-  return (id: number, payload: Record<string, unknown>) => api.put(`/master-data/${mod.key}/${id}`, payload)
-}
-
-function genericDelete(mod: ModuleDef) {
-  return (id: number) => api.delete(`/master-data/${mod.key}/${id}`)
 }
 
 function genericLoad(mod: ModuleDef) {
@@ -323,6 +342,9 @@ async function downloadPOAttachment(row: Record<string, unknown>): Promise<void>
 
 const showImport = ref(false)
 
+const isLegacyGridTab = computed(() =>
+  activeTab.value < TAB_SERVICES || activeTab.value === TAB_VENDORS || activeTab.value === TAB_PO)
+
 const importTitle = computed(() => {
   if (activeTab.value === TAB_VENDORS) return 'Bulk Import Vendors/Suppliers (CSV / XLSX)'
   if (activeTab.value === TAB_PO) return 'Bulk Import PO/SO (CSV / XLSX)'
@@ -366,14 +388,11 @@ const importTemplate = computed<{ filename: string, csv: string } | undefined>((
 })
 
 function exportCurrent(format: 'xlsx' | 'csv'): void {
-  const endpoints: Record<number, string> = {
-    [TAB_VENDORS]: '/master-data/vendors',
-    [TAB_PO]: '/master-data/purchase-orders',
-  }
-  const base = activeTab.value <= TAB_PO
-    ? endpoints[activeTab.value] ?? `/master-data/${currentModule.value?.key ?? 'uom'}`
-    : null
-  if (!base) return
+  const base = activeTab.value === TAB_VENDORS
+    ? '/master-data/vendors'
+    : activeTab.value === TAB_PO
+      ? '/master-data/purchase-orders'
+      : `/master-data/${currentModule.value?.key ?? 'uom'}`
   api.download(`${base}/export?format=${format}`).then((blob) => {
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -391,11 +410,30 @@ function printTable(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Deleted entries (trash)
+// Deleted entries (trash) — all master data + catalogue modules
 // ---------------------------------------------------------------------------
 
-const deletedRecords = ref<Record<string, any>[]>([])
+interface TrashItem {
+  id: number
+  moduleKey: string
+  moduleName: string
+  code: string | null
+  name: string | null
+  deleted_at: string | null
+  [key: string]: unknown
+}
+
+const deletedRecords = ref<TrashItem[]>([])
 const deletedLoading = ref(false)
+const trashSearch = ref('')
+
+const filteredTrash = computed(() => {
+  const q = trashSearch.value.trim().toLowerCase()
+  if (!q) return deletedRecords.value
+  return deletedRecords.value.filter(item =>
+    `${item.moduleName} ${item.code} ${item.name}`.toLowerCase().includes(q),
+  )
+})
 
 async function loadAllDeleted(): Promise<void> {
   deletedLoading.value = true
@@ -421,8 +459,32 @@ async function loadAllDeleted(): Promise<void> {
     const poDeleted = api.get<Record<string, any>[]>('/master-data/purchase-orders/deleted')
       .then(res => res.map(r => ({ ...r, moduleKey: 'purchase-orders', moduleName: 'Purchase/Service Orders', code: r.po_so_number, name: `${r.po_type} — ${r.vendor_display || r.vendor_code || ''}` })))
       .catch(() => [])
-    const results = await Promise.all([...genericPromises, vendorDeleted, poDeleted])
-    deletedRecords.value = (results.flat() as Record<string, any>[])
+    const serviceDeleted = api.get<Record<string, any>[]>('/catalogue/services/deleted')
+      .then(res => res.map(r => ({ ...r, moduleKey: 'catalogue/services', moduleName: 'Services', code: r.service_code, name: r.service_name })))
+      .catch(() => [])
+    const chemDeleted = api.get<Record<string, any>[]>('/catalogue/mud-chemicals/deleted')
+      .then(res => res.map(r => ({ ...r, moduleKey: 'catalogue/mud-chemicals', moduleName: 'Mud Chemicals', code: r.chemical_code, name: r.chemical_name })))
+      .catch(() => [])
+    const bitDeleted = api.get<Record<string, any>[]>('/catalogue/drill-bits/deleted')
+      .then(res => res.map(r => ({ ...r, moduleKey: 'catalogue/drill-bits', moduleName: 'Drill Bits', code: r.bit_code, name: `${r.bit_name} (${r.model_no})` })))
+      .catch(() => [])
+    const tngDeleted = api.get<Record<string, any>[]>('/catalogue/tangibles/deleted')
+      .then(res => res.map(r => ({ ...r, moduleKey: 'catalogue/tangibles', moduleName: 'Tangibles', code: r.tangible_code, name: r.tangible_name })))
+      .catch(() => [])
+    const configDeleted = api.get<Record<string, any>[]>('/catalogue/configs-deleted')
+      .then(res => res.map(r => ({ ...r, moduleKey: `catalogue/configs/${r.config_type}`, moduleName: 'Dropdown Lists', code: r.config_type, name: r.value })))
+      .catch(() => [])
+    const results = await Promise.all([
+      ...genericPromises,
+      vendorDeleted,
+      poDeleted,
+      serviceDeleted,
+      chemDeleted,
+      bitDeleted,
+      tngDeleted,
+      configDeleted,
+    ])
+    deletedRecords.value = (results.flat() as TrashItem[])
       .sort((a, b) => new Date(b.deleted_at || 0).getTime() - new Date(a.deleted_at || 0).getTime())
   }
   catch (error) {
@@ -433,9 +495,14 @@ async function loadAllDeleted(): Promise<void> {
   }
 }
 
-async function restoreRecord(item: Record<string, any>): Promise<void> {
+async function restoreRecord(item: TrashItem): Promise<void> {
   try {
-    await api.post(`/master-data/${item.moduleKey}/${item.id}/restore`, {})
+    if (item.moduleKey.startsWith('catalogue/configs/')) {
+      await api.post(`/catalogue/configs/${item.code}/${item.id}/restore`, {})
+    }
+    else {
+      await api.post(`/${item.moduleKey}/${item.id}/restore`, {})
+    }
     await loadAllDeleted()
   }
   catch (error: unknown) {
@@ -443,10 +510,15 @@ async function restoreRecord(item: Record<string, any>): Promise<void> {
   }
 }
 
-async function permanentDelete(item: Record<string, any>): Promise<void> {
+async function permanentDelete(item: TrashItem): Promise<void> {
   if (!window.confirm('Permanently delete? This cannot be undone.')) return
   try {
-    await api.delete(`/master-data/${item.moduleKey}/${item.id}/permanent`)
+    if (item.moduleKey.startsWith('catalogue/configs/')) {
+      await api.delete(`/catalogue/configs/${item.code}/${item.id}/permanent`)
+    }
+    else {
+      await api.delete(`/${item.moduleKey}/${item.id}/permanent`)
+    }
     await loadAllDeleted()
   }
   catch (error: unknown) {
@@ -469,7 +541,7 @@ onMounted(() => {
     <PageHeader
       class="no-print"
       title="Master Data Configuration"
-      description="Spreadsheet-style bulk entry: type directly into the grid, add a single row or paste multiple rows, then Save All in one go. UOM, Currencies, Phases, Activities, Hole Sections, Vendors/Suppliers and PO/SO Orders — with Import/Export, Print, Soft Delete and Audit."
+      description="Spreadsheet-style bulk entry with Import / XLSX-CSV Export / Print on every tab, soft delete into the Deleted Entries trash, auto-generated codes, duplicate prevention and full audit logging. Services, Consumables (Mud Chemicals, Cement Additives, Fuel, Drill Bits) and Tangibles include rate-revision history."
     />
 
     <div class="tabs no-print">
@@ -489,17 +561,17 @@ onMounted(() => {
     <section v-if="currentModule" class="grid-card">
       <ExcelGrid
         :ref="(el) => { if (el) activeGrid = el as InstanceType<typeof ExcelGrid> }"
-        :key="currentModule.key"
-        :title="currentModule.fullLabel"
-        :singular="currentModule.label.toLowerCase()"
-        :columns="genericColumns(currentModule)"
+        :key="mod.key"
+        :title="mod.fullLabel"
+        :singular="mod.label.toLowerCase()"
+        :columns="genericColumns(mod)"
         code-field="code"
-        :load-records="genericLoad(currentModule)"
-        :to-row="genericToRow(currentModule)"
-        :to-payload="genericToPayload(currentModule)"
-        :create-record="genericCreate(currentModule)"
-        :update-record="genericUpdate(currentModule)"
-        :delete-record="genericDelete(currentModule)"
+        :load-records="genericLoad(mod)"
+        :to-row="genericToRow(mod)"
+        :to-payload="genericToPayload(mod)"
+        :create-record="(payload: Record<string, unknown>) => api.post(`/master-data/${mod.key}`, payload)"
+        :update-record="(id: number, payload: Record<string, unknown>) => api.put(`/master-data/${mod.key}/${id}`, payload)"
+        :delete-record="(id: number) => api.delete(`/master-data/${mod.key}/${id}`)"
         @dirty="tabDirty = $event"
       >
         <template #toolbar-extra>
@@ -509,6 +581,11 @@ onMounted(() => {
           <Button label="Print" icon="pi pi-print" size="small" severity="secondary" text @click="printTable" />
         </template>
       </ExcelGrid>
+    </section>
+
+    <!-- Services -->
+    <section v-else-if="activeTab === TAB_SERVICES" class="grid-card">
+      <ServicesTab />
     </section>
 
     <!-- Vendors / Suppliers -->
@@ -599,13 +676,87 @@ onMounted(() => {
       </p>
     </section>
 
+    <!-- Consumables -->
+    <section v-else-if="activeTab === TAB_CONSUMABLES" class="grid-card">
+      <div class="subtabs no-print">
+        <button
+          v-for="sub in consumableSubTabs"
+          :key="sub.key"
+          class="subtabs__item"
+          :class="{ 'subtabs__item--active': consumableSubTab === sub.key }"
+          @click="consumableSubTab = sub.key"
+        >
+          <i :class="sub.icon" />
+          {{ sub.label }}
+        </button>
+      </div>
+
+      <MudChemicalsTab v-if="consumableSubTab === 'mud'" />
+      <DrillBitsTab v-else-if="consumableSubTab === 'bits'" />
+      <RateHistoryPanel
+        v-else-if="consumableSubTab === 'rates'"
+        endpoint="/catalogue/consumables-rate-history"
+        title="Consumables — Rate Revision History (Mud Chemicals & Drill Bits)"
+        kind="consumables"
+      />
+      <PlaceholderPanel
+        v-else-if="consumableSubTab === 'cement'"
+        code="CA"
+        name="Cement Additives"
+        description="Cement additives are registered as a consumable subcategory with code CA."
+      />
+      <PlaceholderPanel
+        v-else
+        code="FU"
+        name="Fuel"
+        description="Fuel (AGO, PMS, Others) is registered as a consumable subcategory with code FU."
+        note="Fuel rate entry will be configured in a later release with fuel-specific units and rate fields."
+      />
+    </section>
+
+    <!-- Tangibles -->
+    <section v-else-if="activeTab === TAB_TANGIBLES" class="grid-card">
+      <div class="subtabs no-print">
+        <button
+          class="subtabs__item"
+          :class="{ 'subtabs__item--active': tangibleSubTab === 'items' }"
+          @click="tangibleSubTab = 'items'"
+        >
+          <i class="pi pi-box" />
+          Tangible Items
+        </button>
+        <button
+          class="subtabs__item"
+          :class="{ 'subtabs__item--active': tangibleSubTab === 'rates' }"
+          @click="tangibleSubTab = 'rates'"
+        >
+          <i class="pi pi-history" />
+          Rate Revisions
+        </button>
+      </div>
+
+      <TangiblesTab v-if="tangibleSubTab === 'items'" />
+      <RateHistoryPanel
+        v-else
+        endpoint="/catalogue/tangibles/rate-history"
+        title="Tangibles — Rate Revision History"
+        kind="priced"
+      />
+    </section>
+
     <!-- Deleted entries -->
-    <section v-else class="grid-card">
-      <div class="flex items-center justify-between mb-3">
+    <section v-else-if="activeTab === TAB_DELETED" class="grid-card">
+      <div class="trash-head no-print">
         <h3 class="trash-title">
           Deleted Entries (Trash) — {{ deletedRecords.length }} items
         </h3>
-        <span class="trash-subtitle">Restore or permanently delete. All actions are audit-logged.</span>
+        <div class="trash-head__right">
+          <div class="trash-search">
+            <i class="pi pi-search" />
+            <input v-model="trashSearch" type="search" placeholder="Search trash…" class="trash-search__input">
+          </div>
+          <span class="trash-subtitle">Restore or permanently delete. All actions are audit-logged.</span>
+        </div>
       </div>
       <div class="table-scroll">
         <table class="trash-table">
@@ -622,17 +773,17 @@ onMounted(() => {
             <tr v-if="deletedLoading">
               <td colspan="5" class="empty-cell"><i class="pi pi-spin pi-spinner" /> Loading deleted entries…</td>
             </tr>
-            <tr v-else-if="deletedRecords.length === 0">
+            <tr v-else-if="filteredTrash.length === 0">
               <td colspan="5" class="empty-cell">No deleted entries.</td>
             </tr>
-            <tr v-for="item in deletedRecords" :key="`${item.moduleKey}-${item.id}`">
+            <tr v-for="item in filteredTrash" :key="`${item.moduleKey}-${item.id}`">
               <td class="trash-module">{{ item.moduleName }}</td>
               <td class="mono">{{ item.code || '—' }}</td>
               <td class="truncate">{{ item.name || item.description || item.remarks || '—' }}</td>
               <td class="muted">{{ item.deleted_at ? new Date(item.deleted_at).toLocaleString() : '—' }}</td>
-              <td class="text-right">
+              <td class="text-right trash-actions">
                 <Button label="Restore" size="small" severity="success" outlined @click="restoreRecord(item)" />
-                <Button label="Delete" size="small" severity="danger" outlined class="ml-2" @click="permanentDelete(item)" />
+                <Button label="Delete" size="small" severity="danger" outlined @click="permanentDelete(item)" />
               </td>
             </tr>
           </tbody>
@@ -640,7 +791,11 @@ onMounted(() => {
       </div>
     </section>
 
+    <!-- Placeholder for legacy tab indices that are no longer used -->
+    <section v-else class="grid-card" />
+
     <ImportDialog
+      v-if="isLegacyGridTab"
       v-model:visible="showImport"
       :title="importTitle"
       :endpoint="importEndpoint"
@@ -699,7 +854,7 @@ onMounted(() => {
 
 <style scoped>
 .master-data-page {
-  max-width: 1600px;
+  max-width: 1700px;
   margin: 0 auto;
 }
 
@@ -745,6 +900,42 @@ onMounted(() => {
   font-weight: 600;
 }
 
+.subtabs {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px dashed var(--app-border);
+}
+
+.subtabs__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  background: var(--app-surface);
+  color: var(--app-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.subtabs__item:hover {
+  color: var(--app-teal);
+  border-color: var(--app-teal);
+}
+
+.subtabs__item--active {
+  background: rgb(15 118 110 / 12%);
+  color: var(--app-teal);
+  border-color: var(--app-teal);
+  font-weight: 600;
+}
+
 .grid-card {
   background: var(--app-surface);
   border: 1px solid var(--app-border);
@@ -753,64 +944,20 @@ onMounted(() => {
   padding: 1rem;
 }
 
-.filter-select {
-  height: 2rem;
-  font-size: 0.78rem;
-  border: 1px solid var(--app-border);
-  border-radius: 6px;
-  background: var(--app-surface);
-  color: var(--app-ink);
-  padding: 0 0.5rem;
-}
-
-.icon-btn {
-  border: none;
-  background: transparent;
-  color: var(--app-muted);
-  cursor: pointer;
-  padding: 0.3rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  line-height: 1;
-}
-
-.icon-btn:hover:not(:disabled) {
-  background: var(--app-bg);
-  color: var(--p-primary-color);
-}
-
-.icon-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.attach-link {
-  display: inline-flex;
+.trash-head {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.25rem;
-  border: none;
-  background: transparent;
-  color: var(--p-primary-color);
-  font-size: 0.72rem;
-  cursor: pointer;
-  padding: 0.15rem 0.25rem;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
 }
 
-.attach-link:hover {
-  text-decoration: underline;
-}
-
-.attach-none {
-  color: var(--app-muted);
-}
-
-.bulk-attach-hint {
-  margin: 0.75rem 0 0;
-  padding: 0.5rem 0.75rem;
-  background: rgb(59 130 246 / 8%);
-  border-radius: 8px;
-  font-size: 0.75rem;
-  color: #1d4ed8;
+.trash-head__right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .trash-title {
@@ -822,6 +969,31 @@ onMounted(() => {
 .trash-subtitle {
   font-size: 0.72rem;
   color: var(--app-muted);
+}
+
+.trash-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.trash-search .pi-search {
+  position: absolute;
+  left: 0.55rem;
+  color: var(--app-muted);
+  font-size: 0.72rem;
+  pointer-events: none;
+}
+
+.trash-search__input {
+  height: 1.9rem;
+  font-size: 0.75rem;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-surface);
+  color: var(--app-ink);
+  padding: 0 0.5rem 0 1.6rem;
+  width: 12rem;
 }
 
 .table-scroll {
@@ -884,6 +1056,10 @@ onMounted(() => {
   color: var(--app-muted);
 }
 
+.trash-actions {
+  white-space: nowrap;
+}
+
 .attach-form {
   display: flex;
   flex-direction: column;
@@ -912,6 +1088,10 @@ onMounted(() => {
   background: var(--app-bg);
   border-radius: 8px;
   padding: 0.6rem 0.75rem;
+}
+
+.text-right {
+  text-align: right;
 }
 
 @media print {

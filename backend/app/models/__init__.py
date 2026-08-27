@@ -3,6 +3,17 @@
 # pyright: reportAttributeAccessIssue=false, reportUnknownVariableType=false
 
 from app.models.audit_log import AuditLog
+from app.models.catalogue import (
+    CatalogueConfig,
+    ConsumableSubcategory,
+    DrillBit,
+    DrillBitRate,
+    MudChemical,
+    MudChemicalRate,
+    Service,
+    Tangible,
+    TangibleRate,
+)
 from app.models.master_data import (
     Activity,
     Currency,
@@ -18,11 +29,20 @@ from app.models.user import User, user_roles
 __all__ = [
     "Activity",
     "AuditLog",
+    "CatalogueConfig",
+    "ConsumableSubcategory",
     "Currency",
+    "DrillBit",
+    "DrillBitRate",
     "HoleSection",
+    "MudChemical",
+    "MudChemicalRate",
     "Phase",
     "PurchaseOrderServiceOrder",
     "Role",
+    "Service",
+    "Tangible",
+    "TangibleRate",
     "UnitOfMeasurement",
     "User",
     "VendorSupplier",

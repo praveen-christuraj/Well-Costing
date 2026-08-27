@@ -50,6 +50,15 @@ CRITICAL_SCHEMA: dict[str, tuple[str, ...]] = {
     "audit_logs": ("timestamp", "action", "module"),
     "vendor_suppliers": ("vendor_code", "vendor_name", "is_deleted"),
     "purchase_orders_service_orders": ("po_type", "vendor_id", "po_so_number", "is_deleted"),
+    "catalogue_configs": ("config_type", "value", "is_deleted"),
+    "consumable_subcategories": ("subcategory_code", "subcategory_name", "is_deleted"),
+    "services": ("service_code", "service_name", "provider_type", "is_deleted"),
+    "mud_chemicals": ("chemical_code", "chemical_name", "current_rate", "is_deleted"),
+    "mud_chemical_rates": ("chemical_id", "unit_rate", "effective_date"),
+    "drill_bits": ("bit_code", "bit_name", "final_cost", "is_deleted"),
+    "drill_bit_rates": ("bit_id", "final_cost", "effective_date"),
+    "tangibles": ("tangible_code", "tangible_name", "final_cost", "is_deleted"),
+    "tangible_rates": ("tangible_id", "final_cost", "effective_date"),
 }
 
 REMEDIATION = (

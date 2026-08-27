@@ -29,6 +29,12 @@ const KNOWN_MODULES = [
   'Hole Sections',
   'Vendors/Suppliers',
   'Purchase Orders/Service Orders',
+  'Services',
+  'Mud Chemicals',
+  'Drill Bits',
+  'Tangibles',
+  'Dropdown Lists',
+  'Consumable Rate Revisions',
   'Audit',
 ]
 
@@ -36,6 +42,7 @@ const KNOWN_ACTIONS = [
   'LOGIN',
   'CREATE',
   'UPDATE',
+  'RATE_REVISION',
   'SOFT_DELETE',
   'RESTORE',
   'PERMANENT_DELETE',
@@ -133,6 +140,8 @@ function actionClass(action: string): string {
       return 'badge badge--green'
     case 'UPDATE':
       return 'badge badge--blue'
+    case 'RATE_REVISION':
+      return 'badge badge--teal'
     case 'SOFT_DELETE':
       return 'badge badge--amber'
     case 'PERMANENT_DELETE':
@@ -447,6 +456,7 @@ function printLogs(): void {
 
 .badge--green { background: #dcfce7; color: #166534; }
 .badge--blue { background: #dbeafe; color: #1e40af; }
+.badge--teal { background: #ccfbf1; color: #0f766e; }
 .badge--amber { background: #fef3c7; color: #92400e; }
 .badge--red { background: #fee2e2; color: #991b1b; }
 .badge--purple { background: #f3e8ff; color: #6b21a8; }

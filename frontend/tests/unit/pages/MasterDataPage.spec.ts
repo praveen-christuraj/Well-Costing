@@ -29,6 +29,9 @@ function makeApi(): ApiMock {
       if (path === '/master-data/uom/deleted') return Promise.resolve(deletedUom)
       if (path === '/master-data/vendors') return Promise.resolve(vendorRecords)
       if (path === '/master-data/vendors/dropdown') return Promise.resolve([])
+      if (path === '/catalogue/configs-deleted') return Promise.resolve([])
+      if (path.includes('/rate-history') || path.includes('/dropdown-options')) return Promise.resolve([])
+      if (path.includes('/catalogue/') && path.endsWith('/deleted')) return Promise.resolve([])
       if (path.endsWith('/deleted')) return Promise.resolve([])
       return Promise.resolve([])
     }),
