@@ -17,5 +17,6 @@ const { default: withNuxt } = await import('./.nuxt/eslint.config.mjs')
 export default withNuxt({
   rules: {
     'vue/multi-word-component-names': 'off',
+    '@typescript-eslint/no-explicit-any': 'off',
   },
 })

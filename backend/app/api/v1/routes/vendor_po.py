@@ -4,7 +4,7 @@ import csv
 import io
 import re
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated, Any
@@ -365,7 +365,7 @@ def update_vendor(
             raise HTTPException(status_code=400, detail=f"Vendor code '{new_code}' already exists")
         instance.vendor_code = new_code
 
-    if "vendor_name" in payload and payload["vendor_name"]:
+    if payload.get("vendor_name"):
         instance.vendor_name = payload["vendor_name"]
     if "contact" in payload:
         instance.contact = payload["contact"]
@@ -413,7 +413,7 @@ def soft_delete_vendor(
         )
 
     instance.is_deleted = True
-    instance.deleted_at = datetime.now(timezone.utc)
+    instance.deleted_at = datetime.now(UTC)
     db.commit()
 
     log_audit(
@@ -524,7 +524,7 @@ async def import_vendors(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(exc)}") from exc
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {exc!s}") from exc
 
     imported = 0
     err_count = 0
@@ -567,7 +567,7 @@ async def import_vendors(
                 imported += 1
             except Exception as exc:
                 err_count += 1
-                errors.append(f"Row {r_num} ({code}): {str(exc)}")
+                errors.append(f"Row {r_num} ({code}): {exc!s}")
 
     db.commit()
 
@@ -820,7 +820,7 @@ async def bulk_upload_attachments(
 
         except Exception as exc:
             err_count += 1
-            errors.append(f"{fname}: {str(exc)}")
+            errors.append(f"{fname}: {exc!s}")
 
     db.commit()
 
@@ -877,7 +877,7 @@ async def import_purchase_orders(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(exc)}") from exc
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {exc!s}") from exc
 
     imported = 0
     err_count = 0
@@ -1033,7 +1033,7 @@ async def import_purchase_orders(
 
         except Exception as exc:
             err_count += 1
-            errors.append(f"Row {r_num}: {str(exc)}")
+            errors.append(f"Row {r_num}: {exc!s}")
 
     db.commit()
 
@@ -1360,7 +1360,7 @@ def soft_delete_po(
         raise HTTPException(status_code=404, detail="PO/SO not found")
 
     instance.is_deleted = True
-    instance.deleted_at = datetime.now(timezone.utc)
+    instance.deleted_at = datetime.now(UTC)
     db.commit()
 
     log_audit(

@@ -1,6 +1,7 @@
 """Pydantic schemas for Audit Logs."""
 
 from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict
 
 

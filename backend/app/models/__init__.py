@@ -19,10 +19,10 @@ __all__ = [
     "Currency",
     "HoleSection",
     "Phase",
+    "PurchaseOrderServiceOrder",
     "Role",
     "UnitOfMeasurement",
-    "VendorSupplier",
-    "PurchaseOrderServiceOrder",
     "User",
+    "VendorSupplier",
     "user_roles",
 ]
