@@ -327,6 +327,28 @@ DATABASE_URL=sqlite:////<absolute-path-to-repo>/data/drilling.db
 `ENVIRONMENT` must be `development` for SQLite: the `termux` environment
 hard-requires PostgreSQL (see `backend/app/core/config.py`).
 
+#### Problem: Migrations fail with `relation "..." already exists` (`DuplicateTable`)
+
+The database already holds tables a migration wants to create, while
+`alembic_version` still points at an earlier revision — typically a phone that
+was deployed before the Alembic history was reset.
+
+Migrations are now idempotent: they skip tables and indexes that already exist
+and add only the columns that are missing. Update the deployment first:
+
+```bash
+git pull
+bash termux/deploy.sh
+```
+
+If it still fails, the database holds an unrelated schema. Either point
+`DATABASE_URL` at an empty database, or — when the existing tables are known to
+match the current models — record the schema as up to date:
+
+```bash
+bash termux/backend-exec.sh python -m alembic stamp head
+```
+
 #### Problem: Memory/RAM errors
 
 Termux on devices with less than 4 GB RAM can struggle with `npm run build`.

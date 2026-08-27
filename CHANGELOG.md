@@ -2,6 +2,34 @@
 
 All notable project changes are documented here.
 
+## 2026-08-27 — Migrations survive partially provisioned databases
+
+`alembic upgrade head` aborted with
+`psycopg.errors.DuplicateTable: relation "currencies" already exists` on
+deployments whose database already held the master-data tables while
+`alembic_version` still pointed at `20260827_0001` (a Termux phone upgraded
+across the history reset). The upgrade could neither move forward nor roll
+back, so `termux/deploy.sh` failed every run.
+
+### Added
+
+- `app/db/migration_ops.py` — idempotent DDL helpers (`create_table_if_missing`,
+  `create_index_if_missing`, `add_missing_columns`, and their drop
+  counterparts). Existing tables are left in place, missing columns are added
+  (backfilled from their server default when the backend rejects adding a
+  defaulted `NOT NULL` column), and existing indexes are skipped.
+- `backend/tests/integration/test_migrations.py` — covers a clean upgrade, a
+  replay over already-created tables, and an older table that is missing
+  columns while keeping its rows.
+
+### Changed
+
+- Revisions `20260827_0001` and `20260827_0002` use the idempotent helpers, so
+  re-running them converges an existing database instead of failing.
+- `termux/lib-debian-backend.sh` explains a `DuplicateTable` migration failure
+  (pull the latest deploy; otherwise use an empty database or
+  `alembic stamp head`) alongside the existing connection/auth diagnostics.
+
 ## 2026-08-27 — Restructure to an authenticated empty shell
 
 ### Removed

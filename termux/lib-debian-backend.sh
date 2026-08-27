@@ -447,6 +447,15 @@ run_migrations() {
             err ""
             err "  The database rejected the credentials in backend/.env DATABASE_URL."
             err "  Check user/password — percent-encode special characters (@ → %40, % → %25)."
+        elif grep -qiE "DuplicateTable|already exists" "$migration_log"; then
+            err ""
+            err "  The database already contains tables a migration wants to create, and"
+            err "  its recorded revision is behind. Migrations now skip objects that are"
+            err "  already there, so first make sure this deployment is up to date:"
+            err "    git pull && bash termux/deploy.sh"
+            err "  If it persists, the database holds an unrelated schema: point"
+            err "  DATABASE_URL at an empty database, or stamp the current revision with"
+            err "    bash termux/backend-exec.sh python -m alembic stamp head"
         fi
         die "Fix the database configuration above, then re-run this script."
     fi

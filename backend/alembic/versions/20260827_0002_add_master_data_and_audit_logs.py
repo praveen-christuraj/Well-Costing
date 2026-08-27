@@ -9,6 +9,12 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from app.db.migration_ops import (
+    create_index_if_missing,
+    create_table_if_missing,
+    drop_index_if_present,
+    drop_table_if_present,
+)
 
 revision: str = "20260827_0002"
 down_revision: str | None = "20260827_0001"
@@ -18,7 +24,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     # Unit of Measurements
-    op.create_table(
+    create_table_if_missing(
         "uom",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("unit_code", sa.String(length=50), nullable=False),
@@ -33,10 +39,10 @@ def upgrade() -> None:
         sa.Column("updated_by", sa.Uuid(), nullable=True),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_uom")),
     )
-    op.create_index(op.f("ix_uom_unit_code"), "uom", ["unit_code"], unique=True)
+    create_index_if_missing(op.f("ix_uom_unit_code"), "uom", ["unit_code"], unique=True)
 
     # Currencies
-    op.create_table(
+    create_table_if_missing(
         "currencies",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("currency_code", sa.String(length=10), nullable=False),
@@ -51,10 +57,10 @@ def upgrade() -> None:
         sa.Column("updated_by", sa.Uuid(), nullable=True),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_currencies")),
     )
-    op.create_index(op.f("ix_currencies_currency_code"), "currencies", ["currency_code"], unique=True)
+    create_index_if_missing(op.f("ix_currencies_currency_code"), "currencies", ["currency_code"], unique=True)
 
     # Phases
-    op.create_table(
+    create_table_if_missing(
         "phases",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("phase_code", sa.String(length=50), nullable=False),
@@ -68,10 +74,10 @@ def upgrade() -> None:
         sa.Column("updated_by", sa.Uuid(), nullable=True),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_phases")),
     )
-    op.create_index(op.f("ix_phases_phase_code"), "phases", ["phase_code"], unique=True)
+    create_index_if_missing(op.f("ix_phases_phase_code"), "phases", ["phase_code"], unique=True)
 
     # Activities
-    op.create_table(
+    create_table_if_missing(
         "activities",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("activity_code", sa.String(length=50), nullable=False),
@@ -85,10 +91,10 @@ def upgrade() -> None:
         sa.Column("updated_by", sa.Uuid(), nullable=True),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_activities")),
     )
-    op.create_index(op.f("ix_activities_activity_code"), "activities", ["activity_code"], unique=True)
+    create_index_if_missing(op.f("ix_activities_activity_code"), "activities", ["activity_code"], unique=True)
 
     # Hole Sections
-    op.create_table(
+    create_table_if_missing(
         "hole_sections",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("section_code", sa.String(length=50), nullable=False),
@@ -102,10 +108,10 @@ def upgrade() -> None:
         sa.Column("updated_by", sa.Uuid(), nullable=True),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_hole_sections")),
     )
-    op.create_index(op.f("ix_hole_sections_section_code"), "hole_sections", ["section_code"], unique=True)
+    create_index_if_missing(op.f("ix_hole_sections_section_code"), "hole_sections", ["section_code"], unique=True)
 
     # Audit Logs
-    op.create_table(
+    create_table_if_missing(
         "audit_logs",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("timestamp", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
@@ -118,32 +124,32 @@ def upgrade() -> None:
         sa.Column("ip_address", sa.String(length=100), nullable=True),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_audit_logs")),
     )
-    op.create_index(op.f("ix_audit_logs_timestamp"), "audit_logs", ["timestamp"], unique=False)
-    op.create_index(op.f("ix_audit_logs_user_email"), "audit_logs", ["user_email"], unique=False)
-    op.create_index(op.f("ix_audit_logs_action"), "audit_logs", ["action"], unique=False)
-    op.create_index(op.f("ix_audit_logs_module"), "audit_logs", ["module"], unique=False)
-    op.create_index(op.f("ix_audit_logs_entity_code"), "audit_logs", ["entity_code"], unique=False)
+    create_index_if_missing(op.f("ix_audit_logs_timestamp"), "audit_logs", ["timestamp"], unique=False)
+    create_index_if_missing(op.f("ix_audit_logs_user_email"), "audit_logs", ["user_email"], unique=False)
+    create_index_if_missing(op.f("ix_audit_logs_action"), "audit_logs", ["action"], unique=False)
+    create_index_if_missing(op.f("ix_audit_logs_module"), "audit_logs", ["module"], unique=False)
+    create_index_if_missing(op.f("ix_audit_logs_entity_code"), "audit_logs", ["entity_code"], unique=False)
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_audit_logs_entity_code"), table_name="audit_logs")
-    op.drop_index(op.f("ix_audit_logs_module"), table_name="audit_logs")
-    op.drop_index(op.f("ix_audit_logs_action"), table_name="audit_logs")
-    op.drop_index(op.f("ix_audit_logs_user_email"), table_name="audit_logs")
-    op.drop_index(op.f("ix_audit_logs_timestamp"), table_name="audit_logs")
-    op.drop_table("audit_logs")
+    drop_index_if_present(op.f("ix_audit_logs_entity_code"), "audit_logs")
+    drop_index_if_present(op.f("ix_audit_logs_module"), "audit_logs")
+    drop_index_if_present(op.f("ix_audit_logs_action"), "audit_logs")
+    drop_index_if_present(op.f("ix_audit_logs_user_email"), "audit_logs")
+    drop_index_if_present(op.f("ix_audit_logs_timestamp"), "audit_logs")
+    drop_table_if_present("audit_logs")
 
-    op.drop_index(op.f("ix_hole_sections_section_code"), table_name="hole_sections")
-    op.drop_table("hole_sections")
+    drop_index_if_present(op.f("ix_hole_sections_section_code"), "hole_sections")
+    drop_table_if_present("hole_sections")
 
-    op.drop_index(op.f("ix_activities_activity_code"), table_name="activities")
-    op.drop_table("activities")
+    drop_index_if_present(op.f("ix_activities_activity_code"), "activities")
+    drop_table_if_present("activities")
 
-    op.drop_index(op.f("ix_phases_phase_code"), table_name="phases")
-    op.drop_table("phases")
+    drop_index_if_present(op.f("ix_phases_phase_code"), "phases")
+    drop_table_if_present("phases")
 
-    op.drop_index(op.f("ix_currencies_currency_code"), table_name="currencies")
-    op.drop_table("currencies")
+    drop_index_if_present(op.f("ix_currencies_currency_code"), "currencies")
+    drop_table_if_present("currencies")
 
-    op.drop_index(op.f("ix_uom_unit_code"), table_name="uom")
-    op.drop_table("uom")
+    drop_index_if_present(op.f("ix_uom_unit_code"), "uom")
+    drop_table_if_present("uom")
