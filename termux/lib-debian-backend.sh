@@ -586,8 +586,20 @@ print_access_banner() {
 seed_admin() {
     local ADMIN_MARKER="$TERMUX_DIR/.admin_seeded"
     if [ -f "$ADMIN_MARKER" ] && [ "${TERMUX_SEED_ADMIN:-0}" != "1" ]; then
-        ok "Admin user already seeded (delete termux/.admin_seeded to re-run)"
-        return 0
+        # The marker only proves a seed ran once on this phone — the database
+        # may have been wiped/rebuilt since (scripts/temp_clean_database.py
+        # empties the users table). Confirm a login still exists before
+        # skipping; if the check itself fails (DB unreachable, deps missing),
+        # trust the marker so a flaky connection doesn't nag on every deploy.
+        local user_count
+        user_count=$(backend_shell "$VENV_NAME/bin/python scripts/count_active_users.py" 2>/dev/null | tail -n 1) || user_count=""
+        if [[ "$user_count" =~ ^[0-9]+$ ]] && [ "$user_count" -eq 0 ]; then
+            warn "Seed marker exists but the database has no active users (was it rebuilt?)."
+            warn "Re-running the admin user setup..."
+        else
+            ok "Admin user already seeded (delete termux/.admin_seeded to re-run)"
+            return 0
+        fi
     fi
 
     echo ""
