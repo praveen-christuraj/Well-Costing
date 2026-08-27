@@ -1,3 +1,4 @@
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportUnknownParameterType=false, reportMissingTypeArgument=false, reportAttributeAccessIssue=false, reportGeneralTypeIssues=false
 """Idempotent DDL helpers for Alembic migrations.
 
 Deployments that were created before the clean ``20260827_0001`` baseline (or

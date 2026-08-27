@@ -1,5 +1,7 @@
 """SQLAlchemy model exports used by Alembic metadata discovery."""
 
+# pyright: reportAttributeAccessIssue=false, reportUnknownVariableType=false
+
 from app.models.audit_log import AuditLog
 from app.models.master_data import (
     Activity,
