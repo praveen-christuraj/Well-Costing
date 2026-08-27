@@ -19,6 +19,23 @@ from app.models.user import User
 from sqlalchemy import select
 
 
+def load_backend_env() -> None:
+    """Load backend/.env values into os.environ if not already set."""
+    env_file = Path(__file__).resolve().parents[1] / ".env"
+    if env_file.is_file():
+        with open(env_file, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    if key.startswith("export "):
+                        key = key[7:].strip()
+                    value = value.strip().strip('"').strip("'")
+                    if key not in os.environ:
+                        os.environ[key] = value
+
+
 def required(name: str) -> str:
     value = os.getenv(name)
     if not value:
@@ -27,6 +44,7 @@ def required(name: str) -> str:
 
 
 def main() -> None:
+    load_backend_env()
     email = required("SEED_USER_EMAIL").strip().lower()
     password = required("SEED_USER_PASSWORD")
     full_name = os.getenv("SEED_USER_FULL_NAME", "Development Administrator").strip()

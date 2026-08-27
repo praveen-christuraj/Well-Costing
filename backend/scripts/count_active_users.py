@@ -20,11 +20,14 @@ from sqlalchemy import func, select
 
 
 def main() -> None:
-    with SessionLocal() as session:
-        count = session.scalar(
-            select(func.count()).select_from(User).where(User.is_active.is_(True))
-        )
-    print(int(count or 0))
+    try:
+        with SessionLocal() as session:
+            count = session.scalar(
+                select(func.count()).select_from(User).where(User.is_active.is_(True))
+            )
+        print(int(count or 0))
+    except Exception:
+        print(0)
 
 
 if __name__ == "__main__":

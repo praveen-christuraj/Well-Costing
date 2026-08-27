@@ -585,20 +585,45 @@ print_access_banner() {
 # TERMUX_SEED_ADMIN=1 is set explicitly.
 seed_admin() {
     local ADMIN_MARKER="$TERMUX_DIR/.admin_seeded"
-    if [ -f "$ADMIN_MARKER" ] && [ "${TERMUX_SEED_ADMIN:-0}" != "1" ]; then
-        # The marker only proves a seed ran once on this phone — the database
-        # may have been wiped/rebuilt since (scripts/temp_clean_database.py
-        # empties the users table). Confirm a login still exists before
-        # skipping; if the check itself fails (DB unreachable, deps missing),
-        # trust the marker so a flaky connection doesn't nag on every deploy.
-        local user_count
-        user_count=$(backend_shell "$VENV_NAME/bin/python scripts/count_active_users.py" 2>/dev/null | tail -n 1) || user_count=""
-        if [[ "$user_count" =~ ^[0-9]+$ ]] && [ "$user_count" -eq 0 ]; then
-            warn "Seed marker exists but the database has no active users (was it rebuilt?)."
-            warn "Re-running the admin user setup..."
-        else
+
+    # Query active user count from database (count_active_users.py outputs 0 if empty or table missing)
+    local user_count
+    user_count=$(backend_shell "$VENV_NAME/bin/python scripts/count_active_users.py" 2>/dev/null | tail -n 1) || user_count="0"
+    if [[ ! "$user_count" =~ ^[0-9]+$ ]]; then
+        user_count=0
+    fi
+
+    if [ "$user_count" -gt 0 ]; then
+        if [ -f "$ADMIN_MARKER" ] && [ "${TERMUX_SEED_ADMIN:-0}" != "1" ]; then
             ok "Admin user already seeded (delete termux/.admin_seeded to re-run)"
             return 0
+        else
+            touch "$ADMIN_MARKER"
+            ok "Admin user already exists in database ($user_count active user(s))"
+            return 0
+        fi
+    fi
+
+    if [ -f "$ADMIN_MARKER" ]; then
+        warn "Seed marker exists but the database has no active users (was it rebuilt?)."
+        warn "Re-running the admin user setup..."
+    fi
+
+    # Read any pre-configured seed variables from host environment or backend/.env as defaults
+    local env_email env_pass env_name
+    env_email="${SEED_USER_EMAIL:-}"
+    env_pass="${SEED_USER_PASSWORD:-}"
+    env_name="${SEED_USER_FULL_NAME:-}"
+
+    if [ -f "$BACKEND_ENV" ]; then
+        if [ -z "$env_email" ]; then
+            env_email=$(grep -E '^[[:space:]]*(export[[:space:]]+)?SEED_USER_EMAIL=' "$BACKEND_ENV" 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?SEED_USER_EMAIL=//; s/[[:space:]]+$//' | tr -d '"' | tr -d "'") || env_email=""
+        fi
+        if [ -z "$env_pass" ]; then
+            env_pass=$(grep -E '^[[:space:]]*(export[[:space:]]+)?SEED_USER_PASSWORD=' "$BACKEND_ENV" 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?SEED_USER_PASSWORD=//; s/[[:space:]]+$//' | tr -d '"' | tr -d "'") || env_email=""
+        fi
+        if [ -z "$env_name" ]; then
+            env_name=$(grep -E '^[[:space:]]*(export[[:space:]]+)?SEED_USER_FULL_NAME=' "$BACKEND_ENV" 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?SEED_USER_FULL_NAME=//; s/[[:space:]]+$//' | tr -d '"' | tr -d "'") || env_name=""
         fi
     fi
 
@@ -610,10 +635,28 @@ seed_admin() {
     echo ""
 
     local ADMIN_EMAIL ADMIN_PASSWORD ADMIN_NAME
-    read -r -p "  Admin email:     " ADMIN_EMAIL || true
-    read -r -s -p "  Admin password (min 12 chars): " ADMIN_PASSWORD || true
+
+    local prompt_email="  Admin email:     "
+    if [ -n "$env_email" ]; then
+        prompt_email="  Admin email [$env_email]: "
+    fi
+    read -r -p "$prompt_email" ADMIN_EMAIL || true
+    ADMIN_EMAIL="${ADMIN_EMAIL:-$env_email}"
+
+    local prompt_pass="  Admin password (min 12 chars): "
+    if [ -n "$env_pass" ]; then
+        prompt_pass="  Admin password [using default from .env]: "
+    fi
+    read -r -s -p "$prompt_pass" ADMIN_PASSWORD || true
     echo ""
-    read -r -p "  Full name:       " ADMIN_NAME || true
+    ADMIN_PASSWORD="${ADMIN_PASSWORD:-$env_pass}"
+
+    local prompt_name="  Full name:       "
+    if [ -n "$env_name" ]; then
+        prompt_name="  Full name [$env_name]: "
+    fi
+    read -r -p "$prompt_name" ADMIN_NAME || true
+    ADMIN_NAME="${ADMIN_NAME:-$env_name}"
 
     if [ -z "$ADMIN_EMAIL" ] || [ -z "$ADMIN_PASSWORD" ] || [ -z "$ADMIN_NAME" ]; then
         warn "Skipping admin seed — run manually later:"

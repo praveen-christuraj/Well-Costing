@@ -30,6 +30,7 @@ fi
 
 # Run migrations automatically on each start (idempotent).
 run_migrations
+seed_admin
 
 start_backend
 start_frontend
