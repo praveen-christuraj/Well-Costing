@@ -1,14 +1,18 @@
-"""SQLAlchemy model exports used by Alembic metadata discovery.
+"""SQLAlchemy model exports used by Alembic metadata discovery."""
 
-The application was restructured down to its authentication foundation, so
-users and roles are the only persisted entities.
-"""
-
+from app.models.audit_log import AuditLog
+from app.models.master_data import Activity, Currency, HoleSection, Phase, UnitOfMeasurement
 from app.models.role import Role
 from app.models.user import User, user_roles
 
 __all__ = [
+    "Activity",
+    "AuditLog",
+    "Currency",
+    "HoleSection",
+    "Phase",
     "Role",
+    "UnitOfMeasurement",
     "User",
     "user_roles",
 ]
