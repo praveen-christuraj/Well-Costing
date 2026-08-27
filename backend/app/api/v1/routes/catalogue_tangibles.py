@@ -32,6 +32,7 @@ from app.services.import_helpers import (
     read_tabular_file,
     row_get,
     spreadsheet_response,
+    template_xlsx_response,
 )
 
 router = APIRouter(prefix="/catalogue/tangibles", tags=["catalogue-tangibles"])
@@ -75,25 +76,60 @@ def _config_values(db: Session, config_type: str) -> list[str]:
     return [str(v) for v in rows]
 
 
-def _resolve_config(db: Session, config_type: str, value: Any, *, create_if_missing: bool = False) -> str:
+def _resolve_config(
+    db: Session,
+    config_type: str,
+    value: Any,
+    *,
+    create_if_missing: bool = False,
+    parent_value: str | None = None,
+) -> str:
+    """Resolve a configured dropdown value, optionally within a parent bucket.
+
+    When ``parent_value`` is given, rows under that parent are preferred;
+    legacy rows without a parent still match so values created before the
+    category dependency keep working.
+    """
+
     val = str(value or "").strip()
     if not val:
         raise ValueError("Value is required")
-    match = db.scalar(
-        select(CatalogueConfig).where(
-            CatalogueConfig.config_type == config_type,
-            func.lower(CatalogueConfig.value) == val.lower(),
-        )
+    base = select(CatalogueConfig).where(
+        CatalogueConfig.config_type == config_type,
+        func.lower(CatalogueConfig.value) == val.lower(),
     )
+    match = None
+    if parent_value is not None:
+        match = db.scalar(base.where(CatalogueConfig.parent_value == parent_value))
+    if match is None:
+        match = db.scalar(base.where(CatalogueConfig.parent_value.is_(None)))
+    if match is None and parent_value is not None and not create_if_missing:
+        # A same-named value that belongs to a different category is not a
+        # valid pick — surface exactly which category owns it.
+        other = db.scalar(base.where(CatalogueConfig.parent_value != parent_value))
+        if other and not other.is_deleted:
+            raise ValueError(
+                f"'{val}' belongs to the '{other.parent_value}' category — "
+                f"pick a subcategory configured under '{parent_value}'"
+            )
     if match:
         if match.is_deleted:
             match.is_deleted = False
             match.deleted_at = None
         return match.value
     if create_if_missing:
+        parent_bucket = (
+            CatalogueConfig.parent_value == parent_value
+            if parent_value is not None
+            else CatalogueConfig.parent_value.is_(None)
+        )
         max_order = db.scalar(select(func.max(CatalogueConfig.sort_order)).where(
-            CatalogueConfig.config_type == config_type)) or 0
-        db.add(CatalogueConfig(config_type=config_type, value=val, sort_order=max_order + 1))
+            CatalogueConfig.config_type == config_type,
+            parent_bucket,
+        )) or 0
+        db.add(CatalogueConfig(
+            config_type=config_type, value=val, parent_value=parent_value, sort_order=max_order + 1,
+        ))
         db.flush()
         return val
     known = ", ".join(_config_values(db, config_type)) or "none yet — add one via Manage"
@@ -198,11 +234,28 @@ def list_tangibles(
 def dropdown_options(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
-) -> dict[str, list[str]]:
+) -> dict[str, Any]:
+    """Dropdown sources for the tangibles grid.
+
+    Subcategories are dependents of the category, so each entry carries the
+    category it was configured under (``category`` is null for legacy values
+    created before the dependency — those stay available everywhere).
+    """
+
+    sub_rows = db.scalars(
+        select(CatalogueConfig).where(
+            CatalogueConfig.config_type == CONFIG_SUBCATEGORY,
+            CatalogueConfig.is_deleted == False,
+            CatalogueConfig.is_active == True,
+        ).order_by(CatalogueConfig.sort_order, func.lower(CatalogueConfig.value))
+    ).all()
     return {
         "scopes": sorted(SCOPES),
         "categories": _config_values(db, CONFIG_CATEGORY),
-        "subcategories": _config_values(db, CONFIG_SUBCATEGORY),
+        "subcategories": [
+            {"value": str(row.value), "category": row.parent_value}
+            for row in sub_rows
+        ],
         "manufacturers": _config_values(db, CONFIG_MANUFACTURER),
     }
 
@@ -326,7 +379,23 @@ def _parse_payload(db: Session, payload: dict[str, Any], *, create: bool) -> dic
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     category = require_config("Category", CONFIG_CATEGORY, payload.get("category"))
-    subcategory = require_config("Subcategory", CONFIG_SUBCATEGORY, payload.get("subcategory"))
+    # Subcategories depend on the category: resolve the subcategory within the
+    # selected category's bucket (legacy parent-less values still match).
+    sub_raw = payload.get("subcategory")
+    if create and not str(sub_raw or "").strip():
+        raise HTTPException(status_code=400, detail="Subcategory is required")
+    if str(sub_raw or "").strip():
+        if not category:
+            raise HTTPException(
+                status_code=400,
+                detail="Select the category first — subcategories depend on it",
+            )
+        try:
+            subcategory = _resolve_config(db, CONFIG_SUBCATEGORY, sub_raw, parent_value=category)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    else:
+        subcategory = ""
     manufacturer = require_config("Manufacturer", CONFIG_MANUFACTURER, payload.get("manufacturer"))
 
     rate = parse_decimal(
@@ -435,13 +504,45 @@ def update_tangible(
             tng.tangible_scope = _normalize_scope(payload.get("tangible_scope") or payload.get("scope"))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-    for field, cfg in (("category", CONFIG_CATEGORY), ("subcategory", CONFIG_SUBCATEGORY),
-                       ("manufacturer", CONFIG_MANUFACTURER)):
-        if payload.get(field) not in (None, ""):
-            try:
-                setattr(tng, field, _resolve_config(db, cfg, payload[field]))
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+    category_changed = False
+    if payload.get("category") not in (None, ""):
+        try:
+            new_category = _resolve_config(db, CONFIG_CATEGORY, payload["category"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        category_changed = new_category != tng.category
+        tng.category = new_category
+    if payload.get("subcategory") not in (None, ""):
+        # Subcategory is validated against the row's (possibly just-updated)
+        # category so dependents can never drift away from their parent.
+        if not tng.category:
+            raise HTTPException(
+                status_code=400,
+                detail="Select the category first — subcategories depend on it",
+            )
+        try:
+            tng.subcategory = _resolve_config(
+                db, CONFIG_SUBCATEGORY, payload["subcategory"], parent_value=tng.category,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    elif category_changed and tng.subcategory:
+        # Moving a row to another category must not strand a subcategory that
+        # belongs to the old one.
+        try:
+            tng.subcategory = _resolve_config(
+                db, CONFIG_SUBCATEGORY, tng.subcategory, parent_value=tng.category,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot switch to '{tng.category}': {exc}",
+            ) from exc
+    if payload.get("manufacturer") not in (None, ""):
+        try:
+            tng.manufacturer = _resolve_config(db, CONFIG_MANUFACTURER, payload["manufacturer"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     if "po_number" in payload:
         tng.po_number = str(payload.get("po_number") or "").strip() or None
     if payload.get("uom") not in (None, ""):
@@ -555,17 +656,51 @@ def permanent_delete_tangible(
 # Bulk import
 # ---------------------------------------------------------------------------
 
-IMPORT_TEMPLATE = (
-    "tangible_name,tangible_scope,category,subcategory,manufacturer,po_number,uom,"
-    "unit_rate_po,cost_uplift,currency,effective_date,description,remarks\n"
-    "Casing Pipe 9-5/8,Drilling,Casing,Surface Casing,Tenaris,PO-2026-10,m,120,100,USD,2026-02-10,Surface casing string,First order\n"
-)
+IMPORT_HEADERS = [
+    "tangible_name", "tangible_scope", "category", "subcategory", "manufacturer",
+    "po_number", "uom", "unit_rate_po", "cost_uplift", "currency", "effective_date",
+    "description", "remarks",
+]
 
 
 @router.get("/import-template")
-def download_template() -> Response:
-    return Response(content=IMPORT_TEMPLATE, media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=tangibles_template.csv"})
+def download_template(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> Response:
+    """XLSX template with in-cell dropdowns for scope, category, UOM and currency.
+
+    Download it, fill it with data and upload the same file on the Tangibles
+    tab. Subcategories must belong to the row's category — new subcategory
+    names are created under that category automatically on import.
+    """
+
+    uoms = [str(code) for code in db.scalars(
+        select(UnitOfMeasurement.unit_code).where(UnitOfMeasurement.is_deleted == False)
+        .order_by(UnitOfMeasurement.unit_code)
+    ).all()]
+    currencies = [str(code) for code in db.scalars(
+        select(Currency.currency_code).where(Currency.is_deleted == False)
+        .order_by(Currency.currency_code)
+    ).all()]
+    return template_xlsx_response(
+        "tangibles_template",
+        IMPORT_HEADERS,
+        sample_rows=[
+            ["Casing Pipe 9-5/8", "Drilling", "Casing", "Surface Casing", "Tenaris",
+             "PO-2026-10", "m", 120, 100, "USD", "2026-02-10", "Surface casing string", "First order"],
+        ],
+        dropdowns={
+            2: sorted(SCOPES),
+            3: _config_values(db, CONFIG_CATEGORY),
+            7: uoms,
+            10: currencies,
+        },
+        note=("Fill one tangible per row. Codes are generated automatically; re-importing an "
+              "existing tangible name with a new rate appends a rate revision. Each subcategory "
+              "must belong to the row's category — new subcategory names are created under that "
+              "category automatically."),
+    )
 
 
 @router.post("/import", response_model=BulkImportResponse)
@@ -592,8 +727,10 @@ async def import_tangibles(
                 raise ValueError("Tangible Name is required")
             scope = _normalize_scope(row_get(row, "tangible_scope", "scope"))
             category = _resolve_config(db, CONFIG_CATEGORY, row_get(row, "category"), create_if_missing=True)
+            # The subcategory is linked to the row's category; missing values
+            # are created under that category automatically.
             subcategory = _resolve_config(db, CONFIG_SUBCATEGORY, row_get(row, "subcategory", "sub_category"),
-                                          create_if_missing=True)
+                                          create_if_missing=True, parent_value=category)
             manufacturer = _resolve_config(db, CONFIG_MANUFACTURER, row_get(row, "manufacturer", "make"),
                                            create_if_missing=True)
             rate = parse_decimal(row_get(row, "unit_rate_po", "unit_rate", "rate"),

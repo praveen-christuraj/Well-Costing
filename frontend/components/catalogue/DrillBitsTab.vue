@@ -174,10 +174,8 @@ defineExpose({
       title="Bulk Import Drill Bits (CSV / XLSX)"
       endpoint="/catalogue/drill-bits/import"
       hint="Headers: bit_name, bit_type (new types auto-created), model_no, size, manufacturer (new makes auto-created), po_number, serial_number, unit_rate_po, cost_uplift (default 100), currency, effective_date (flexible), description, remarks. Codes auto-generate; re-importing name+model+size with a new rate appends a revision."
-      :template="{
-        filename: 'drill_bits_template.csv',
-        csv: 'bit_name,bit_type,model_no,size,manufacturer,po_number,serial_number,unit_rate_po,cost_uplift,currency,effective_date,description,remarks\nPDC Drill Bit,PDC,M-500,12 1/4,Schlumberger,PO-2026-01,SN-001,45000,110,USD,2026-01-20,Polycrystalline diamond compact,First batch\n',
-      }"
+      template-endpoint="/catalogue/drill-bits/import-template"
+      template-filename="drill_bits_template.xlsx"
       @committed="reloadLookupsThenGrid()"
     />
 

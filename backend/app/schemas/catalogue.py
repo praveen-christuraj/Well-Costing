@@ -16,6 +16,7 @@ class CatalogueConfigOut(BaseModel):
     id: int
     config_type: str
     value: str
+    parent_value: str | None = None
     sort_order: int = 0
     is_active: FlagBool = True
     system_seeded: FlagBool = False

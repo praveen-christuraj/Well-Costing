@@ -115,10 +115,8 @@ defineExpose({
       title="Bulk Import Services (CSV / XLSX)"
       endpoint="/catalogue/services/import"
       hint="Headers: service_name, provider_type (Inhouse/3rd Party), vendor_code (required for 3rd Party), description. Codes are auto-generated; flexible date/text values accepted."
-      :template="{
-        filename: 'services_template.csv',
-        csv: 'service_name,provider_type,vendor_code,description\nMud Logging Services,3rd Party,VEND001,Mud logging while drilling\nRig Maintenance,Inhouse,,Scheduled rig maintenance\n',
-      }"
+      template-endpoint="/catalogue/services/import-template"
+      template-filename="services_template.xlsx"
       @committed="grid?.reload()"
     />
   </div>

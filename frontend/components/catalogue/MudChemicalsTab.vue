@@ -143,10 +143,8 @@ defineExpose({
       title="Bulk Import Mud Chemicals (CSV / XLSX)"
       endpoint="/catalogue/mud-chemicals/import"
       hint="Headers: chemical_name, part_number (optional), uom, unit_rate, currency, effective_date (flexible: 2026-01-15 or 15/01/2026), description. Codes auto-generate; re-importing a name with a new rate appends a rate revision."
-      :template="{
-        filename: 'mud_chemicals_template.csv',
-        csv: 'chemical_name,part_number,uom,unit_rate,currency,effective_date,description\nBentonite,BEN-200,kg,2.50,USD,2026-01-15,Primary viscosifier\nBarite,BAR-400,kg,3.20,USD,15/02/2026,Weighting agent\n',
-      }"
+      template-endpoint="/catalogue/mud-chemicals/import-template"
+      template-filename="mud_chemicals_template.xlsx"
       @committed="grid?.reload()"
     />
   </div>

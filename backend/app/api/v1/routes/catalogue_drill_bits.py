@@ -32,6 +32,7 @@ from app.services.import_helpers import (
     read_tabular_file,
     row_get,
     spreadsheet_response,
+    template_xlsx_response,
 )
 
 router = APIRouter(prefix="/catalogue/drill-bits", tags=["catalogue-drill-bits"])
@@ -530,17 +531,39 @@ def permanent_delete_bit(
 # Bulk import
 # ---------------------------------------------------------------------------
 
-IMPORT_TEMPLATE = (
-    "bit_name,bit_type,model_no,size,manufacturer,po_number,serial_number,"
-    "unit_rate_po,cost_uplift,currency,effective_date,description,remarks\n"
-    "PDC Drill Bit,PDC,M-500,12 1/4,Schlumberger,PO-2026-01,SN-001,45000,100,USD,2026-01-20,Polycrystalline diamond compact,First batch\n"
-)
+IMPORT_HEADERS = [
+    "bit_name", "bit_type", "model_no", "size", "manufacturer", "po_number", "serial_number",
+    "unit_rate_po", "cost_uplift", "currency", "effective_date", "description", "remarks",
+]
 
 
 @router.get("/import-template")
-def download_template() -> Response:
-    return Response(content=IMPORT_TEMPLATE, media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=drill_bits_template.csv"})
+def download_template(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> Response:
+    """XLSX template — download, fill with data, upload the same file."""
+
+    currencies = [str(code) for code in db.scalars(
+        select(Currency.currency_code).where(Currency.is_deleted == False)
+        .order_by(Currency.currency_code)
+    ).all()]
+    return template_xlsx_response(
+        "drill_bits_template",
+        IMPORT_HEADERS,
+        sample_rows=[
+            ["PDC Drill Bit", "PDC", "M-500", "12 1/4", "Schlumberger", "PO-2026-01", "SN-001",
+             45000, 100, "USD", "2026-01-20", "Polycrystalline diamond compact", "First batch"],
+        ],
+        dropdowns={
+            2: _config_values(db, CONFIG_BIT_TYPE),
+            5: _config_values(db, CONFIG_MANUFACTURER),
+            10: currencies,
+        },
+        note=("Bit codes are generated automatically on import; bit types and manufacturers that "
+              "are not configured yet are created automatically. Re-importing an existing bit "
+              "with a new rate appends a rate revision."),
+    )
 
 
 @router.post("/import", response_model=BulkImportResponse)

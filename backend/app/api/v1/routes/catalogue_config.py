@@ -40,6 +40,14 @@ CONFIG_TYPES: dict[str, str] = {
     "tangible_manufacturer": "Tangible Manufacturers",
 }
 
+# Dependent dropdowns: config type -> (parent config type, singular parent
+# label for messages). A subcategory cannot exist without picking its category
+# first, so the manage dialog and the API both enforce the parent before
+# accepting a value.
+PARENTED_CONFIGS: dict[str, tuple[str, str]] = {
+    "tangible_subcategory": ("tangible_category", "category"),
+}
+
 MODULE_NAME = "Dropdown Lists"
 
 
@@ -48,6 +56,116 @@ def _split_values(value: str) -> list[str]:
 
     parts = re.split(r"[\n,;]+", value)
     return [p.strip() for p in parts if p.strip()]
+
+
+def _payload_parent(payload: dict[str, Any]) -> Any:
+    """Parent reference accepted under several friendly field names."""
+
+    for key in ("parent_value", "parent", "category"):
+        if payload.get(key) not in (None, ""):
+            return payload[key]
+    return None
+
+
+def _resolve_parent(db: Session, config_type: str, raw_parent: Any) -> str | None:
+    """Validate the parent for a parented config type and return its canonical value.
+
+    Non-parented config types always resolve to ``None``. Parented types
+    require an existing, active parent value (e.g. a subcategory must point
+    at a configured category).
+    """
+
+    parented = PARENTED_CONFIGS.get(config_type)
+    parent = str(raw_parent or "").strip()
+    if parented is None:
+        return None
+    parent_type, parent_label = parented
+    if not parent:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Select the {parent_label} first — "
+                   f"{CONFIG_TYPES[config_type].lower()} depend on it",
+        )
+    match = db.scalar(
+        select(CatalogueConfig).where(
+            CatalogueConfig.config_type == parent_type,
+            CatalogueConfig.is_deleted == False,
+            func.lower(CatalogueConfig.value) == parent.lower(),
+        )
+    )
+    if not match:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{parent}' is not a configured {parent_label} — add it first",
+        )
+    return match.value
+
+
+def _parent_match(parent_value: str | None) -> Any:
+    """SQL condition matching one parent bucket (NULL is its own bucket)."""
+
+    if parent_value is None:
+        return CatalogueConfig.parent_value.is_(None)
+    return CatalogueConfig.parent_value == parent_value
+
+
+def _find_config(db: Session, config_type: str, value: str, parent_value: str | None) -> CatalogueConfig | None:
+    return db.scalar(
+        select(CatalogueConfig).where(
+            CatalogueConfig.config_type == config_type,
+            func.lower(CatalogueConfig.value) == value.lower(),
+            _parent_match(parent_value),
+        )
+    )
+
+
+def _adopt_or_create(
+    db: Session,
+    *,
+    config_type: str,
+    value: str,
+    parent_value: str | None,
+    user: User,
+) -> tuple[CatalogueConfig, bool]:
+    """Return (row, created) for a value under a parent bucket.
+
+    A legacy row with the same name and no parent is adopted into the bucket
+    instead of duplicated, so values created before the dependency existed
+    move under a category cleanly.
+    """
+
+    exact = _find_config(db, config_type, value, parent_value)
+    if exact:
+        if exact.is_deleted:
+            exact.is_deleted = False
+            exact.deleted_at = None
+            exact.is_active = True
+            exact.updated_by = user.id
+            return exact, True
+        return exact, False
+    if parent_value is not None:
+        legacy = _find_config(db, config_type, value, None)
+        if legacy and not legacy.is_deleted:
+            legacy.parent_value = parent_value
+            legacy.updated_by = user.id
+            return legacy, True
+    max_order = db.scalar(
+        select(func.max(CatalogueConfig.sort_order)).where(
+            CatalogueConfig.config_type == config_type,
+            _parent_match(parent_value),
+        )
+    ) or 0
+    instance = CatalogueConfig(
+        config_type=config_type,
+        value=value,
+        parent_value=parent_value,
+        sort_order=max_order + 1,
+        created_by=user.id,
+        updated_by=user.id,
+    )
+    db.add(instance)
+    db.flush()
+    return instance, True
 
 
 # ---------------------------------------------------------------------------
@@ -174,53 +292,39 @@ def create_config(
     current_user: Annotated[User, Depends(get_current_user)],
     request: Request,
 ) -> CatalogueConfig:
-    """Add a value to a configurable dropdown (duplicates are rejected)."""
+    """Add a value to a configurable dropdown (duplicates are rejected).
+
+    Parented config types (tangible subcategories) require the parent value
+    in the payload — the category must be configured first.
+    """
 
     if config_type not in CONFIG_TYPES:
         raise HTTPException(status_code=404, detail=f"Config type '{config_type}' not found")
     value = str(payload.get("value") or "").strip()
     if not value:
         raise HTTPException(status_code=400, detail="Value is required")
+    parent_value = _resolve_parent(db, config_type, _payload_parent(payload))
 
-    existing = db.scalar(
-        select(CatalogueConfig).where(
-            CatalogueConfig.config_type == config_type,
-            func.lower(CatalogueConfig.value) == value.lower(),
-        )
-    )
+    existing = _find_config(db, config_type, value, parent_value)
     if existing and not existing.is_deleted:
-        raise HTTPException(status_code=400, detail=f"'{value}' already exists in {CONFIG_TYPES[config_type]}")
-    if existing and existing.is_deleted:
-        existing.is_deleted = False
-        existing.deleted_at = None
-        existing.is_active = True
-        existing.updated_by = current_user.id
-        db.commit()
-        db.refresh(existing)
-        log_audit(
-            db, user=current_user, action="RESTORE", module=MODULE_NAME,
-            entity_id=existing.id, entity_code=value,
-            details=f"Restored dropdown value {value} ({config_type})", request=request,
+        suffix = f" under '{parent_value}'" if parent_value else ""
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{value}' already exists in {CONFIG_TYPES[config_type]}{suffix}",
         )
-        return existing
 
-    max_order = db.scalar(
-        select(func.max(CatalogueConfig.sort_order)).where(CatalogueConfig.config_type == config_type)
+    instance, _created = _adopt_or_create(
+        db, config_type=config_type, value=value, parent_value=parent_value, user=current_user,
     )
-    instance = CatalogueConfig(
-        config_type=config_type,
-        value=value,
-        sort_order=(max_order or 0) + 1,
-        created_by=current_user.id,
-        updated_by=current_user.id,
-    )
-    db.add(instance)
     db.commit()
     db.refresh(instance)
+    action = "RESTORE" if existing else "CREATE"
+    parent_note = f" under '{parent_value}'" if parent_value else ""
     log_audit(
-        db, user=current_user, action="CREATE", module=MODULE_NAME,
+        db, user=current_user, action=action, module=MODULE_NAME,
         entity_id=instance.id, entity_code=value,
-        details=f"Added dropdown value '{value}' to {CONFIG_TYPES[config_type]}", request=request,
+        details=f"Added dropdown value '{value}' to {CONFIG_TYPES[config_type]}{parent_note}",
+        request=request,
     )
     return instance
 
@@ -234,7 +338,11 @@ def update_config(
     current_user: Annotated[User, Depends(get_current_user)],
     request: Request,
 ) -> CatalogueConfig:
-    """Rename a dropdown value (duplicate names are rejected)."""
+    """Rename a dropdown value (duplicate names are rejected).
+
+    For parented config types the payload may also carry a new parent value
+    to move the entry under a different category.
+    """
 
     instance = db.get(CatalogueConfig, record_id)
     if not instance or instance.config_type != config_type or instance.is_deleted:
@@ -242,18 +350,26 @@ def update_config(
     new_value = str(payload.get("value") or "").strip()
     if not new_value:
         raise HTTPException(status_code=400, detail="Value is required")
-    if new_value.lower() != instance.value.lower():
-        clash = db.scalar(
-            select(CatalogueConfig).where(
-                CatalogueConfig.config_type == config_type,
-                func.lower(CatalogueConfig.value) == new_value.lower(),
-                CatalogueConfig.id != record_id,
-            )
+
+    new_parent = instance.parent_value
+    if _payload_parent(payload) is not None:
+        new_parent = _resolve_parent(db, config_type, _payload_parent(payload))
+
+    clash = db.scalar(
+        select(CatalogueConfig).where(
+            CatalogueConfig.config_type == config_type,
+            func.lower(CatalogueConfig.value) == new_value.lower(),
+            _parent_match(new_parent),
+            CatalogueConfig.id != record_id,
         )
-        if clash:
-            raise HTTPException(status_code=400, detail=f"'{new_value}' already exists in this list")
+    )
+    if clash:
+        suffix = f" under '{new_parent}'" if new_parent else ""
+        raise HTTPException(status_code=400, detail=f"'{new_value}' already exists in this list{suffix}")
     old_value = instance.value
+    old_parent = instance.parent_value
     instance.value = new_value
+    instance.parent_value = new_parent
     if "is_active" in payload:
         instance.is_active = bool(payload["is_active"])
     if "sort_order" in payload and payload["sort_order"] is not None:
@@ -262,10 +378,14 @@ def update_config(
     instance.updated_by = current_user.id
     db.commit()
     db.refresh(instance)
+    if old_parent != new_parent:
+        details = (f"Moved dropdown value '{new_value}' from '{old_parent or 'Unassigned'}' "
+                   f"to '{new_parent}' ({config_type})")
+    else:
+        details = f"Renamed dropdown value '{old_value}' to '{new_value}' ({config_type})"
     log_audit(
         db, user=current_user, action="UPDATE", module=MODULE_NAME,
-        entity_id=instance.id, entity_code=new_value,
-        details=f"Renamed dropdown value '{old_value}' to '{new_value}' ({config_type})", request=request,
+        entity_id=instance.id, entity_code=new_value, details=details, request=request,
     )
     return instance
 
@@ -357,7 +477,7 @@ def list_deleted_configs(
     return list(db.scalars(stmt).all())
 
 
-@router.post("/configs/bulk", response_model=BulkImportResponse)
+@router.post("/configs/{config_type}/bulk", response_model=BulkImportResponse)
 def bulk_add_configs(
     config_type: str,
     payload: dict[str, Any],
@@ -365,10 +485,15 @@ def bulk_add_configs(
     current_user: Annotated[User, Depends(get_current_user)],
     request: Request,
 ) -> BulkImportResponse:
-    """Bulk-add a list of dropdown values (used by the manage dialog)."""
+    """Bulk-add a list of dropdown values (used by the manage dialog).
+
+    Parented config types take the parent value in the payload so all entries
+    in the batch land under the selected category.
+    """
 
     if config_type not in CONFIG_TYPES:
         raise HTTPException(status_code=404, detail=f"Config type '{config_type}' not found")
+    parent_value = _resolve_parent(db, config_type, _payload_parent(payload))
     values = payload.get("values") or []
     if isinstance(values, str):
         values = _split_values(values)
@@ -377,13 +502,14 @@ def bulk_add_configs(
     existing_lower = {
         str(v).lower()
         for v in db.scalars(
-            select(CatalogueConfig.value).where(CatalogueConfig.config_type == config_type)
+            select(CatalogueConfig.value).where(
+                CatalogueConfig.config_type == config_type,
+                _parent_match(parent_value),
+            )
         ).all()
     }
-    max_order = db.scalar(
-        select(func.max(CatalogueConfig.sort_order)).where(CatalogueConfig.config_type == config_type)
-    ) or 0
     seen: set[str] = set()
+    parent_note = f" under '{parent_value}'" if parent_value else ""
     for i, raw in enumerate(values, start=1):
         value = str(raw or "").strip()
         if not value:
@@ -393,19 +519,18 @@ def bulk_add_configs(
             errors.append(f"Item {i}: '{value}' is a duplicate and was skipped")
             continue
         seen.add(key)
-        max_order += 1
-        db.add(CatalogueConfig(
-            config_type=config_type,
-            value=value,
-            sort_order=max_order,
-            created_by=current_user.id,
-            updated_by=current_user.id,
-        ))
-        imported += 1
+        _instance, created = _adopt_or_create(
+            db, config_type=config_type, value=value, parent_value=parent_value, user=current_user,
+        )
+        if created:
+            imported += 1
+        else:
+            errors.append(f"Item {i}: '{value}' is a duplicate and was skipped")
     db.commit()
     log_audit(
         db, user=current_user, action="BULK_IMPORT", module=MODULE_NAME,
-        details=f"Added {imported} dropdown values to {CONFIG_TYPES[config_type]}", request=request,
+        details=f"Added {imported} dropdown values to {CONFIG_TYPES[config_type]}{parent_note}",
+        request=request,
     )
     return BulkImportResponse(
         imported_count=imported, error_count=len(errors), errors=errors[:30], success=not errors

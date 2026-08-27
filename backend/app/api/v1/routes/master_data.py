@@ -25,6 +25,7 @@ from app.schemas.master_data import (
     UOMOut,
 )
 from app.services.audit import log_audit
+from app.services.import_helpers import template_xlsx_response
 
 logger = logging.getLogger("app")
 
@@ -367,6 +368,32 @@ def permanent_delete_record(
         request=request,
     )
     return {"status": "success", "message": "Record permanently deleted"}
+
+
+@router.get("/{module}/import-template")
+def download_import_template(
+    module: str,
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """XLSX template matching the import parser — download, fill, re-upload."""
+
+    cfg = _get_config(module)
+    code_field = cfg["code_field"]
+    name_field = cfg["name_field"]
+    symbol_field = cfg["symbol_field"]
+    headers = [code_field, name_field]
+    sample: list[Any] = ["CODE1", "Sample Name"]
+    if symbol_field:
+        headers.append(symbol_field)
+        sample.append("SYM")
+    headers.append("description")
+    sample.append("Optional description")
+    return template_xlsx_response(
+        f"{module.replace('-', '_')}_template",
+        headers,
+        sample_rows=[sample],
+        note="Keep the header row unchanged; fill one record per row below it.",
+    )
 
 
 @router.post("/{module}/import", response_model=BulkImportResponse)

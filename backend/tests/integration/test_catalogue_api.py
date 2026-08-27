@@ -9,6 +9,7 @@ dropdowns and the rate-revision history workflow.
 import io
 
 from app.models import Currency, UnitOfMeasurement, VendorSupplier
+from openpyxl import load_workbook
 
 
 def _auth_headers(client) -> dict[str, str]:
@@ -267,10 +268,14 @@ def test_tangibles_crud_and_scope_validation(client, db_session):
 
     for cfg, value in (
         ("tangible_category", "Casing"),
-        ("tangible_subcategory", "Surface Casing"),
         ("tangible_manufacturer", "Tenaris"),
     ):
         client.post(f"/api/v1/catalogue/configs/{cfg}", headers=headers, json={"value": value})
+    # Subcategories depend on a category: created under the parent.
+    sub = client.post("/api/v1/catalogue/configs/tangible_subcategory", headers=headers,
+                      json={"value": "Surface Casing", "parent_value": "Casing"})
+    assert sub.status_code == 200
+    assert sub.json()["parent_value"] == "Casing"
 
     bad_scope = client.post("/api/v1/catalogue/tangibles", headers=headers, json={
         "tangible_name": "Casing", "tangible_scope": "Underwater",
@@ -303,6 +308,125 @@ def test_tangibles_crud_and_scope_validation(client, db_session):
     assert client.delete(f"/api/v1/catalogue/tangibles/{body['id']}", headers=headers).status_code == 200
     assert len(client.get("/api/v1/catalogue/tangibles/deleted", headers=headers).json()) == 1
     assert client.delete(f"/api/v1/catalogue/tangibles/{body['id']}/permanent", headers=headers).status_code == 200
+
+
+def test_tangible_subcategories_depend_on_category(client, db_session):
+    """Subcategories are configured under a category and filtered by it."""
+
+    _seed_lookups(db_session)
+    headers = _auth_headers(client)
+
+    # Category must exist before a subcategory can be configured.
+    missing_parent = client.post("/api/v1/catalogue/configs/tangible_subcategory", headers=headers,
+                                 json={"value": "Surface Casing", "parent_value": "Casing"})
+    assert missing_parent.status_code == 400
+
+    no_parent = client.post("/api/v1/catalogue/configs/tangible_subcategory", headers=headers,
+                            json={"value": "Surface Casing"})
+    assert no_parent.status_code == 400
+
+    assert client.post("/api/v1/catalogue/configs/tangible_category", headers=headers,
+                       json={"value": "Casing"}).status_code == 200
+    assert client.post("/api/v1/catalogue/configs/tangible_category", headers=headers,
+                       json={"value": "Tubing"}).status_code == 200
+    assert client.post("/api/v1/catalogue/configs/tangible_manufacturer", headers=headers,
+                       json={"value": "Tenaris"}).status_code == 200
+
+    # Same subcategory name is allowed under different categories.
+    assert client.post("/api/v1/catalogue/configs/tangible_subcategory", headers=headers,
+                       json={"value": "Standard", "parent_value": "Casing"}).status_code == 200
+    assert client.post("/api/v1/catalogue/configs/tangible_subcategory", headers=headers,
+                       json={"value": "Standard", "parent_value": "Tubing"}).status_code == 200
+    dup = client.post("/api/v1/catalogue/configs/tangible_subcategory", headers=headers,
+                      json={"value": "standard", "parent_value": "Casing"})
+    assert dup.status_code == 400
+
+    # Bulk add under a category uses the new path-style endpoint.
+    bulk = client.post("/api/v1/catalogue/configs/tangible_subcategory/bulk", headers=headers,
+                       json={"values": ["Intermediate", "Production"], "parent_value": "Casing"})
+    assert bulk.status_code == 200
+    assert bulk.json()["imported_count"] == 2
+
+    # Dropdown options carry the category link.
+    options = client.get("/api/v1/catalogue/tangibles/dropdown-options", headers=headers).json()
+    subs = {(s["value"], s["category"]) for s in options["subcategories"]}
+    assert ("Intermediate", "Casing") in subs
+    assert ("Standard", "Tubing") in subs
+
+    # Tangible entry rejects a subcategory owned by another category.
+    mismatch = client.post("/api/v1/catalogue/tangibles", headers=headers, json={
+        "tangible_name": "Tubing 2-7/8", "tangible_scope": "Completion",
+        "category": "Tubing", "subcategory": "Intermediate", "manufacturer": "Tenaris",
+        "unit_rate_po": "90", "currency": "USD",
+    })
+    assert mismatch.status_code == 400
+
+    ok = client.post("/api/v1/catalogue/tangibles", headers=headers, json={
+        "tangible_name": "Casing 9-5/8", "tangible_scope": "Drilling",
+        "category": "Casing", "subcategory": "Intermediate", "manufacturer": "Tenaris",
+        "unit_rate_po": "120", "currency": "USD",
+    })
+    assert ok.status_code == 200
+
+    # Updating the category re-validates the subcategory against it.
+    move = client.put(f"/api/v1/catalogue/tangibles/{ok.json()['id']}", headers=headers,
+                      json={"category": "Tubing"})
+    assert move.status_code == 400
+
+    # Import creates missing subcategories under the row's category.
+    csv_data = (
+        "tangible_name,tangible_scope,category,subcategory,manufacturer,"
+        "unit_rate_po,currency,effective_date\n"
+        "Wellhead,Drilling,Wellheads,Standard Wellhead,Tenaris,5000,USD,2026-03-01\n"
+    )
+    imp = client.post("/api/v1/catalogue/tangibles/import", headers=headers,
+                      files={"file": ("tng.csv", csv_data.encode(), "text/csv")})
+    assert imp.status_code == 200
+    assert imp.json()["error_count"] == 0
+    options = client.get("/api/v1/catalogue/tangibles/dropdown-options", headers=headers).json()
+    subs = {(s["value"], s["category"]) for s in options["subcategories"]}
+    assert ("Standard Wellhead", "Wellheads") in subs
+    assert "Wellheads" in options["categories"]
+
+
+def test_import_templates_are_downloadable_xlsx(client, db_session):
+    """Every importable module serves an XLSX template users can fill and re-upload."""
+
+    _seed_lookups(db_session)
+    headers = _auth_headers(client)
+    endpoints = [
+        "/api/v1/master-data/uom/import-template",
+        "/api/v1/master-data/currencies/import-template",
+        "/api/v1/master-data/phases/import-template",
+        "/api/v1/master-data/activities/import-template",
+        "/api/v1/master-data/hole-sections/import-template",
+        "/api/v1/master-data/vendors/import-template",
+        "/api/v1/master-data/purchase-orders/import-template",
+        "/api/v1/catalogue/services/import-template",
+        "/api/v1/catalogue/mud-chemicals/import-template",
+        "/api/v1/catalogue/drill-bits/import-template",
+        "/api/v1/catalogue/tangibles/import-template",
+    ]
+    for endpoint in endpoints:
+        resp = client.get(endpoint, headers=headers)
+        assert resp.status_code == 200, endpoint
+        assert resp.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ), endpoint
+        assert resp.content[:2] == b"PK", endpoint
+
+    # A filled template uploads cleanly: download, keep the header row, add a row.
+    resp = client.get("/api/v1/master-data/uom/import-template", headers=headers)
+    wb = load_workbook(io.BytesIO(resp.content))
+    ws = wb.active
+    ws.append(["ft", "Feet", "ft", "imperial length"])
+    out = io.BytesIO()
+    wb.save(out)
+    imp = client.post("/api/v1/master-data/uom/import", headers=headers,
+                      files={"file": ("uom_template.xlsx", out.getvalue(),
+                                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert imp.status_code == 200
+    assert imp.json()["imported_count"] == 1
 
 
 def test_consumable_subcategories_seeded_and_combined_history(client, db_session):

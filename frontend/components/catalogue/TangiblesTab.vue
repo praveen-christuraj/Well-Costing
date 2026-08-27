@@ -2,14 +2,23 @@
 /**
  * Tangibles tab. Scope is fixed (Drilling / Completion / Others); Category,
  * Subcategory and Manufacturer are user-configurable dropdowns managed on the
- * page. Final Cost = Unit Rate as per PO × Cost Uplift %. Rate changes append
- * revisions shown in the Rate Revision History sub-tab.
+ * page. Subcategories are dependents of the category: they are configured by
+ * picking the category first, and each tangible row only offers the
+ * subcategories that belong to its selected category. Final Cost = Unit Rate
+ * as per PO × Cost Uplift %. Rate changes append revisions shown in the Rate
+ * Revision History sub-tab.
  */
 import { computed, ref } from 'vue'
 import ConfigManagerDialog from '~/components/catalogue/ConfigManagerDialog.vue'
 import ExcelGrid from '~/components/master-data/ExcelGrid.vue'
 import ImportDialog from '~/components/master-data/ImportDialog.vue'
 import type { EditableGridRow, GridColumn, GridSelectOption } from '~/types/grid'
+
+interface SubcategoryOption {
+  value: string
+  /** Category the subcategory was configured under; null = legacy/unassigned. */
+  category: string | null
+}
 
 const api = useApi()
 
@@ -20,7 +29,7 @@ const manage = ref<'' | 'category' | 'subcategory' | 'manufacturer'>('')
 const currencies = ref<Record<string, unknown>[]>([])
 const uoms = ref<Record<string, unknown>[]>([])
 const categories = ref<string[]>([])
-const subcategories = ref<string[]>([])
+const subcategories = ref<SubcategoryOption[]>([])
 const manufacturers = ref<string[]>([])
 
 async function loadLookups(): Promise<void> {
@@ -28,12 +37,14 @@ async function loadLookups(): Promise<void> {
     const [currencyList, uomList, opts] = await Promise.all([
       api.get<Record<string, unknown>[]>('/master-data/currencies'),
       api.get<Record<string, unknown>[]>('/master-data/uom'),
-      api.get<{ categories: string[], subcategories: string[], manufacturers: string[] }>('/catalogue/tangibles/dropdown-options'),
+      api.get<{ categories: string[], subcategories: SubcategoryOption[], manufacturers: string[] }>('/catalogue/tangibles/dropdown-options'),
     ])
     currencies.value = currencyList
     uoms.value = uomList
     categories.value = opts.categories ?? []
-    subcategories.value = opts.subcategories ?? []
+    subcategories.value = (opts.subcategories ?? []).map(sub => (
+      typeof sub === 'string' ? { value: sub, category: null } : sub
+    ))
     manufacturers.value = opts.manufacturers ?? []
   }
   catch (error) {
@@ -55,8 +66,25 @@ const uomOptions = computed<GridSelectOption[]>(() =>
   uoms.value.map(u => ({ label: String(u.unit_symbol ?? u.unit_code), value: String(u.unit_code) })),
 )
 const categoryOptions = computed<GridSelectOption[]>(() => categories.value.map(v => ({ label: v, value: v })))
-const subcategoryOptions = computed<GridSelectOption[]>(() => subcategories.value.map(v => ({ label: v, value: v })))
 const manufacturerOptions = computed<GridSelectOption[]>(() => manufacturers.value.map(v => ({ label: v, value: v })))
+
+/** Subcategories that belong to a category (legacy unassigned values stay available everywhere). */
+function subcategoriesFor(category: unknown): GridSelectOption[] {
+  return subcategories.value
+    .filter(sub => sub.category == null || sub.category === category)
+    .map(sub => ({ label: sub.value, value: sub.value }))
+}
+
+function subcategoryOptionsFor(row: Record<string, unknown>): GridSelectOption[] {
+  return subcategoriesFor(row.category)
+}
+
+/** Changing the category invalidates a subcategory that belongs elsewhere. */
+function handleCategoryChange(row: EditableGridRow): void {
+  if (row.subcategory == null || row.subcategory === '') return
+  const allowed = subcategoriesFor(row.category).some(option => option.value === row.subcategory)
+  if (!allowed) row.subcategory = null
+}
 
 function calcFinal(row: Record<string, unknown>): string {
   const rate = Number(row.unit_rate_po ?? 0) || 0
@@ -76,8 +104,8 @@ const columns = computed<GridColumn[]>(() => [
   { field: 'tangible_code', header: 'Tangible Code', width: '120px', readonly: true, placeholder: 'Auto' },
   { field: 'tangible_name', header: 'Tangible Name', required: true, width: '160px', placeholder: 'e.g. Casing 9-5/8"' },
   { field: 'tangible_scope', header: 'Scope', type: 'select', options: scopeOptions, required: true, width: '125px', noPaste: true, defaultValue: 'Drilling' },
-  { field: 'category', header: 'Category', type: 'select', options: categoryOptions.value, required: true, width: '140px', noPaste: true, placeholder: 'Manage ↓' },
-  { field: 'subcategory', header: 'Subcategory', type: 'select', options: subcategoryOptions.value, required: true, width: '150px', noPaste: true, placeholder: 'Manage ↓' },
+  { field: 'category', header: 'Category', type: 'select', options: categoryOptions.value, required: true, width: '140px', noPaste: true, placeholder: 'Manage ↓', onCellChange: handleCategoryChange },
+  { field: 'subcategory', header: 'Subcategory', type: 'select', optionsFor: subcategoryOptionsFor, required: true, width: '150px', noPaste: true, placeholder: 'Pick category first' },
   { field: 'manufacturer', header: 'Manufacturer', type: 'select', options: manufacturerOptions.value, required: true, width: '150px', noPaste: true, placeholder: 'Manage ↓' },
   { field: 'po_number', header: 'PO Number', width: '115px', placeholder: 'Optional' },
   { field: 'uom', header: 'UOM', type: 'select', options: uomOptions.value, width: '90px', noPaste: true },
@@ -184,11 +212,9 @@ defineExpose({
       v-model:visible="showImport"
       title="Bulk Import Tangibles (CSV / XLSX)"
       endpoint="/catalogue/tangibles/import"
-      hint="Headers: tangible_name, tangible_scope (Drilling/Completion/Others), category, subcategory, manufacturer (new values auto-created), po_number, uom, unit_rate_po, cost_uplift (default 100), currency, effective_date (flexible), description, remarks. Codes auto-generate; re-importing a name with a new rate appends a revision."
-      :template="{
-        filename: 'tangibles_template.csv',
-        csv: 'tangible_name,tangible_scope,category,subcategory,manufacturer,po_number,uom,unit_rate_po,cost_uplift,currency,effective_date,description,remarks\nCasing Pipe 9-5/8,Drilling,Casing,Surface Casing,Tenaris,PO-2026-10,m,120,100,USD,2026-02-10,Surface casing string,First order\n',
-      }"
+      hint="Headers: tangible_name, tangible_scope (Drilling/Completion/Others), category, subcategory, manufacturer (new values auto-created), po_number, uom, unit_rate_po, cost_uplift (default 100), currency, effective_date (flexible), description, remarks. Each subcategory is linked to the row's category — unknown subcategories are created under it. Codes auto-generate; re-importing a name with a new rate appends a revision."
+      template-endpoint="/catalogue/tangibles/import-template"
+      template-filename="tangibles_template.xlsx"
       @committed="reloadLookupsThenGrid()"
     />
 
@@ -203,6 +229,8 @@ defineExpose({
       :visible="manage === 'subcategory'"
       config-type="tangible_subcategory"
       title="Tangible Subcategories"
+      parent-config-type="tangible_category"
+      parent-label="Category"
       @update:visible="(v: boolean) => { if (!v) manage = '' }"
       @changed="reloadLookupsThenGrid()"
     />
