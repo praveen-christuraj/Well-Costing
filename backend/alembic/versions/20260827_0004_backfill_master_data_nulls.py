@@ -66,7 +66,7 @@ def _backfill_string(table_name: str, column_name: str, fallback_column: str | N
         # This is a unique ``*_code`` column. Setting multiple NULLs to '' violates
         # the unique index (ix_*_code). Generate a unique placeholder per row.
         if "id" not in columns:
-            # No id to key off – fall back to random short strings
+            # No id to key off - fall back to random short strings
             try:
                 op.execute(
                     sa.text(
@@ -101,10 +101,7 @@ def _backfill_string(table_name: str, column_name: str, fallback_column: str | N
             rows = []
 
         for (row_id,) in rows:
-            if table_name == "currencies":
-                base = f"C{row_id}"
-            else:
-                base = f"TMP{row_id}"
+            base = f"C{row_id}" if table_name == "currencies" else f"TMP{row_id}"
             candidate = base
             suffix = 0
             while candidate in existing_codes:

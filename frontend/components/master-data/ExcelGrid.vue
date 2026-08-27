@@ -23,7 +23,7 @@ import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
 import { parseTsv } from '~/utils/tsv'
-import type { EditableGridRow, GridColumn } from '~/types/grid'
+import type { EditableGridRow, GridColumn, GridSelectOption } from '~/types/grid'
 
 const props = defineProps<{
   /** Plural label, e.g. "Units of Measurement". */
@@ -78,7 +78,8 @@ function nextKey(): string {
   return `n${uid}`
 }
 
-const editableColumns = computed(() => props.columns.filter(col => col.type !== 'slot'))
+const isInputColumn = (col: GridColumn): boolean => col.type !== 'slot' && !col.readonly && !col.compute
+const editableColumns = computed(() => props.columns.filter(isInputColumn))
 const pasteColumns = computed(() => editableColumns.value.filter(col => col.type !== 'checkbox' && !col.noPaste))
 const codeColumn = computed(() => props.codeField ?? props.columns[0]?.field ?? 'code')
 const dirtyCount = computed(() => rows.value.filter(row => row._state !== 'clean').length)
@@ -119,7 +120,7 @@ function blankRow(): EditableGridRow {
 
 function defaultFor(col: GridColumn): unknown {
   if (col.type === 'checkbox') return false
-  if (col.type === 'select') return col.options?.[0]?.value ?? null
+  if (col.type === 'select') return cellOptions(col)[0]?.value ?? null
   return ''
 }
 
@@ -175,7 +176,13 @@ function stampPrintedAt(): void {
   printedAt.value = new Date().toLocaleString()
 }
 
+function cellOptions(col: GridColumn): GridSelectOption[] {
+  const opts = col.options
+  return Array.isArray(opts) ? opts : (opts?.value ?? [])
+}
+
 function displayValue(row: EditableGridRow, col: GridColumn): string {
+  if (col.compute) return col.compute(row) || ''
   if (col.type === 'slot') {
     if (col.field === 'attachment') return String(row.attachment_original_name ?? '')
     return ''
@@ -183,7 +190,7 @@ function displayValue(row: EditableGridRow, col: GridColumn): string {
   const value = row[col.field]
   if (col.type === 'checkbox') return value ? 'Yes' : 'No'
   if (col.type === 'select') {
-    const match = col.options?.find(option => option.value === value)
+    const match = cellOptions(col).find(option => option.value === value)
     return match ? match.label : value == null ? '' : String(value)
   }
   if (value == null || value === '') return ''
@@ -588,14 +595,20 @@ defineExpose({
       >
         <template #body="{ data }">
           <slot v-if="col.type === 'slot'" :name="`cell-${col.field}`" :data="data" />
+          <div v-else-if="col.compute" class="cell cell-computed">
+            <span class="cell-computed__value">{{ col.compute(data) || '—' }}</span>
+          </div>
+          <div v-else-if="col.readonly" class="cell">
+            <span class="cell-readonly" :title="displayValue(data, col)">{{ displayValue(data, col) || '—' }}</span>
+          </div>
           <div v-else-if="col.type === 'select'" class="cell" :data-cell="cellId(data, col)">
             <Select
               v-model="data[col.field]"
-              :options="col.options ?? []"
+              :options="cellOptions(col)"
               option-label="label"
               option-value="value"
               :placeholder="col.placeholder ?? 'Select…'"
-              :filter="!!col.options && col.options.length > 8"
+              :filter="cellOptions(col).length > 8"
               show-clear
               fluid
               size="small"
@@ -792,6 +805,30 @@ defineExpose({
 .cell-center {
   display: flex;
   justify-content: center;
+}
+
+.cell-computed {
+  justify-content: flex-end;
+}
+
+.cell-computed__value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--app-teal);
+  white-space: nowrap;
+  padding: 0 0.35rem;
+}
+
+.cell-readonly {
+  display: inline-block;
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.76rem;
+  color: var(--app-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cell-invalid,
