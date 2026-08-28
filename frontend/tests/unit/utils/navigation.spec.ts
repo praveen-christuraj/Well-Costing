@@ -3,7 +3,12 @@ import { appNavigation, defaultLandingRoute, enabledNavigation, navigationGroups
 describe('application navigation', () => {
   it('only exposes modules that are enabled', () => {
     expect(enabledNavigation.every(item => item.enabled)).toBe(true)
-    expect(enabledNavigation.map(item => item.key)).toEqual(['dashboard', 'master-data', 'audit-logs'])
+    expect(enabledNavigation.map(item => item.key)).toEqual([
+      'dashboard',
+      'rig-well-management',
+      'master-data',
+      'audit-logs',
+    ])
   })
 
   it('keeps every module reachable: no module is hidden or disabled', () => {

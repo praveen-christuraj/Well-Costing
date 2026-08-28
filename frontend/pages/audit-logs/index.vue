@@ -23,6 +23,9 @@ interface AuditLogRow {
 
 const KNOWN_MODULES = [
   'Authentication',
+  'Rigs',
+  'Wells',
+  'Well Configuration',
   'Unit of Measurements',
   'Currency',
   'Phases',

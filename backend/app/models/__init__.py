@@ -23,6 +23,7 @@ from app.models.master_data import (
     UnitOfMeasurement,
     VendorSupplier,
 )
+from app.models.rig_well import Rig, Well, WellPhase, WellSection
 from app.models.role import Role
 from app.models.user import User, user_roles
 
@@ -39,6 +40,7 @@ __all__ = [
     "MudChemicalRate",
     "Phase",
     "PurchaseOrderServiceOrder",
+    "Rig",
     "Role",
     "Service",
     "Tangible",
@@ -46,5 +48,8 @@ __all__ = [
     "UnitOfMeasurement",
     "User",
     "VendorSupplier",
+    "Well",
+    "WellPhase",
+    "WellSection",
     "user_roles",
 ]
