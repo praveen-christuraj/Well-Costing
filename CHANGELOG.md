@@ -6,6 +6,14 @@ All notable project changes are documented here.
 
 ### Fixed
 
+- **Tabs reverted to the previous underline design.** The tab bar rework left
+  the shared `.tabs` / `.tabs__item` and `.subtabs` / `.subtabs__item`
+  classes without any CSS, so the Master Data tab bar (and the Consumables /
+  Tangibles sub-tabs) rendered as raw browser buttons with old-style
+  borders. They are restored to the original design — borderless text
+  buttons on a bottom rail with the hard-coded teal label + underline on the
+  active tab (danger red for the Deleted Entries tab). Tabs only; every
+  other style is untouched.
 - **Advanced search on every catalogue grid.** The toolbar search only looked at
   raw editable cell values, so PO/SO could not be found by vendor name (the
   cell stores a numeric id), Drill Bits / Services could not be found by their
