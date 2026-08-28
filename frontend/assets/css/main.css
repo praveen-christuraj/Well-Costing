@@ -5,16 +5,21 @@
     color-scheme: light;
     font-size: 13px;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    --app-bg: #f3f6f8;
-    --app-surface: #ffffff;
-    --app-ink: #18212b;
-    --app-muted: #62717f;
-    --app-border: #dce4e9;
+    /* Content tokens follow the top-right theme controller (PrimeVue primary,
+       surface palette and dark mode). Fallbacks keep first paint / tests readable. */
+    --app-bg: var(--p-surface-50, #f3f6f8);
+    --app-surface: var(--p-surface-0, #ffffff);
+    --app-ink: var(--p-text-color, #18212b);
+    --app-muted: var(--p-text-muted-color, #62717f);
+    --app-border: var(--p-content-border-color, #dce4e9);
     --app-navy: #0e2b3a;
     --app-navy-soft: #173f51;
-    --app-teal: #0f766e;
+    --app-teal: var(--p-primary-color, #0f766e);
     --app-orange: #d97706;
+    --app-danger: #e11d48;
     --app-shadow: 0 4px 16px rgb(14 43 58 / 8%);
+    --app-glass: color-mix(in srgb, var(--p-surface-0, #ffffff) 58%, transparent);
+    --app-glass-border: color-mix(in srgb, var(--p-primary-color, #0f766e) 22%, var(--p-content-border-color, #dce4e9));
     --layout-topbar-height: 52px;
     --layout-sidebar-width: 226px;
   }
@@ -22,14 +27,16 @@
   /* Dark theme: the same class PrimeVue's darkModeSelector is configured with. */
   .app-dark {
     color-scheme: dark;
-    --app-bg: #0d1418;
-    --app-surface: #131e24;
-    --app-ink: #e6eef2;
-    --app-muted: #93a7b1;
-    --app-border: #24343d;
+    --app-bg: var(--p-surface-950, #0d1418);
+    --app-surface: var(--p-surface-900, #131e24);
+    --app-ink: var(--p-text-color, #e6eef2);
+    --app-muted: var(--p-text-muted-color, #93a7b1);
+    --app-border: var(--p-content-border-color, #24343d);
     --app-navy: #0a1218;
     --app-navy-soft: #101c23;
     --app-shadow: 0 4px 16px rgb(0 0 0 / 45%);
+    --app-glass: color-mix(in srgb, var(--p-surface-900, #131e24) 55%, transparent);
+    --app-glass-border: color-mix(in srgb, var(--p-primary-color, #2dd4bf) 28%, var(--p-content-border-color, #24343d));
   }
 
   * {
@@ -124,8 +131,8 @@
   }
 
   .layout-topbar-action-highlight {
-    background: rgb(77 232 220 / 16%);
-    color: #4de8dc;
+    background: color-mix(in srgb, var(--p-primary-color, #4de8dc) 22%, transparent);
+    color: var(--p-primary-color, #4de8dc);
   }
 
   .layout-config-menu {
@@ -173,8 +180,8 @@
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    background: #e5f7f4;
-    color: var(--app-teal);
+    background: color-mix(in srgb, var(--p-primary-color, var(--app-teal)) 16%, var(--app-surface));
+    color: var(--p-primary-color, var(--app-teal));
     font-size: .68rem;
   }
 
@@ -286,8 +293,8 @@
   }
 
   .layout-menuitem.active-route {
-    background: rgb(77 232 220 / 14%);
-    color: #4de8dc;
+    background: color-mix(in srgb, var(--p-primary-color, #4de8dc) 18%, transparent);
+    color: var(--p-primary-color, #4de8dc);
   }
 
   .layout-menuitem-icon {
@@ -452,10 +459,17 @@
     font-size: 1.05rem;
   }
 
-  .stat-card__icon--teal { background: #e5f7f4; color: #0f766e; }
+  .stat-card__icon--teal {
+    background: color-mix(in srgb, var(--p-primary-color, #0f766e) 16%, var(--app-surface));
+    color: var(--p-primary-color, #0f766e);
+  }
   .stat-card__icon--blue { background: #e4eefb; color: #2563eb; }
   .stat-card__icon--amber { background: #fdf1dc; color: #b45309; }
   .stat-card__icon--violet { background: #eee9fd; color: #6d28d9; }
+
+  .app-dark .stat-card__icon--blue { background: color-mix(in srgb, #2563eb 22%, var(--app-surface)); color: #93c5fd; }
+  .app-dark .stat-card__icon--amber { background: color-mix(in srgb, #b45309 22%, var(--app-surface)); color: #fbbf24; }
+  .app-dark .stat-card__icon--violet { background: color-mix(in srgb, #6d28d9 22%, var(--app-surface)); color: #c4b5fd; }
 
   .dashboard-states {
     display: grid;
@@ -739,9 +753,11 @@
     overflow-x: auto;
     padding: 5px;
     margin: -10px 0 18px;
-    border: 1px solid var(--app-border);
+    border: 1px solid var(--app-glass-border, var(--app-border));
     border-radius: 11px;
-    background: white;
+    background: var(--app-glass, var(--app-surface));
+    backdrop-filter: blur(14px) saturate(160%);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
   }
 
   .library-nav__item {
@@ -755,15 +771,16 @@
   }
 
   .library-nav__item--active {
-    background: var(--app-navy);
-    color: white;
+    background: color-mix(in srgb, var(--p-primary-color, var(--app-teal)) 18%, transparent);
+    color: var(--p-primary-color, var(--app-teal));
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 40%, transparent);
   }
 
   .bulk-grid-panel {
     overflow: hidden;
     border: 1px solid var(--app-border);
     border-radius: 12px;
-    background: white;
+    background: var(--app-surface);
     box-shadow: var(--app-shadow);
   }
 
@@ -794,13 +811,13 @@
   .grid-toolbar__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
   .toolbar-note { display: block; margin-top: 3px; color: var(--app-muted); font-weight: 400; }
   .excel-grid .p-inputtext { min-width: 130px; border-color: transparent; background: transparent; }
-  .excel-grid .p-inputtext:focus { border-color: var(--app-teal); background: white; }
+  .excel-grid .p-inputtext:focus { border-color: var(--p-primary-color, var(--app-teal)); background: var(--app-surface); }
   .excel-grid .p-datatable-tbody > tr:has(input:focus) { background: #f0faf8; }
   .form-stack { display: grid; gap: 16px; }
   .form-stack label { display: grid; gap: 6px; color: var(--app-muted); font-size: .8rem; font-weight: 700; }
 
   .import-overlay { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgb(5 19 26 / 55%); }
-  .import-dialog { width: min(980px, 94vw); max-height: 90vh; overflow: auto; padding: 22px; border-radius: 14px; background: white; box-shadow: 0 28px 80px rgb(0 0 0 / 30%); }
+  .import-dialog { width: min(980px, 94vw); max-height: 90vh; overflow: auto; padding: 22px; border-radius: 14px; background: var(--app-surface); box-shadow: 0 28px 80px rgb(0 0 0 / 30%); }
   .import-dialog__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
   .import-dialog__header h2 { margin: 0; font-size: 1.2rem; }
 
@@ -822,10 +839,10 @@
   }
 
   .import-steps span.active { background: #dff4ef; color: #09645d; }
-  .import-dropzone, .import-busy { display: flex; min-height: 280px; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px dashed #9cb3bd; border-radius: 12px; background: #f8fbfc; text-align: center; }
+  .import-dropzone, .import-busy { display: flex; min-height: 280px; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px dashed var(--app-border); border-radius: 12px; background: var(--app-bg); text-align: center; }
   .import-dropzone > i { color: #16877e; font-size: 2.3rem; }
   .import-dropzone > span, .import-dropzone > small { color: var(--app-muted); }
-  .mapping-override { width: min(620px, 90%); padding: 9px 12px; border: 1px solid var(--app-border); border-radius: 8px; background: white; text-align: left; }
+  .mapping-override { width: min(620px, 90%); padding: 9px 12px; border: 1px solid var(--app-border); border-radius: 8px; background: var(--app-surface); text-align: left; }
   .mapping-override summary { cursor: pointer; color: var(--app-teal); font-size: .78rem; font-weight: 700; }
   .mapping-override p { margin: 9px 0; color: var(--app-muted); font-size: .7rem; }
   .import-dropzone__actions, .import-dialog__footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
@@ -837,7 +854,7 @@
   .validation-summary .invalid { background: #fff0ef; color: #a82b24; }
 
   .login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top, #17495b, var(--app-navy) 55%); }
-  .login-card { width: min(430px, 100%); display: grid; gap: 15px; padding: 34px; border-radius: 16px; background: white; box-shadow: 0 24px 70px rgb(0 0 0 / 28%); }
+  .login-card { width: min(430px, 100%); display: grid; gap: 15px; padding: 34px; border-radius: 16px; background: var(--app-surface); color: var(--app-ink); box-shadow: 0 24px 70px rgb(0 0 0 / 28%); }
   .login-card__intro { display: grid; gap: 8px; }
   .login-card h1 { margin: 0; }
   .login-card__intro > p { margin: 0; color: var(--app-muted); }
@@ -847,12 +864,12 @@
   .login-card__links a { color: var(--app-teal); font-size: .8rem; text-decoration: none; }
   .login-card__footer { display: grid; gap: 10px; }
   .login-card__footer > a { color: var(--app-teal); text-align: center; font-size: .8rem; }
-  .login-card__note { padding: 11px 12px; border: 1px solid #d8ebe7; border-radius: 10px; background: #f3faf8; color: #24534f; font-size: .76rem; line-height: 1.45; }
+  .login-card__note { padding: 11px 12px; border: 1px solid var(--app-glass-border, var(--app-border)); border-radius: 10px; background: color-mix(in srgb, var(--p-primary-color, var(--app-teal)) 8%, var(--app-bg)); color: var(--app-ink); font-size: .76rem; line-height: 1.45; }
   .error-copy { color: #b42318; }
   .success-copy { color: #067647; }
 
   .assurance-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0; }
-  .assurance-meta div { padding: 14px; border: 1px solid var(--app-border); border-radius: 9px; background: white; }
+  .assurance-meta div { padding: 14px; border: 1px solid var(--app-border); border-radius: 9px; background: var(--app-surface); }
   .assurance-meta span, .assurance-meta strong { display: block; }
   .assurance-meta span { color: var(--app-muted); font-size: .72rem; }
   .assurance-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; }
@@ -938,7 +955,7 @@
     overflow: hidden;
     border: 1px solid var(--app-border);
     border-radius: 12px;
-    background: white;
+    background: var(--app-surface);
     box-shadow: var(--app-shadow);
   }
 
@@ -949,7 +966,7 @@
     gap: 12px;
     padding: 14px 16px;
     border-bottom: 1px solid var(--app-border);
-    background: linear-gradient(180deg, #fbfdfe, #f5f8fa);
+    background: color-mix(in srgb, var(--app-bg) 80%, var(--app-surface));
   }
 
   .eg__search {
@@ -1029,8 +1046,8 @@
   }
 
   .eg__table .p-datatable-thead > tr > th {
-    background: #eef3f6;
-    color: #33454f;
+    background: var(--app-bg);
+    color: var(--app-ink);
     font-size: .72rem;
     font-weight: 750;
     letter-spacing: .04em;
@@ -1097,7 +1114,7 @@
     gap: 12px;
     padding: 11px 16px;
     border-top: 1px solid var(--app-border);
-    background: #fafcfd;
+    background: var(--app-bg);
   }
 
   .eg__pager-info {
@@ -1162,9 +1179,11 @@
     gap: 4px;
     padding: 5px;
     margin: -10px 0 18px;
-    border: 1px solid var(--app-border);
+    border: 1px solid var(--app-glass-border, var(--app-border));
     border-radius: 11px;
-    background: white;
+    background: var(--app-glass, var(--app-surface));
+    backdrop-filter: blur(14px) saturate(160%);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
   }
 
   .md-nav__group {
@@ -1205,8 +1224,9 @@
   }
 
   .md-nav__item--active {
-    background: var(--app-navy);
-    color: white;
+    background: color-mix(in srgb, var(--p-primary-color, var(--app-teal)) 18%, transparent);
+    color: var(--p-primary-color, var(--app-teal));
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 40%, transparent);
   }
 
   /* UOM configuration tip banner */

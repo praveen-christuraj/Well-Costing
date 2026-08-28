@@ -108,6 +108,39 @@ describe('ExcelGrid', () => {
     expect(wrapper.text()).toContain('Saved 5 row(s)')
   })
 
+  it('searches every column including readonly codes', async () => {
+    const wrapper = mount(ExcelGrid, {
+      props: {
+        title: 'Drill Bits',
+        singular: 'drill bit',
+        columns: [
+          { field: 'bit_code', header: 'Bit Code', readonly: true },
+          { field: 'bit_name', header: 'Bit Name', required: true },
+        ],
+        codeField: 'bit_name',
+        loadRecords: vi.fn().mockResolvedValue([
+          { id: 1, bit_code: 'DB-001', bit_name: 'PDC Bit' },
+          { id: 2, bit_code: 'DB-002', bit_name: 'Tricone' },
+        ]),
+        toRow: (record: Record<string, unknown>) => ({
+          _id: record.id,
+          bit_code: record.bit_code,
+          bit_name: record.bit_name,
+        }),
+        toPayload: (row: Record<string, unknown>) => ({ bit_name: row.bit_name }),
+        createRecord: vi.fn(),
+        updateRecord: vi.fn(),
+        deleteRecord: vi.fn(),
+      },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="grid-search"]').setValue('DB-001')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="search-matches"]').text()).toContain('1 match')
+    expect(wrapper.text()).toContain('PDC Bit')
+    expect(wrapper.text()).not.toContain('Tricone')
+  })
+
   it('edits an existing cell and bulk saves it as an update', async () => {
     const wrapper = mountGrid()
     await flushPromises()
@@ -124,6 +157,56 @@ describe('ExcelGrid', () => {
       name: 'Metre',
       description: 'metres (updated)',
     })
+  })
+})
+
+describe('ExcelGrid advanced search', () => {
+  it('matches vendor labels, not only stored ids, and ANDs multiple tokens', async () => {
+    const wrapper = mount(ExcelGrid, {
+      props: {
+        title: 'Purchase Orders / Service Orders',
+        singular: 'PO/SO',
+        columns: [
+          { field: 'po_so_number', header: 'PO/SO Number', required: true },
+          {
+            field: 'vendor_id',
+            header: 'Vendor/Supplier',
+            type: 'select' as const,
+            options: [
+              { label: 'VEND001 — Acme Drilling', value: 7 },
+              { label: 'VEND002 — Baker Tools', value: 8 },
+            ],
+          },
+        ],
+        codeField: 'po_so_number',
+        loadRecords: vi.fn().mockResolvedValue([
+          { id: 1, po_so_number: 'PO-2024-001', vendor_id: 7 },
+          { id: 2, po_so_number: 'SO-9', vendor_id: 8 },
+        ]),
+        toRow: (record: Record<string, unknown>) => ({
+          _id: record.id,
+          po_so_number: record.po_so_number,
+          vendor_id: record.vendor_id,
+        }),
+        toPayload: (row: Record<string, unknown>) => ({
+          po_so_number: row.po_so_number,
+          vendor_id: row.vendor_id,
+        }),
+        createRecord: vi.fn(),
+        updateRecord: vi.fn(),
+        deleteRecord: vi.fn(),
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="grid-search"]').setValue('acme')
+    await flushPromises()
+    expect(wrapper.text()).toContain('PO-2024-001')
+    expect(wrapper.text()).not.toContain('SO-9')
+
+    await wrapper.get('[data-testid="grid-search"]').setValue('acme baker')
+    await flushPromises()
+    expect(wrapper.text()).toContain('No purchase orders / service orders match')
   })
 })
 

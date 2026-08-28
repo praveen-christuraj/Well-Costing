@@ -20,6 +20,7 @@ import RateHistoryPanel from '~/components/catalogue/RateHistoryPanel.vue'
 import ServicesTab from '~/components/catalogue/ServicesTab.vue'
 import TangiblesTab from '~/components/catalogue/TangiblesTab.vue'
 import type { EditableGridRow, GridColumn, GridSelectOption } from '~/types/grid'
+import { matchesAdvancedSearch } from '~/utils/search'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -418,11 +419,7 @@ const deletedLoading = ref(false)
 const trashSearch = ref('')
 
 const filteredTrash = computed(() => {
-  const q = trashSearch.value.trim().toLowerCase()
-  if (!q) return deletedRecords.value
-  return deletedRecords.value.filter(item =>
-    `${item.moduleName} ${item.code} ${item.name}`.toLowerCase().includes(q),
-  )
+  return deletedRecords.value.filter(item => matchesAdvancedSearch(item, trashSearch.value))
 })
 
 async function loadAllDeleted(): Promise<void> {
@@ -849,82 +846,57 @@ onMounted(() => {
   margin: 0 auto;
 }
 
-.tabs {
-  display: flex;
-  gap: 0.25rem;
-  border-bottom: 1px solid var(--app-border);
-  margin-bottom: 1rem;
-  overflow-x: auto;
+.filter-select {
+  height: 2rem;
+  font-size: 0.75rem;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-surface);
+  color: var(--app-ink);
+  padding: 0 0.5rem;
 }
 
-.tabs__item {
+.bulk-attach-hint {
+  margin: 0.75rem 0 0;
+  font-size: 0.75rem;
+  color: var(--app-muted);
+}
+
+.attach-link {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.6rem 1rem;
+  gap: 0.25rem;
   border: none;
-  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--app-teal);
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 0;
+}
+
+.attach-none {
+  color: var(--app-muted);
+}
+
+.icon-btn {
+  border: none;
   background: transparent;
   color: var(--app-muted);
-  font-size: 0.8rem;
-  font-weight: 500;
-  white-space: nowrap;
   cursor: pointer;
-}
-
-.tabs__item:hover {
-  color: var(--app-ink);
-}
-
-.tabs__item--active {
-  color: var(--app-teal);
-  border-bottom-color: var(--app-teal);
-  font-weight: 600;
-}
-
-.tabs__item--danger {
-  color: #e11d48;
-}
-
-.tabs__item--danger.tabs__item--active {
-  border-bottom-color: #e11d48;
-  font-weight: 600;
-}
-
-.subtabs {
-  display: flex;
-  gap: 0.25rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.9rem;
-  padding-bottom: 0.6rem;
-  border-bottom: 1px dashed var(--app-border);
-}
-
-.subtabs__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.4rem 0.8rem;
-  border: 1px solid var(--app-border);
-  border-radius: 999px;
-  background: var(--app-surface);
-  color: var(--app-muted);
+  padding: 0.3rem;
+  border-radius: 4px;
   font-size: 0.75rem;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
+  line-height: 1;
 }
 
-.subtabs__item:hover {
-  color: var(--app-teal);
-  border-color: var(--app-teal);
+.icon-btn:hover:not(:disabled) {
+  background: var(--app-bg);
+  color: var(--p-primary-color, var(--app-teal));
 }
 
-.subtabs__item--active {
-  background: rgb(15 118 110 / 12%);
-  color: var(--app-teal);
-  border-color: var(--app-teal);
-  font-weight: 600;
+.icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .grid-card {
@@ -979,12 +951,12 @@ onMounted(() => {
 .trash-search__input {
   height: 1.9rem;
   font-size: 0.75rem;
-  border: 1px solid var(--app-border);
-  border-radius: 6px;
-  background: var(--app-surface);
+  border: 1px solid var(--app-glass-border, var(--app-border));
+  border-radius: 999px;
+  background: var(--app-glass, var(--app-surface));
   color: var(--app-ink);
   padding: 0 0.5rem 0 1.6rem;
-  width: 12rem;
+  width: 16rem;
 }
 
 .table-scroll {

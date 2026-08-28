@@ -6,6 +6,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
+import { matchesAdvancedSearch } from '~/utils/search'
 
 interface RateRevision {
   id: number
@@ -79,12 +80,14 @@ watch(reloadKey, () => void load())
 const itemKinds = computed(() => [...new Set(revisions.value.map(r => r.item_kind).filter(Boolean))].sort())
 
 const filtered = computed(() => {
-  const query = search.value.trim().toLowerCase()
   return revisions.value.filter((r) => {
     if (kindFilter.value && r.item_kind !== kindFilter.value) return false
-    if (!query) return true
-    return `${r.item_code} ${r.item_name} ${r.currency} ${r.po_number} ${r.remarks}`.toLowerCase().includes(query)
+    return matchesAdvancedSearch(r, search.value)
   })
+})
+
+watch(search, () => {
+  page.value = 1
 })
 
 const paged = computed(() => {
@@ -189,7 +192,13 @@ function printHistory(): void {
         </select>
         <div class="rate-search">
           <i class="pi pi-search" />
-          <input v-model="search" type="search" placeholder="Search revisions…" class="rate-search__input">
+          <input
+            v-model="search"
+            type="search"
+            placeholder="Search all revision fields…"
+            class="rate-search__input"
+            title="Advanced search: matches code, name, currency, PO number, remarks and every other column."
+          >
         </div>
         <span class="rate-count">{{ filtered.length }} revision(s)</span>
       </div>
@@ -321,12 +330,12 @@ function printHistory(): void {
 .rate-search__input {
   height: 1.9rem;
   font-size: 0.75rem;
-  border: 1px solid var(--app-border);
-  border-radius: 6px;
-  background: var(--app-surface);
+  border: 1px solid var(--app-glass-border, var(--app-border));
+  border-radius: 999px;
+  background: var(--app-glass, var(--app-surface));
   color: var(--app-ink);
   padding: 0 0.5rem 0 1.55rem;
-  width: 12rem;
+  width: 16rem;
 }
 
 .rate-count {
@@ -389,8 +398,8 @@ function printHistory(): void {
 
 .rate-rev {
   display: inline-block;
-  background: rgb(15 118 110 / 12%);
-  color: var(--app-teal);
+  background: color-mix(in srgb, var(--p-primary-color, var(--app-teal)) 14%, transparent);
+  color: var(--p-primary-color, var(--app-teal));
   border-radius: 999px;
   padding: 0.05rem 0.4rem;
   font-size: 0.66rem;

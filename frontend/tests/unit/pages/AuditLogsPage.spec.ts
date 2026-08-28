@@ -51,4 +51,13 @@ describe('Audit log page', () => {
     expect(wrapper.find('.print-sheet').text()).toContain('System Audit Log')
     expect(wrapper.find('.print-sheet').text()).toContain('LOGIN')
   })
+
+  it('searches across every log field, not only the entity code', async () => {
+    const { wrapper } = await mountPage()
+    const input = wrapper.get('.search__input')
+    await input.setValue('currency')
+    await flushPromises()
+    expect(wrapper.find('.audit-table').text()).toContain('USD')
+    expect(wrapper.find('.audit-table').text()).not.toContain('LOGIN')
+  })
 })

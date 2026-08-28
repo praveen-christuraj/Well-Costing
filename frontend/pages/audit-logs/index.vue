@@ -6,6 +6,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import PageHeader from '~/components/design-system/PageHeader.vue'
+import { matchesAdvancedSearch } from '~/utils/search'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -105,11 +106,11 @@ const actionOptions = computed(() => {
 })
 
 const filteredLogs = computed(() => {
-  if (!searchQuery.value.trim()) return logs.value
-  const query = searchQuery.value.toLowerCase()
-  return logs.value.filter(log =>
-    `${log.user_email} ${log.action} ${log.module} ${log.entity_code} ${log.details} ${log.ip_address}`.toLowerCase().includes(query),
-  )
+  return logs.value.filter(log => matchesAdvancedSearch(log, searchQuery.value))
+})
+
+watch(searchQuery, () => {
+  page.value = 1
 })
 
 const paginatedLogs = computed(() => {
@@ -205,7 +206,13 @@ function printLogs(): void {
           </select>
           <div class="search">
             <i class="pi pi-search" />
-            <input v-model="searchQuery" type="search" placeholder="Search logs…" class="search__input">
+            <input
+              v-model="searchQuery"
+              type="search"
+              placeholder="Search all log fields…"
+              class="search__input"
+              title="Advanced search: matches user, action, module, entity, details and IP."
+            >
           </div>
           <Button label="Refresh" icon="pi pi-refresh" size="small" severity="secondary" outlined :loading="loading" @click="loadLogs" />
           <span class="count">{{ filteredLogs.length }} logs</span>
@@ -365,7 +372,10 @@ function printLogs(): void {
 
 .search__input {
   padding-left: 1.7rem;
-  width: 14rem;
+  width: 16rem;
+  border-radius: 999px;
+  background: var(--app-glass, var(--app-surface));
+  border-color: var(--app-glass-border, var(--app-border));
 }
 
 .count {
@@ -454,13 +464,19 @@ function printLogs(): void {
   letter-spacing: 0.02em;
 }
 
-.badge--green { background: #dcfce7; color: #166534; }
-.badge--blue { background: #dbeafe; color: #1e40af; }
-.badge--teal { background: #ccfbf1; color: #0f766e; }
-.badge--amber { background: #fef3c7; color: #92400e; }
-.badge--red { background: #fee2e2; color: #991b1b; }
-.badge--purple { background: #f3e8ff; color: #6b21a8; }
+.badge--green { background: color-mix(in srgb, #16a34a 18%, var(--app-surface)); color: #166534; }
+.badge--blue { background: color-mix(in srgb, #2563eb 18%, var(--app-surface)); color: #1e40af; }
+.badge--teal { background: color-mix(in srgb, var(--p-primary-color, #0f766e) 18%, var(--app-surface)); color: var(--p-primary-color, #0f766e); }
+.badge--amber { background: color-mix(in srgb, #d97706 18%, var(--app-surface)); color: #92400e; }
+.badge--red { background: color-mix(in srgb, #e11d48 18%, var(--app-surface)); color: #991b1b; }
+.badge--purple { background: color-mix(in srgb, #7c3aed 18%, var(--app-surface)); color: #6b21a8; }
 .badge--muted { background: var(--app-bg); color: var(--app-ink); }
+
+.app-dark .badge--green { color: #86efac; }
+.app-dark .badge--blue { color: #93c5fd; }
+.app-dark .badge--amber { color: #fcd34d; }
+.app-dark .badge--red { color: #fda4af; }
+.app-dark .badge--purple { color: #d8b4fe; }
 
 .print-sheet {
   display: none;
