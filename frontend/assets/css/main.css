@@ -1172,6 +1172,113 @@
     color: var(--app-teal);
   }
 
+  /* ── Tabs & sub-tabs ──
+     Classic underline tabs, as on the original master-data page: borderless
+     text buttons sitting on a bottom rail, with a hard-coded teal label +
+     underline marking the active tab (danger red for the trash tab). */
+  .tabs {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    padding: 0 2px;
+    margin: 0 0 16px;
+    border-bottom: 2px solid var(--app-border);
+  }
+
+  .tabs__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    padding: 9px 13px;
+    margin-bottom: -2px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    color: var(--app-muted);
+    font-size: .76rem;
+    font-weight: 650;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .tabs__item .pi {
+    font-size: .84rem;
+  }
+
+  .tabs__item:hover {
+    color: #0f766e;
+  }
+
+  .tabs__item--active,
+  .tabs__item--active:hover {
+    color: #0f766e;
+    border-bottom-color: #0f766e;
+  }
+
+  .tabs__item--danger:hover {
+    color: var(--app-danger);
+  }
+
+  .tabs__item--danger.tabs__item--active,
+  .tabs__item--danger.tabs__item--active:hover {
+    color: var(--app-danger);
+    border-bottom-color: var(--app-danger);
+  }
+
+  .tabs__item:focus-visible {
+    outline: 2px solid #0f766e;
+    outline-offset: -2px;
+  }
+
+  /* Sub-tabs (Consumables / Tangibles): the same underline language, smaller. */
+  .subtabs {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    padding: 0 2px;
+    margin: 0 0 12px;
+    border-bottom: 1px solid var(--app-border);
+  }
+
+  .subtabs__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    margin-bottom: -1px;
+    border: 0;
+    border-bottom: 1px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    color: var(--app-muted);
+    font-size: .74rem;
+    font-weight: 650;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .subtabs__item .pi {
+    font-size: .8rem;
+  }
+
+  .subtabs__item:hover {
+    color: #0f766e;
+  }
+
+  .subtabs__item--active,
+  .subtabs__item--active:hover {
+    color: #0f766e;
+    border-bottom-color: #0f766e;
+  }
+
+  .subtabs__item:focus-visible {
+    outline: 2px solid #0f766e;
+    outline-offset: -2px;
+  }
+
   /* Master data section navigation */
   .md-nav {
     display: flex;
