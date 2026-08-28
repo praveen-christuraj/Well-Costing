@@ -310,6 +310,90 @@ def test_tangibles_crud_and_scope_validation(client, db_session):
     assert client.delete(f"/api/v1/catalogue/tangibles/{body['id']}/permanent", headers=headers).status_code == 200
 
 
+def test_tangible_duplicate_names_allowed_when_criteria_differ(client, db_session):
+    """Duplicate names are accepted when Manufacturer / Rate as per PO / Uplift
+    / Description differ; rejected only when the name AND every criterion match."""
+
+    _seed_lookups(db_session)
+    headers = _auth_headers(client)
+
+    for cfg, value in (
+        ("tangible_category", "Casing"),
+        ("tangible_manufacturer", "Tenaris"),
+        ("tangible_manufacturer", "Vallourec"),
+    ):
+        assert client.post(f"/api/v1/catalogue/configs/{cfg}", headers=headers,
+                           json={"value": value}).status_code == 200
+    assert client.post("/api/v1/catalogue/configs/tangible_subcategory", headers=headers,
+                       json={"value": "Surface Casing", "parent_value": "Casing"}).status_code == 200
+
+    def create(name, *, mfr="Tenaris", rate="120", uplift="100", description=None):
+        payload = {
+            "tangible_name": name, "tangible_scope": "Drilling",
+            "category": "Casing", "subcategory": "Surface Casing", "manufacturer": mfr,
+            "unit_rate_po": rate, "cost_uplift": uplift, "currency": "USD",
+        }
+        if description is not None:
+            payload["description"] = description
+        return client.post("/api/v1/catalogue/tangibles", headers=headers, json=payload)
+
+    def same_name_count():
+        rows = client.get("/api/v1/catalogue/tangibles", headers=headers).json()
+        return sum(1 for row in rows if row["tangible_name"] == "Casing 9-5/8")
+
+    assert create("Casing 9-5/8").status_code == 200
+
+    # Same name with one criterion different at a time — all accepted.
+    assert create("Casing 9-5/8", mfr="Vallourec").status_code == 200
+    assert create("Casing 9-5/8", rate="150").status_code == 200
+    assert create("Casing 9-5/8", uplift="110").status_code == 200
+    assert create("Casing 9-5/8", description="Surface string").status_code == 200
+    assert same_name_count() == 5
+
+    # Same name and all criteria identical (case-insensitive) — rejected.
+    dup = create("casing 9-5/8", description="surface string")
+    assert dup.status_code == 400
+    assert "already exists" in dup.json()["error"]["message"]
+    assert same_name_count() == 5
+
+    # Renaming onto an existing name with identical criteria — rejected…
+    twin = create("Tubing 2-7/8")  # Tenaris / 120 / 100 / no description = row 1
+    assert twin.status_code == 200
+    clash = client.put(f"/api/v1/catalogue/tangibles/{twin.json()['id']}", headers=headers,
+                       json={"tangible_name": "Casing 9-5/8"})
+    assert clash.status_code == 400
+    assert "already exists" in clash.json()["error"]["message"]
+
+    # …but accepted once one criterion differs.
+    renamed = client.put(f"/api/v1/catalogue/tangibles/{twin.json()['id']}", headers=headers,
+                         json={"tangible_name": "Casing 9-5/8", "description": "Twin row"})
+    assert renamed.status_code == 200
+    assert same_name_count() == 6
+
+    # Import: same name with a new rate creates a tangible, not a rate revision.
+    csv_data = (
+        "tangible_name,tangible_scope,category,subcategory,manufacturer,unit_rate_po,cost_uplift,currency,effective_date,description\n"
+        "Casing 9-5/8,Drilling,Casing,Surface Casing,Tenaris,999,100,USD,2026-03-01,\n"
+    )
+    imp = client.post("/api/v1/catalogue/tangibles/import", headers=headers,
+                      files={"file": ("tng.csv", csv_data.encode(), "text/csv")})
+    assert imp.status_code == 200
+    assert imp.json()["error_count"] == 0
+    assert imp.json()["imported_count"] == 1
+    assert same_name_count() == 7
+
+    # Import: name identical on every criterion refreshes the row, adds nothing.
+    csv_data = (
+        "tangible_name,tangible_scope,category,subcategory,manufacturer,unit_rate_po,cost_uplift,currency,effective_date,description\n"
+        "Casing 9-5/8,Drilling,Casing,Surface Casing,Tenaris,120,100,USD,2026-03-01,\n"
+    )
+    imp = client.post("/api/v1/catalogue/tangibles/import", headers=headers,
+                      files={"file": ("tng.csv", csv_data.encode(), "text/csv")})
+    assert imp.status_code == 200
+    assert imp.json()["error_count"] == 0
+    assert same_name_count() == 7
+
+
 def test_tangible_subcategories_depend_on_category(client, db_session):
     """Subcategories are configured under a category and filtered by it."""
 
