@@ -5,6 +5,11 @@ Subcategory and Manufacturer are user-configurable lists managed on the page.
 Final Cost = Unit Rate as per PO x Cost Uplift %. Rate changes append
 revisions to the rate-revision history tab. Full common template: CRUD +
 soft delete + bulk import + export + rate-history export, all audited.
+
+Duplicate tangible *names* are allowed as long as the rows differ on at
+least one of the distinguishing criteria — Manufacturer, Rate as per PO,
+Uplift % or Description. Only a row that matches on the name AND every
+criterion is rejected as a true duplicate.
 """
 
 from datetime import UTC, date, datetime
@@ -53,6 +58,32 @@ def _next_code(db: Session) -> str:
         if digits:
             highest = max(highest, int(digits))
     return f"{CODE_PREFIX}-{highest + 1:04d}"
+
+
+def _is_full_duplicate(
+    other: Tangible,
+    *,
+    manufacturer: str,
+    unit_rate_po: Decimal,
+    cost_uplift: Decimal,
+    description: str | None,
+) -> bool:
+    """True when ``other`` matches the candidate on every distinguishing
+    criterion.
+
+    Duplicate names are accepted whenever the candidate differs on at least
+    one of: Manufacturer, Rate as per PO, Uplift % or Description.
+    """
+
+    def _norm(value: Any) -> str:
+        return str(value or "").strip().lower()
+
+    return (
+        _norm(manufacturer) == _norm(other.manufacturer)
+        and (unit_rate_po or Decimal("0")) == (other.unit_rate_po or Decimal("0"))
+        and (cost_uplift or Decimal("0")) == (other.cost_uplift or Decimal("0"))
+        and _norm(description) == _norm(other.description)
+    )
 
 
 def _normalize_scope(value: Any) -> str:
@@ -439,15 +470,24 @@ def create_tangible(
     request: Request,
 ) -> TangibleOut:
     data = _parse_payload(db, payload, create=True)
-    dup = db.scalar(
+    # Duplicate names are allowed when the new row differs on at least one of
+    # Manufacturer / Rate as per PO / Uplift / Description.
+    for other in db.scalars(
         select(Tangible).where(
             func.lower(Tangible.tangible_name) == data["name"].lower(),
             Tangible.is_deleted == False,
         )
-    )
-    if dup:
-        raise HTTPException(status_code=400,
-                            detail=f"Tangible '{data['name']}' already exists — code {dup.tangible_code}")
+    ).all():
+        if _is_full_duplicate(
+            other, manufacturer=data["manufacturer"], unit_rate_po=data["unit_rate_po"],
+            cost_uplift=data["cost_uplift"], description=data["description"],
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Tangible '{data['name']}' already exists (code {other.tangible_code}) "
+                        "with the same Manufacturer, Rate as per PO, Uplift and Description — "
+                        "change at least one of those to keep a duplicate name"),
+            )
 
     tng = Tangible(
         tangible_code=_next_code(db),
@@ -486,18 +526,10 @@ def update_tangible(
     if not tng or tng.is_deleted:
         raise HTTPException(status_code=404, detail="Tangible not found")
 
-    new_name = str(payload.get("tangible_name") or payload.get("name") or tng.tangible_name).strip()
-    if new_name.lower() != tng.tangible_name.lower():
-        clash = db.scalar(
-            select(Tangible).where(
-                func.lower(Tangible.tangible_name) == new_name.lower(),
-                Tangible.id != record_id,
-                Tangible.is_deleted == False,
-            )
-        )
-        if clash:
-            raise HTTPException(status_code=400, detail=f"Tangible '{new_name}' already exists")
-    tng.tangible_name = new_name
+    # Name clashes are only rejected at the end, once every field of the
+    # updated row is known — a duplicate name is fine when Manufacturer,
+    # Rate as per PO, Uplift or Description differ.
+    tng.tangible_name = str(payload.get("tangible_name") or payload.get("name") or tng.tangible_name).strip()
 
     if payload.get("tangible_scope") or payload.get("scope"):
         try:
@@ -582,6 +614,27 @@ def update_tangible(
         revision_added = rev is not None
     if payload.get("currency") not in (None, "") and not has_rate:
         tng.currency = _resolve_currency(db, payload["currency"])
+
+    # A renamed row may share its name with other tangibles; it is rejected
+    # only when Manufacturer, Rate as per PO, Uplift and Description all match
+    # an existing row with that name.
+    for other in db.scalars(
+        select(Tangible).where(
+            func.lower(Tangible.tangible_name) == str(tng.tangible_name).lower(),
+            Tangible.id != record_id,
+            Tangible.is_deleted == False,
+        )
+    ).all():
+        if _is_full_duplicate(
+            other, manufacturer=tng.manufacturer, unit_rate_po=tng.unit_rate_po,
+            cost_uplift=tng.cost_uplift, description=tng.description,
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Tangible '{tng.tangible_name}' already exists (code {other.tangible_code}) "
+                        "with the same Manufacturer, Rate as per PO, Uplift and Description — "
+                        "change at least one of those to keep a duplicate name"),
+            )
 
     tng.updated_by = current_user.id
     db.commit()
@@ -696,9 +749,11 @@ def download_template(
             7: uoms,
             10: currencies,
         },
-        note=("Fill one tangible per row. Codes are generated automatically; re-importing an "
-              "existing tangible name with a new rate appends a rate revision. Each subcategory "
-              "must belong to the row's category — new subcategory names are created under that "
+        note=("Fill one tangible per row. Codes are generated automatically. Duplicate names "
+              "are allowed when Manufacturer, Rate as per PO, Uplift or Description differ — "
+              "such rows import as new tangibles. Re-importing a name whose manufacturer, rate, "
+              "uplift and description all already exist refreshes that row. Each subcategory must "
+              "belong to the row's category — new subcategory names are created under that "
               "category automatically."),
     )
 
@@ -745,8 +800,20 @@ async def import_tangibles(
             desc = row_get(row, "description", "desc")
             remarks = row_get(row, "remarks", "remark")
 
-            existing = db.scalar(
+            # Duplicate names are allowed: a row is the *same* tangible only
+            # when Manufacturer, Rate as per PO, Uplift and Description all
+            # match an existing row with that name. Anything else — e.g. the
+            # same name with a new rate or another manufacturer — imports as a
+            # new tangible instead of a rate revision.
+            candidates = db.scalars(
                 select(Tangible).where(func.lower(Tangible.tangible_name) == name.lower())
+            ).all()
+            existing = next(
+                (row for row in candidates if _is_full_duplicate(
+                    row, manufacturer=manufacturer, unit_rate_po=rate,
+                    cost_uplift=uplift, description=str(desc) if desc else None,
+                )),
+                None,
             )
             if existing:
                 if existing.is_deleted:

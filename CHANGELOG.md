@@ -2,6 +2,27 @@
 
 All notable project changes are documented here.
 
+## 2026-08-28 — Relaxed duplicate validation for Tangibles (names may repeat)
+
+### Changed
+
+- **Tangible names may now be duplicated.** The Tangibles grid, the
+  create/update API and the bulk import previously rejected any row whose
+  name already existed. Duplicate names are now accepted as long as the
+  rows differ on at least one of: **Manufacturer**, **Rate as per PO**,
+  **Uplift %** or **Description** — only a row that matches on the name
+  *and* every one of those criteria is still rejected. All entry points
+  enforce the same rule; comparisons are case-insensitive and the rate /
+  uplift fields compare numerically.
+- **Import follows the new rule.** Re-importing a name with a new rate,
+  manufacturer, uplift or description now imports it as a *new* tangible
+  (its own code and rate-revision history) instead of appending a revision
+  to the first same-named row. A row whose name and all four criteria
+  already exist still refreshes that existing row.
+- The ExcelGrid gained an optional `duplicateKeyFields` prop so only the
+  Tangibles tab uses the relaxed rule — every other master-data grid still
+  rejects duplicate codes.
+
 ## 2026-08-28 — Advanced search, configurable dropdowns, glassy theme-aware tabs
 
 ### Fixed

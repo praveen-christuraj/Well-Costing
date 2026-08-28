@@ -34,6 +34,13 @@ const props = defineProps<{
   columns: GridColumn[]
   /** Field used for duplicate detection and row error labels. */
   codeField?: string
+  /**
+   * Extra fields that distinguish rows which share the `codeField` value.
+   * When set, two rows are only a duplicate when the code field AND every
+   * one of these fields match (e.g. tangibles allow duplicate names when
+   * manufacturer / rate / uplift / description differ).
+   */
+  duplicateKeyFields?: string[]
   loadRecords: () => Promise<Record<string, unknown>[]>
   /** Map an API record onto editable row fields (`_id` should be set). */
   toRow: (record: Record<string, unknown>) => Record<string, unknown>
@@ -384,6 +391,28 @@ function rowLabel(row: EditableGridRow): string {
   return String(row[codeColumn.value] ?? '(blank)')
 }
 
+/** Normalized duplicate-comparison value — numbers compare numerically ("120" ≡ "120.00"). */
+function normalizeKeyPart(value: unknown): string {
+  const text = String(value ?? '').trim().toLowerCase()
+  if (text === '') return ''
+  const numeric = Number(text.replace(/,/g, ''))
+  return Number.isFinite(numeric) ? `n${numeric}` : `s${text}`
+}
+
+/** Row identity for duplicate detection: the code field plus the distinguishing fields. */
+function duplicateKey(row: EditableGridRow): string {
+  const code = String(row[codeColumn.value] ?? '').trim().toLowerCase()
+  if (!code) return ''
+  if (!props.duplicateKeyFields?.length) return code
+  const parts = props.duplicateKeyFields.map(field => normalizeKeyPart(row[field]))
+  return [code, ...parts].join('\u0000')
+}
+
+const duplicateKeyHeaders = computed(() =>
+  (props.duplicateKeyFields ?? [])
+    .map(field => props.columns.find(col => col.field === field)?.header ?? field),
+)
+
 function isCandidate(row: EditableGridRow): boolean {
   return row._state !== 'clean'
 }
@@ -429,18 +458,23 @@ async function saveAll(): Promise<void> {
       }
     }
   }
+  // Rows sharing the code field are only duplicates when every
+  // distinguishing field matches too (e.g. tangible names may repeat with a
+  // different manufacturer / rate / uplift / description).
   const seen = new Map<string, string>()
   for (const row of rows.value) {
-    const code = String(row[codeColumn.value] ?? '').trim().toLowerCase()
-    if (!code) continue
-    const previous = seen.get(code)
+    const key = duplicateKey(row)
+    if (!key) continue
+    const previous = seen.get(key)
     if (previous) {
-      const text = `Duplicate ${codeColumn.value} "${rowLabel(row)}" (${previous} also uses it)`
+      const text = duplicateKeyHeaders.value.length
+        ? `Duplicate ${codeColumn.value} "${rowLabel(row)}" (identical to "${previous}" on ${duplicateKeyHeaders.value.join(', ')})`
+        : `Duplicate ${codeColumn.value} "${rowLabel(row)}" (${previous} also uses it)`
       problems.push(text)
       if (row._error == null) row._error = `Duplicate of ${previous}`
     }
     else {
-      seen.set(code, rowLabel(row))
+      seen.set(key, rowLabel(row))
     }
   }
   if (problems.length) {

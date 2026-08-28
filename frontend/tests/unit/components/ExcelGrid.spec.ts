@@ -210,6 +210,121 @@ describe('ExcelGrid advanced search', () => {
   })
 })
 
+describe('ExcelGrid duplicate names with distinguishing fields', () => {
+  const tangibleColumns: GridColumn[] = [
+    { field: 'tangible_code', header: 'Tangible Code', readonly: true },
+    { field: 'tangible_name', header: 'Tangible Name', required: true },
+    { field: 'manufacturer', header: 'Manufacturer', required: true },
+    { field: 'unit_rate_po', header: 'Rate as per PO', type: 'number', required: true },
+    { field: 'cost_uplift', header: 'Uplift %', type: 'number', defaultValue: '100' },
+    { field: 'description', header: 'Description' },
+  ]
+
+  function mountTangiblesGrid() {
+    return mount(ExcelGrid, {
+      props: {
+        title: 'Tangibles',
+        singular: 'tangible',
+        columns: tangibleColumns,
+        codeField: 'tangible_name',
+        duplicateKeyFields: ['manufacturer', 'unit_rate_po', 'cost_uplift', 'description'],
+        loadRecords: vi.fn().mockResolvedValue([
+          { id: 1, tangible_name: 'Casing 9-5/8', manufacturer: 'Tenaris', unit_rate_po: '120', cost_uplift: '100', description: '' },
+        ]),
+        toRow: (record: Record<string, unknown>) => ({
+          _id: record.id,
+          tangible_code: `TNG-000${record.id}`,
+          tangible_name: record.tangible_name,
+          manufacturer: record.manufacturer,
+          unit_rate_po: String(record.unit_rate_po),
+          cost_uplift: String(record.cost_uplift),
+          description: (record.description as string | null) ?? '',
+        }),
+        toPayload: (row: Record<string, unknown>) => ({
+          tangible_name: row.tangible_name,
+          manufacturer: row.manufacturer,
+          unit_rate_po: row.unit_rate_po,
+          cost_uplift: row.cost_uplift,
+          description: row.description,
+        }),
+        createRecord: vi.fn().mockResolvedValue({ id: 99 }),
+        updateRecord: vi.fn().mockResolvedValue({}),
+        deleteRecord: vi.fn().mockResolvedValue(undefined),
+      },
+    })
+  }
+
+  /** Fill the new (first) row's blank cells: name, manufacturer, rate. */
+  async function fillNewRow(wrapper: ReturnType<typeof mountTangiblesGrid>, name: string, manufacturer: string, rate: string) {
+    const blank = wrapper.find('tbody').findAll('input.p-inputtext').filter(
+      input => (input.element as HTMLInputElement).value === '',
+    )
+    await blank[0]?.setValue(name)
+    await blank[1]?.setValue(manufacturer)
+    await blank[2]?.setValue(rate)
+    await toolbarButton(wrapper, 'Save All')?.trigger('click')
+    await flushPromises()
+  }
+
+  it('allows a duplicate name when a distinguishing field differs', async () => {
+    const wrapper = mountTangiblesGrid()
+    await flushPromises()
+    await wrapper.get('[data-testid="add-row"]').trigger('click')
+    await flushPromises()
+    await fillNewRow(wrapper, 'Casing 9-5/8', 'Tenaris', '200')
+    const create = wrapper.props('createRecord') as ReturnType<typeof vi.fn>
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(create).toHaveBeenCalledWith({
+      tangible_name: 'Casing 9-5/8',
+      manufacturer: 'Tenaris',
+      unit_rate_po: '200',
+      cost_uplift: '100',
+      description: '',
+    })
+    expect(wrapper.text()).toContain('Saved 1 row(s)')
+  })
+
+  it('blocks a name that matches on every distinguishing field', async () => {
+    const wrapper = mountTangiblesGrid()
+    await flushPromises()
+    await wrapper.get('[data-testid="add-row"]').trigger('click')
+    await flushPromises()
+    // 120.00 is numerically identical to the loaded row's 120.
+    await fillNewRow(wrapper, 'Casing 9-5/8', 'Tenaris', '120.00')
+    expect(wrapper.props('createRecord')).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Duplicate tangible_name "Casing 9-5/8"')
+    expect(wrapper.text()).toContain('Manufacturer, Rate as per PO, Uplift %, Description')
+  })
+
+  it('still blocks duplicate codes on grids without distinguishing fields', async () => {
+    const wrapper = mount(ExcelGrid, {
+      props: {
+        title: 'Units',
+        singular: 'unit',
+        columns: [{ field: 'code', header: 'Code', required: true }],
+        codeField: 'code',
+        loadRecords: vi.fn().mockResolvedValue([{ id: 1, code: 'M' }]),
+        toRow: (record: Record<string, unknown>) => ({ _id: record.id, code: record.code }),
+        toPayload: (row: Record<string, unknown>) => ({ code: row.code }),
+        createRecord: vi.fn(),
+        updateRecord: vi.fn(),
+        deleteRecord: vi.fn(),
+      },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="add-row"]').trigger('click')
+    await flushPromises()
+    const blank = wrapper.find('tbody').findAll('input.p-inputtext').filter(
+      input => (input.element as HTMLInputElement).value === '',
+    )
+    await blank[0]?.setValue('M')
+    await toolbarButton(wrapper, 'Save All')?.trigger('click')
+    await flushPromises()
+    expect(wrapper.props('createRecord')).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Duplicate code "M" (M also uses it)')
+  })
+})
+
 describe('ExcelGrid dependent dropdowns', () => {
   const categories = ['Casing', 'Tubing']
   const subByCategory: Record<string, string[]> = {
