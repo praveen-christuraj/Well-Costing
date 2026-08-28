@@ -2,6 +2,33 @@
 
 All notable project changes are documented here.
 
+## 2026-08-28 — Advanced search, configurable dropdowns, glassy theme-aware tabs
+
+### Fixed
+
+- **Advanced search on every catalogue grid.** The toolbar search only looked at
+  raw editable cell values, so PO/SO could not be found by vendor name (the
+  cell stores a numeric id), Drill Bits / Services could not be found by their
+  auto-generated code, and computed / attachment columns were skipped. Search
+  now matches display labels, codes, names, vendors, types, remarks and every
+  other column; several words AND together and `"quoted phrases"` stay intact.
+  The same matcher is used on Deleted Entries, Rate Revisions and the Audit Log.
+- **Manage dropdowns on Drill Bits and Tangibles.** Add / Bulk Add on
+  non-parented lists (bit type, bit manufacturer, tangible category,
+  tangible manufacturer) returned immediately because they required a parent
+  value that those lists do not have. Users can add those dropdown values again.
+
+### Changed
+
+- **Glassy active tabs** on Master Data (and the shared `.tabs` / `.subtabs`
+  styles for later pages). The glass tint follows the top-right theme
+  controller — primary colour, surface palette and dark mode — instead of a
+  hard-coded teal underline.
+- App content tokens (`--app-teal`, `--app-surface`, `--app-bg`, …) now read
+  the PrimeVue theme variables, so cards, search bars, stat icons, nav pills
+  and computed cells pick up the chosen preset/primary/dark mode instead of
+  staying white/teal regardless of the controller.
+
 ## 2026-08-27 — Working Import buttons with fill-and-upload templates; category-dependent tangible subcategories
 
 ### Fixed

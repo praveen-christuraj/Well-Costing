@@ -172,7 +172,7 @@ onMounted(() => void checkHealth())
   flex-direction: column;
   border: 1px solid var(--app-border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--app-surface);
   overflow: hidden;
 }
 
@@ -213,7 +213,7 @@ onMounted(() => void checkHealth())
   padding: 10px 12px;
   border: 1px solid var(--app-border);
   border-radius: 10px;
-  background: #f8fbfc;
+  background: var(--app-bg);
   font-size: .82rem;
 }
 
@@ -230,7 +230,7 @@ onMounted(() => void checkHealth())
   padding: 8px 0 8px 40px;
   border: 1px solid var(--app-border);
   border-radius: 10px;
-  background: #f8fbfc;
+  background: var(--app-bg);
   counter-increment: flow;
 }
 
@@ -249,8 +249,8 @@ onMounted(() => void checkHealth())
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: var(--app-teal);
-  color: #fff;
+  background: var(--p-primary-color, var(--app-teal));
+  color: var(--p-primary-contrast-color, #fff);
   font-size: .7rem;
   font-weight: 700;
   transform: translateY(-50%);

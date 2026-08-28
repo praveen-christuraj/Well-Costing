@@ -22,6 +22,7 @@ import Message from 'primevue/message'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
+import { matchesAdvancedSearch } from '~/utils/search'
 import { parseTsv } from '~/utils/tsv'
 import type { EditableGridRow, GridColumn, GridSelectOption } from '~/types/grid'
 
@@ -85,13 +86,36 @@ const codeColumn = computed(() => props.codeField ?? props.columns[0]?.field ?? 
 const dirtyCount = computed(() => rows.value.filter(row => row._state !== 'clean').length)
 const selectedCount = computed(() => selected.value.length)
 
+/** Display labels + raw values so vendor names, codes, computed costs and slot text are all searchable. */
+function rowSearchSource(row: EditableGridRow): string[] {
+  const parts: string[] = []
+  const seen = new Set<string>()
+  const push = (value: unknown) => {
+    if (value == null || value === '') return
+    const text = String(value)
+    if (text === '—' || seen.has(text)) return
+    seen.add(text)
+    parts.push(text)
+  }
+  for (const col of props.columns) {
+    push(displayValue(row, col))
+    push(row[col.field])
+  }
+  for (const [key, value] of Object.entries(row)) {
+    if (key.startsWith('_') || typeof value === 'object') continue
+    push(value)
+  }
+  return parts
+}
+
 const filteredRows = computed(() => {
-  const query = search.value.trim().toLowerCase()
-  if (!query) return rows.value
-  const fields = editableColumns.value.map(col => col.field)
-  return rows.value.filter(row =>
-    fields.some(field => String(row[field] ?? '').toLowerCase().includes(query)),
-  )
+  const query = search.value
+  if (!query.trim()) return rows.value
+  return rows.value.filter(row => matchesAdvancedSearch(rowSearchSource(row), query))
+})
+
+watch(search, () => {
+  dFirst.value = 0
 })
 
 const pageRows = computed(() => {
@@ -526,7 +550,17 @@ defineExpose({
     <div class="grid-toolbar no-print">
       <div class="grid-toolbar__search">
         <i class="pi pi-search" />
-        <InputText v-model="search" :placeholder="`Search ${title.toLowerCase()}…`" size="small" />
+        <InputText
+          v-model="search"
+          :placeholder="`Search all ${title.toLowerCase()} fields…`"
+          size="small"
+          fluid
+          data-testid="grid-search"
+          title="Advanced search: matches codes, names, vendors, types, remarks and every other column. Use several words to narrow the list, or quotes for an exact phrase."
+        />
+        <span v-if="search.trim()" class="grid-toolbar__matches" data-testid="search-matches">
+          {{ filteredRows.length }} match{{ filteredRows.length === 1 ? '' : 'es' }}
+        </span>
       </div>
       <div class="grid-toolbar__actions">
         <Button label="Add row" icon="pi pi-plus" size="small" severity="secondary" outlined data-testid="add-row" @click="addRows(1)" />
@@ -672,7 +706,10 @@ defineExpose({
       </Column>
 
       <template #empty>
-        <div class="grid-empty">
+        <div v-if="search.trim()" class="grid-empty">
+          No {{ title.toLowerCase() }} match “{{ search.trim() }}”. Try another code, name, vendor or phrase.
+        </div>
+        <div v-else class="grid-empty">
           No {{ title.toLowerCase() }} yet. Use <strong>Add row</strong> for a single entry,
           <strong>+5 Rows</strong> or <strong>Paste</strong> from Excel for bulk entry, then
           <strong>Save All</strong>.
@@ -755,12 +792,20 @@ defineExpose({
   position: relative;
   display: flex;
   align-items: center;
-  min-width: 240px;
+  gap: 0.5rem;
+  min-width: min(100%, 22rem);
+  flex: 1 1 18rem;
+  max-width: 36rem;
 }
 
-.grid-toolbar__search :deep(input) {
+.grid-toolbar__search :deep(.p-inputtext) {
   padding-left: 2rem;
   width: 100%;
+  border-radius: 999px;
+  background: var(--app-glass, var(--app-surface));
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  border-color: var(--app-glass-border, var(--app-border));
 }
 
 .grid-toolbar__search .pi-search {
@@ -769,6 +814,15 @@ defineExpose({
   color: var(--app-muted);
   font-size: 0.8rem;
   z-index: 1;
+  pointer-events: none;
+}
+
+.grid-toolbar__matches {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--app-teal);
+  white-space: nowrap;
 }
 
 .grid-toolbar__actions {
@@ -850,7 +904,7 @@ defineExpose({
 
 /* Row state tints */
 .excel-grid :deep(tr.row-new) {
-  background: rgb(15 118 110 / 7%);
+  background: color-mix(in srgb, var(--p-primary-color, var(--app-teal)) 8%, transparent);
 }
 
 .excel-grid :deep(tr.row-dirty) {

@@ -88,6 +88,13 @@ const activeParent = computed(() => {
   return selectedParent.value && selectedParent.value !== UNASSIGNED ? selectedParent.value : null
 })
 
+/** Non-parented lists can always be edited; parented lists need a real parent first. */
+const canMutate = computed(() => !isParented.value || !!activeParent.value)
+
+function parentPayload(): Record<string, unknown> {
+  return activeParent.value ? { parent_value: activeParent.value } : {}
+}
+
 async function load(): Promise<void> {
   loading.value = true
   error.value = null
@@ -131,11 +138,11 @@ function parentSuffix(): string {
 
 async function addSingle(): Promise<void> {
   const value = singleValue.value.trim()
-  if (!value || !activeParent.value) return
+  if (!value || !canMutate.value) return
   busy.value = true
   error.value = null
   try {
-    await api.post(`/catalogue/configs/${props.configType}`, { value, parent_value: activeParent.value })
+    await api.post(`/catalogue/configs/${props.configType}`, { value, ...parentPayload() })
     singleValue.value = ''
     await load()
     emit('changed')
@@ -150,13 +157,13 @@ async function addSingle(): Promise<void> {
 
 async function bulkAdd(): Promise<void> {
   const items = newValues.value.split(/[\n,;]+/).map(v => v.trim()).filter(Boolean)
-  if (!items.length || !activeParent.value) return
+  if (!items.length || !canMutate.value) return
   busy.value = true
   error.value = null
   try {
     const result = await api.post<{ imported_count: number, errors: string[] }>(
       `/catalogue/configs/${props.configType}/bulk`,
-      { values: items, parent_value: activeParent.value },
+      { values: items, ...parentPayload() },
     )
     newValues.value = ''
     if (result.errors?.length) error.value = result.errors.join('; ')
@@ -258,7 +265,7 @@ async function moveToParent(item: ConfigValue): Promise<void> {
         </p>
       </div>
 
-      <template v-if="!isParented || activeParent">
+      <template v-if="canMutate">
         <div class="cfg__add">
           <InputText
             v-model="singleValue"
@@ -298,7 +305,7 @@ async function moveToParent(item: ConfigValue): Promise<void> {
         </div>
       </div>
 
-      <template v-if="!isParented || activeParent">
+      <template v-if="canMutate">
         <div class="cfg__bulk">
           <label class="cfg__bulk-label">Bulk add{{ parentSuffix() }} — one value per line (or comma separated)</label>
           <Textarea v-model="newValues" rows="3" fluid placeholder="PDC&#10;Tricone&#10;Diamond Impregnated" />
