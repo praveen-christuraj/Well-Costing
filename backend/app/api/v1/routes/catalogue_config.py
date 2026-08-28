@@ -38,6 +38,7 @@ CONFIG_TYPES: dict[str, str] = {
     "tangible_category": "Tangible Categories",
     "tangible_subcategory": "Tangible Subcategories",
     "tangible_manufacturer": "Tangible Manufacturers",
+    "block": "Blocks",
 }
 
 # Dependent dropdowns: config type -> (parent config type, singular parent

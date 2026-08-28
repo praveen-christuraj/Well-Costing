@@ -12,6 +12,7 @@ from app.api.v1.routes import (
     catalogue_tangibles,
     health,
     master_data,
+    rig_well,
     vendor_po,
 )
 
@@ -28,4 +29,5 @@ api_router.include_router(catalogue_tangibles.router)
 # so that static paths like /vendors/export take precedence over /{module}/export
 api_router.include_router(vendor_po.router)
 api_router.include_router(master_data.router)
+api_router.include_router(rig_well.router)
 api_router.include_router(audit_logs.router)
