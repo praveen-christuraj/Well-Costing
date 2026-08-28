@@ -19,6 +19,7 @@ import PageHeader from '~/components/design-system/PageHeader.vue'
 import ExcelGrid from '~/components/master-data/ExcelGrid.vue'
 import ImportDialog from '~/components/master-data/ImportDialog.vue'
 import ConfigManagerDialog from '~/components/catalogue/ConfigManagerDialog.vue'
+import WellConfigDialog from '~/components/rig-well/WellConfigDialog.vue'
 import type { EditableGridRow, GridColumn, GridSelectOption } from '~/types/grid'
 import { matchesAdvancedSearch } from '~/utils/search'
 
