@@ -427,11 +427,6 @@ const pickerRows = computed(() => {
         extra: '',
       }))
   }
-  if (picker.value === 'consumable') {
-    return props.consumables
-      .filter(item => matches(`${item.code} ${item.name} ${item.detail}`))
-      .map(item => ({ id: item.id, code: item.code, name: item.name, detail: item.detail, extra: `Rate ${money(item.rate)}` }))
-  }
   return props.tangibles
     .filter(item => matches(`${item.code} ${item.name} ${item.detail}`))
     .map(item => ({ id: item.id, code: item.code, name: item.name, detail: item.detail, extra: `Rate ${money(item.rate)}` }))
@@ -446,11 +441,10 @@ const pickerVisible = computed({
 
 const pickerTitle = computed(() => {
   if (picker.value === 'service') return 'Add services'
-  if (picker.value === 'consumable') return 'Add consumables'
   return 'Add tangibles'
 })
 
-function openPicker(kind: 'service' | 'consumable' | 'tangible'): void {
+function openPicker(kind: 'service' | 'tangible'): void {
   picker.value = kind
   pickerSearch.value = ''
   pickerSelection.value = []
@@ -482,27 +476,6 @@ function addPicked(): void {
       })
     }
   }
-  else if (picker.value === 'consumable') {
-    for (const id of pickerSelection.value) {
-      const item = props.consumables.find(candidate => candidate.id === id)
-      if (!item) continue
-      consumableRows.value.push({
-        _key: nextKey(),
-        item_kind: item.kind,
-        item_id: item.id,
-        item_code: item.code,
-        item_name: item.name,
-        quantity: '1',
-        captured_rate: String(item.rate),
-        override_rate: '',
-        uom: item.uom ?? '',
-        currency: item.currency ?? '',
-        section_id: null,
-        phase_id: null,
-        remarks: '',
-      })
-    }
-  }
   else {
     for (const id of pickerSelection.value) {
       const item = props.tangibles.find(candidate => candidate.id === id)
@@ -524,6 +497,61 @@ function addPicked(): void {
   }
   picker.value = null
   pickerSelection.value = []
+  schedulePreview()
+}
+
+function addConsumable(): void {
+  consumableRows.value.push({
+    _key: nextKey(),
+    item_kind: 'mud_chemical',
+    item_id: null,
+    item_code: 'LUMPSUM',
+    item_name: 'Mud Chemicals',
+    quantity: '1',
+    captured_rate: '0',
+    override_rate: '',
+    uom: '',
+    currency: '',
+    section_id: null,
+    phase_id: null,
+    remarks: '',
+  })
+  schedulePreview()
+}
+
+function onConsumableKindChange(row: LocalConsumable): void {
+  if (row.item_kind === 'drill_bit') {
+    row.item_id = null
+    row.item_code = ''
+    row.item_name = ''
+    row.quantity = '1'
+    row.captured_rate = '0'
+    row.override_rate = ''
+  } else {
+    row.item_id = null
+    const kindMap: Record<string, string> = {
+      'mud_chemical': 'Mud Chemicals',
+      'cement_additive': 'Cement Additives',
+      'fuel': 'Fuel'
+    }
+    row.item_name = kindMap[row.item_kind] || 'Mud Chemicals'
+    row.item_code = 'LUMPSUM'
+    row.quantity = '1'
+    row.captured_rate = '0'
+  }
+  schedulePreview()
+}
+
+function onDrillBitSelect(row: LocalConsumable, itemId: number): void {
+  const item = props.consumables.find(candidate => candidate.id === itemId && candidate.kind === 'drill_bit')
+  if (item) {
+    row.item_id = item.id
+    row.item_code = item.code
+    row.item_name = item.name
+    row.captured_rate = String(item.rate)
+    row.uom = item.uom ?? ''
+    row.currency = item.currency ?? ''
+  }
   schedulePreview()
 }
 
@@ -963,18 +991,42 @@ const oneTimeCategories = [...ONE_TIME_CATEGORIES]
       <!-- Consumables -->
       <section v-else-if="activeSub === SUB_CONSUMABLES" class="afe-est__panel">
         <div class="afe-est__actions">
-          <Button label="Add consumable" icon="pi pi-plus" size="small" severity="secondary" outlined :disabled="!isDraft" @click="openPicker('consumable')" />
+          <Button label="Add consumable" icon="pi pi-plus" size="small" severity="secondary" outlined :disabled="!isDraft" @click="addConsumable" />
           <span class="afe-est__hint">
-            Section-wise and phase-wise consumption. Pick the section and/or phase this estimate belongs to; the rate is captured
-            from Master Data and can be overridden per AFE.
+            Select the consumable category and section. For drill bits, pick from the master data. For others, enter an estimated cost.
           </span>
         </div>
 
         <DataTable :value="consumableRows" data-key="_key" size="small" scrollable scroll-height="48vh" class="afe-est__table">
-          <Column field="item_name" header="Consumable" header-style="width: 200px">
+          <Column header="Category" header-style="width: 160px">
             <template #body="{ data }">
-              <div class="afe-est__cell-strong">{{ data.item_name }}</div>
-              <div class="afe-est__cell-sub">{{ data.item_code }} · {{ data.item_kind === 'drill_bit' ? 'Drill Bit' : 'Mud Chemical' }}</div>
+              <Select
+                v-model="data.item_kind"
+                :options="[{ label: 'Mud Chemicals', value: 'mud_chemical' }, { label: 'Cement Additives', value: 'cement_additive' }, { label: 'Fuel', value: 'fuel' }, { label: 'Drill Bits', value: 'drill_bit' }]"
+                option-label="label"
+                option-value="value"
+                size="small"
+                fluid
+                :disabled="!isDraft"
+                @change="onConsumableKindChange(data)"
+              />
+            </template>
+          </Column>
+          <Column header="Selection" header-style="width: 220px">
+            <template #body="{ data }">
+              <Select
+                v-if="data.item_kind === 'drill_bit'"
+                v-model="data.item_id"
+                :options="props.consumables.filter(c => c.kind === 'drill_bit')"
+                option-label="name"
+                option-value="id"
+                size="small"
+                fluid
+                placeholder="Select a Drill Bit"
+                :disabled="!isDraft"
+                @change="onDrillBitSelect(data, $event.value)"
+              />
+              <div v-else class="afe-est__cell-sub">Lump sum estimate</div>
             </template>
           </Column>
           <Column header="Section" header-style="width: 150px">
@@ -993,38 +1045,23 @@ const oneTimeCategories = [...ONE_TIME_CATEGORIES]
               />
             </template>
           </Column>
-          <Column header="Phase" header-style="width: 140px">
-            <template #body="{ data }">
-              <Select
-                v-model="data.phase_id"
-                :options="phaseOptionsFor(data.section_id)"
-                option-label="label"
-                option-value="value"
-                size="small"
-                fluid
-                show-clear
-                placeholder="Any"
-                :disabled="!isDraft"
-                @change="schedulePreview"
-              />
-            </template>
-          </Column>
           <Column header="Qty" header-style="width: 90px">
             <template #body="{ data }">
-              <InputText v-model="data.quantity" size="small" inputmode="decimal" :disabled="!isDraft" />
+              <InputText v-if="data.item_kind === 'drill_bit'" v-model="data.quantity" size="small" inputmode="decimal" :disabled="!isDraft" />
+              <span v-else class="afe-est__num">—</span>
             </template>
           </Column>
-          <Column header="Captured Rate" header-style="width: 110px">
+          <Column header="Estimated Cost / Rate" header-style="width: 140px">
             <template #body="{ data }">
-              <span class="afe-est__num">{{ money(data.captured_rate) }}</span>
+              <InputText v-model="data.override_rate" size="small" inputmode="decimal" :placeholder="data.item_kind === 'drill_bit' ? money(data.captured_rate) : '0.00'" :disabled="!isDraft" />
             </template>
           </Column>
-          <Column header="Override Rate" header-style="width: 110px">
+          <Column header="Remarks" header-style="width: 150px">
             <template #body="{ data }">
-              <InputText v-model="data.override_rate" size="small" inputmode="decimal" placeholder="—" :disabled="!isDraft" />
+              <InputText v-model="data.remarks" size="small" placeholder="Remarks" :disabled="!isDraft" />
             </template>
           </Column>
-          <Column header="Estimate" header-style="width: 110px">
+          <Column header="Total" header-style="width: 110px">
             <template #body="{ index }">
               <span class="afe-est__amount">{{ lineAmount('consumables', index) }}</span>
             </template>
@@ -1035,7 +1072,7 @@ const oneTimeCategories = [...ONE_TIME_CATEGORIES]
             </template>
           </Column>
           <template #empty>
-            <div class="afe-est__empty">No consumables yet — use <strong>Add consumable</strong> to pick from Mud Chemicals and Drill Bits.</div>
+            <div class="afe-est__empty">No consumables yet — use <strong>Add consumable</strong> to estimate categories.</div>
           </template>
         </DataTable>
       </section>
