@@ -55,24 +55,31 @@ def _seed_master_data(client: TestClient, headers: dict[str, str]) -> dict[str, 
         headers=headers,
     )
     assert service.status_code == 200, service.text
+    for config, value in (
+        ("bit_type", "PDC"),
+        ("bit_manufacturer", "NOV"),
+        ("tangible_category", "Casing"),
+        ("tangible_manufacturer", "Tenaris"),
+    ):
+        client.post(f"/api/v1/catalogue/configs/{config}", headers=headers, json={"value": value})
+
     chemical = client.post(
-        "/api/v1/catalogue/mud-chemicals",
+        "/api/v1/catalogue/drill-bits",
         json={
-            "chemical_name": "Bentonite",
-            "uom": "Sack",
-            "unit_rate": "120.00",
+            "bit_name": "Bit 12-1/4",
+            "bit_type": "PDC",
+            "iadc_code": "M123",
+            "model_no": "Model123",
+            "size": "12-1/4",
+            "manufacturer": "NOV",
+            "supplier_id": None,
+            "unit_rate_po": "120.00",
             "currency": "USD",
             "effective_date": "2026-01-15",
         },
         headers=headers,
     )
     assert chemical.status_code == 200, chemical.text
-
-    for config, value in (
-        ("tangible_category", "Casing"),
-        ("tangible_manufacturer", "Tenaris"),
-    ):
-        client.post(f"/api/v1/catalogue/configs/{config}", headers=headers, json={"value": value})
     sub = client.post(
         "/api/v1/catalogue/configs/tangible_subcategory",
         headers=headers,
@@ -194,7 +201,7 @@ def _estimate_payload(ids: dict[str, int]) -> dict:
         ],
         "consumables": [
             {
-                "item_kind": "mud_chemical",
+                "item_kind": "drill_bit",
                 "item_id": ids["chemical"],
                 "quantity": "10",
                 "section_id": ids["section1"],
@@ -329,11 +336,11 @@ def test_cost_estimation_compiles_services_consumables_and_tangibles(client: Tes
     service_line = estimate["services"][0]
     assert Decimal(service_line["estimate"]["amount"]) == Decimal("22600.00")
     categories = [component["category"] for component in service_line["estimate"]["components"]]
-    assert categories == ["Standby", "Operation", "Mobilization", "Demobilization", "Fixed Charge"]
+    assert categories == ["Standby", "Standby", "Operation", "Operation", "Mobilization", "Demobilization", "Fixed Charge"]
 
     # Consumables: 10 x 120 captured from the master data.
     consumable = estimate["consumables"][0]
-    assert consumable["item_code"].startswith("MC-")
+    assert consumable["item_code"].startswith("DB-")
     assert Decimal(consumable["captured_rate"]) == Decimal("120.00")
     assert Decimal(consumable["estimate"]["amount"]) == Decimal("1200.00")
 
@@ -350,10 +357,13 @@ def test_cost_estimation_compiles_services_consumables_and_tangibles(client: Tes
         "Tangibles": Decimal("1000.00"),
     }
     rollup = {row["section_label"]: Decimal(row["amount"]) for row in estimate["by_section"]}
-    # The consumable is scoped to SEC1; services and the tangible are well-wide.
-    assert rollup["SEC1 — Surface Section"] == Decimal("1200.00")
-    assert rollup["SEC2 — Intermediate"] == Decimal("0.00")
-    assert rollup["Well-wide (no section)"] == Decimal("23600.00")
+    # Services are split by planned days: SEC1 gets 8/12, SEC2 gets 4/12. Mob/Demob/Fixed stay well-wide.
+    # SEC1: 1200 (Consumable) + 8000 (Operation) + 66.67 (Standby) = 9266.67
+    assert rollup["SEC1 — Surface Section"] == Decimal("9266.67")
+    # SEC2: 4000 (Operation) + 33.33 (Standby) = 4033.33
+    assert rollup["SEC2 — Intermediate"] == Decimal("4033.33")
+    # Well-wide: Tangible (1000) + Mob (5000) + Demob (4000) + Fixed (1500) = 11500
+    assert rollup["Well-wide (no section)"] == Decimal("11500.00")
 
     # The AFE list carries the compiled total and the line counts.
     listed = client.get("/api/v1/afe/estimates", headers=headers).json()

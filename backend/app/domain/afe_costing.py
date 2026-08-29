@@ -579,6 +579,10 @@ def estimate_service_line(line: ServiceLine, well: WellScope) -> LineEstimate:
 
     if basis == BASIS_DAILY:
         operation_days_entered = Decimal("0")
+        
+        # We will collect daily charges and then optionally split them if well-wide
+        daily_charges = []
+        
         for charge in line.charge_lines:
             category = normalize_category(charge.category)
             days = days_from_quantity(charge.quantity, charge.unit)
@@ -587,33 +591,76 @@ def estimate_service_line(line: ServiceLine, well: WellScope) -> LineEstimate:
                 operation_days_entered += days
             if rate == 0 and days != 0:
                 warnings.append(f"{category}: no unit rate configured")
-            add(
-                category,
-                f"{category} — {days} day(s) @ {money(rate)}",
-                days * rate,
-                quantity=days,
-                rate=rate,
-                unit=UNIT_DAYS,
-            )
+            daily_charges.append({
+                "category": category,
+                "days": days,
+                "rate": rate,
+                "is_explicit": True
+            })
+
         # The well configuration drives the Operation days unless the user has
         # typed an explicit Operation quantity for this line.
         if operation_days_entered == 0:
             operation_rate = line.rate_for("Operation")
-            planned = well.planned_days(line.section_id, line.phase_id)
             if operation_rate != 0:
+                planned = well.planned_days(line.section_id, line.phase_id)
                 if planned == 0:
                     warnings.append(
                         "Operation rate set but the well configuration has no planned days"
                     )
                 else:
+                    daily_charges.append({
+                        "category": "Operation",
+                        "days": planned,
+                        "rate": operation_rate,
+                        "is_explicit": False
+                    })
+                    
+        # Now output the charges, splitting by section if line.section_id is None
+        for charge in daily_charges:
+            cat = charge["category"]
+            days = charge["days"]
+            rate = charge["rate"]
+            
+            if days == 0:
+                continue
+
+            if line.section_id is None and well.total_days > 0:
+                # Split well-wide daily charges across sections based on planned days
+                for section in well.sections:
+                    sec_days = section.total_days
+                    if sec_days == 0:
+                        continue
+                        
+                    if charge["is_explicit"]:
+                        # Proportion of explicit days
+                        split_days = days * (sec_days / well.total_days)
+                    else:
+                        # Implicit operation days directly from section
+                        split_days = sec_days
+                        
                     add(
-                        "Operation",
-                        f"Operation — {planned} planned day(s) @ {money(operation_rate)}",
-                        planned * operation_rate,
-                        quantity=planned,
-                        rate=operation_rate,
+                        cat,
+                        f"{cat} — {split_days.normalize()} day(s) @ {money(rate)}",
+                        split_days * rate,
+                        quantity=split_days,
+                        rate=rate,
                         unit=UNIT_DAYS,
+                        section_id=section.section_id,
+                        section_label=section.label,
+                        phase_id=None,
+                        phase_label=None,
                     )
+            else:
+                add(
+                    cat,
+                    f"{cat} — {days.normalize()} day(s) @ {money(rate)}",
+                    days * rate,
+                    quantity=days,
+                    rate=rate,
+                    unit=UNIT_DAYS,
+                )
+
     elif basis == BASIS_PER_SECTION:
         if not line.section_rates:
             warnings.append("per section rate selected but no section rate entered")

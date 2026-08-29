@@ -119,10 +119,13 @@ def test_daily_rate_uses_planned_days_plus_one_time_charges() -> None:
     # 12 planned days x 1000 + 5000 + 4000 + 1500
     assert estimate.amount == Decimal("22500.00")
     categories = [component.category for component in estimate.components]
-    assert categories == ["Operation", "Mobilization", "Demobilization", "Fixed Charge"]
+    assert categories == ["Operation", "Operation", "Mobilization", "Demobilization", "Fixed Charge"]
     operation = estimate.components[0]
-    assert operation.quantity == Decimal("12.0")
+    assert operation.quantity == Decimal("8")
     assert operation.rate == Decimal("1000.00")
+    operation2 = estimate.components[1]
+    assert operation2.quantity == Decimal("4")
+    assert operation2.rate == Decimal("1000.00")
 
 
 def test_daily_rate_planned_days_follow_the_line_scope() -> None:
@@ -157,8 +160,11 @@ def test_entered_day_quantity_overrides_the_planned_days_for_operation() -> None
     estimate = engine.estimate_service_line(line, well)
     # 0.25 day operation (6h) + 0.5 day standby (12h); planned days are not added.
     assert estimate.amount == Decimal("350.00")
-    assert len(estimate.components) == 2
-    assert estimate.components[0].quantity == Decimal("0.2500")
+    assert len(estimate.components) == 4
+    # SEC1 takes 8/12 of 6h = 4h = 1/6 day = ~0.1667
+    assert estimate.components[0].quantity.quantize(Decimal("0.01")) == Decimal("0.17")
+    # SEC2 takes 4/12 of 6h = 2h = 1/12 day = ~0.0833
+    assert estimate.components[1].quantity.quantize(Decimal("0.01")) == Decimal("0.08")
 
 
 def test_missing_unit_rate_is_reported_as_a_warning() -> None:

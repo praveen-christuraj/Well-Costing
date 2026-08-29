@@ -348,10 +348,12 @@ def resolve_service(db: Session, service_id: int) -> Service:
     return service
 
 
-def resolve_consumable(db: Session, kind: str, item_id: int) -> dict[str, Any]:
-    """Look a consumable up in its master list and snapshot code/name/rate."""
+def resolve_consumable(db: Session, kind: str, item_id: int | None) -> dict[str, Any]:
+    """Look a consumable up in its master list or return category defaults."""
 
     if kind == "drill_bit":
+        if item_id is None:
+            raise AfeValidationError("Drill bit requires an item selection")
         item = db.get(DrillBit, item_id)
         if not item or item.is_deleted:
             raise AfeValidationError(f"Drill bit #{item_id} no longer exists in the master data")
@@ -362,16 +364,23 @@ def resolve_consumable(db: Session, kind: str, item_id: int) -> dict[str, Any]:
             "uom": None,
             "currency": item.currency,
         }
-    item = db.get(MudChemical, item_id)
-    if not item or item.is_deleted:
-        raise AfeValidationError(f"Mud chemical #{item_id} no longer exists in the master data")
-    return {
-        "item_code": item.chemical_code,
-        "item_name": item.chemical_name,
-        "captured_rate": Decimal(item.current_rate or 0),
-        "uom": item.uom,
-        "currency": item.currency,
+    
+    # For lump-sum categories, we just map the kind to a display name.
+    lump_sums = {
+        "mud_chemical": "Mud Chemicals",
+        "cement_additive": "Cement Additives",
+        "fuel": "Fuel"
     }
+    if kind in lump_sums:
+        return {
+            "item_code": "LUMPSUM",
+            "item_name": lump_sums[kind],
+            "captured_rate": Decimal("0"),
+            "uom": None,
+            "currency": None,
+        }
+
+    raise AfeValidationError(f"Unknown consumable kind {kind}")
 
 
 def resolve_tangible(db: Session, tangible_id: int) -> Tangible:
@@ -520,7 +529,7 @@ def normalize_consumables(
         normalized.append(
             {
                 "item_kind": entry.item_kind,
-                "item_id": entry.item_id,
+                "item_id": entry.item_id if entry.item_id is not None else 0,
                 "item_code": str(master["item_code"]),
                 "item_name": str(master["item_name"]),
                 "quantity": entry.quantity,
