@@ -16,7 +16,7 @@ from app.db.session import get_db
 from app.main import create_app
 from app.models import Role, User
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -32,6 +32,16 @@ def db_session() -> Generator[Session, None, None]:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+    # SQLite ignores foreign keys unless asked, PostgreSQL (the deployment
+    # target) always enforces them. Turn the pragma on so a DELETE that
+    # orphans a child row fails here instead of only in production.
+    @event.listens_for(test_engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, _record) -> None:  # type: ignore[no-untyped-def]
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     Base.metadata.create_all(test_engine)
     with Session(test_engine, expire_on_commit=False) as session:
         yield session

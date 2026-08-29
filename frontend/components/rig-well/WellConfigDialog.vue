@@ -554,6 +554,7 @@ const configSeverity = computed(() => (configStatus.value === 'configured' ? 'su
             size="small"
             severity="secondary"
             outlined
+            class="config__add-section"
             @click="addSection"
           />
         </div>
@@ -713,12 +714,21 @@ const configSeverity = computed(() => (configStatus.value === 'configured' ? 'su
 }
 
 .config__section {
+  /* The list scrolls instead of squeezing its children: keep every card (and
+     the Add section button below) at its natural height however many sections
+     have been added. */
+  flex: 0 0 auto;
   border: 1px solid var(--app-border);
   border-radius: 10px;
   padding: 0.75rem;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+}
+
+.config__add-section {
+  flex: 0 0 auto;
+  align-self: stretch;
 }
 
 .config__section-head {

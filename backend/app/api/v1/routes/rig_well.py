@@ -946,8 +946,16 @@ def save_well_configuration(
             if ph.days < 0:
                 raise HTTPException(status_code=400, detail=f"Section '{section.section_code}': phase days cannot be negative")
 
-    # Replace configuration wholesale.
-    db.query(WellSection).filter(WellSection.well_id == well.id).delete()
+    # Replace configuration wholesale. The old sections are deleted through the
+    # ORM (never a bulk ``Query.delete()``) so the ``WellSection.phases``
+    # cascade runs: a bulk DELETE skips cascades, which makes PostgreSQL reject
+    # the section DELETE with a foreign-key violation on
+    # ``fk_well_phases_section_id_well_sections`` — surfaced to the user as a
+    # 409 "conflicts with existing records" — and leaves the phases behind as
+    # orphans that are then double-counted in the totals.
+    for existing_section in list(well.sections):
+        db.delete(existing_section)
+    db.flush()
     well.depth_unit = payload.depth_unit
     for i, sec in enumerate(payload.sections):
         section_row = WellSection(
@@ -976,6 +984,9 @@ def save_well_configuration(
     well.updated_by = current_user.id
     db.commit()
     db.refresh(well)
+    # Reload the section collection so the response is built from the rows just
+    # written rather than from state this session may still be holding.
+    db.expire(well, ["sections"])
     log_audit(
         db, user=current_user, action="UPDATE", module=MODULE_CONFIG,
         entity_id=well.id, entity_code=well.well_code,
