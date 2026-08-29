@@ -207,6 +207,95 @@ def test_well_configuration_workflow(client: TestClient) -> None:
     assert "Well Configuration" in modules
 
 
+def test_well_configuration_can_be_re_saved(client: TestClient) -> None:
+    """Saving over an existing configuration replaces it — no conflict, no duplicates.
+
+    Regression: the old sections were removed with a bulk ``Query.delete()``,
+    which skips the WellSection → WellPhase cascade. PostgreSQL rejects the
+    orphaning DELETE with a foreign-key violation, so re-saving a saved draft
+    (which is exactly what "Save & Mark Configured" does) came back as
+    409 "conflicts with existing records"; on SQLite the phases survived and
+    were counted twice.
+    """
+    headers = _auth_headers(client)
+    section_id, phase1_id, phase2_id = _seed_section_and_phases(client, headers)
+    rig_id = _create_rig(client, headers)
+
+    well = client.post(
+        "/api/v1/rig-well/wells",
+        json={
+            "rig_id": rig_id,
+            "well_code": "WELL002",
+            "well_name": "Exploratory 2",
+            "well_location": "Block 12",
+            "block": "Block A",
+            "objective": "Appraisal",
+        },
+        headers=headers,
+    )
+    assert well.status_code == 200, well.text
+    well_id = well.json()["id"]
+
+    def _config(to_depth: int = 1500) -> dict:
+        return {
+            "depth_unit": "m",
+            "sections": [
+                {
+                    "section_id": section_id,
+                    "from_depth": 0,
+                    "to_depth": to_depth,
+                    "remarks": "surface",
+                    "phases": [
+                        {"phase_id": phase1_id, "days": 5.5, "remarks": "spud"},
+                        {"phase_id": phase2_id, "days": 2.5, "remarks": None},
+                    ],
+                }
+            ],
+        }
+
+    first = client.put(f"/api/v1/rig-well/wells/{well_id}/configuration", json=_config(), headers=headers)
+    assert first.status_code == 200, first.text
+
+    # "Save Draft" then "Save & Mark Configured" re-PUTs the same payload.
+    second = client.put(f"/api/v1/rig-well/wells/{well_id}/configuration", json=_config(), headers=headers)
+    assert second.status_code == 200, second.text
+    body = second.json()
+    assert len(body["sections"]) == 1
+    assert len(body["sections"][0]["phases"]) == 2
+    assert Decimal(body["total_days"]) == Decimal("8")
+    assert Decimal(body["total_depth"]) == Decimal("1500")
+
+    # A third save that changes the depths replaces the rows again.
+    third = client.put(f"/api/v1/rig-well/wells/{well_id}/configuration", json=_config(2000), headers=headers)
+    assert third.status_code == 200, third.text
+    assert len(third.json()["sections"][0]["phases"]) == 2
+    assert Decimal(third.json()["total_depth"]) == Decimal("2000")
+
+    # The full "Save & Mark Configured" round trip still works afterwards.
+    marked = client.post(
+        f"/api/v1/rig-well/wells/{well_id}/mark",
+        json={"action": "configure", "remarks": "approved"},
+        headers=headers,
+    )
+    assert marked.status_code == 200, marked.text
+    assert marked.json()["config_status"] == "configured"
+
+    client.post(
+        f"/api/v1/rig-well/wells/{well_id}/mark", json={"action": "draft", "remarks": "revise"}, headers=headers
+    )
+    fourth = client.put(f"/api/v1/rig-well/wells/{well_id}/configuration", json=_config(2500), headers=headers)
+    assert fourth.status_code == 200, fourth.text
+    assert Decimal(fourth.json()["total_depth"]) == Decimal("2500")
+    assert Decimal(fourth.json()["total_days"]) == Decimal("8")
+
+    # The list view reports the same totals as the configuration itself.
+    listing = client.get("/api/v1/rig-well/wells", headers=headers).json()
+    row = next(item for item in listing if item["id"] == well_id)
+    assert Decimal(row["total_depth"]) == Decimal("2500")
+    assert Decimal(row["total_days"]) == Decimal("8")
+    assert row["section_count"] == 1
+
+
 def test_well_duplicate_code_rejected(client: TestClient) -> None:
     headers = _auth_headers(client)
     rig_id = _create_rig(client, headers)

@@ -11,7 +11,7 @@
  * Every entry tab carries the common template: Import (XLSX/CSV), XLSX/CSV
  * export, Print, edit and soft delete. All actions are audit-logged server-side.
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import Tag from 'primevue/tag'
@@ -286,14 +286,98 @@ function exportWells(format: 'xlsx' | 'csv'): void {
   })
 }
 
+function depthValue(value: string | number | null, unit: string): string {
+  if (value == null || value === '') return '—'
+  return `${Number(value)} ${unit === 'ft' ? 'ft' : 'm'}`
+}
+
+function daysValue(value: string | number | null): string {
+  return value == null || value === '' ? '—' : Number(value).toFixed(2)
+}
+
 function depthLabel(well: WellRow): string {
-  const unit = well.depth_unit === 'ft' ? 'ft' : 'm'
-  return well.total_depth != null ? `${Number(well.total_depth)} ${unit}` : '—'
+  return depthValue(well.total_depth, well.depth_unit)
 }
 
 function daysLabel(well: WellRow): string {
-  return well.total_days != null ? Number(well.total_days).toFixed(2) : '—'
+  return daysValue(well.total_days)
 }
+
+// --- Row-wise print ---------------------------------------------------------
+// The toolbar Print button prints the well list; the per-row Print button
+// prints that one well's saved configuration (draft or configured). The
+// configuration is fetched, swapped into the print-only sheet and the browser
+// print dialog is opened; the sheet is cleared again when printing finishes so
+// the next Print click goes back to the list.
+
+interface PrintPhase {
+  id: number
+  phase_id: number
+  phase_code: string | null
+  phase_name: string | null
+  days: string | number
+  remarks: string | null
+}
+
+interface PrintSection {
+  id: number
+  section_id: number
+  section_code: string | null
+  section_name: string | null
+  from_depth: string | number
+  to_depth: string | number
+  remarks: string | null
+  total_days: string | number
+  phases: PrintPhase[]
+}
+
+interface WellConfigurationSheet {
+  well_id: number
+  well_code: string
+  well_name: string
+  rig_code: string | null
+  rig_name: string | null
+  status: string
+  config_status: string
+  depth_unit: string
+  total_depth: string | number | null
+  total_days: string | number | null
+  sections: PrintSection[]
+}
+
+const printSheet = ref<WellConfigurationSheet | null>(null)
+// Id of the well whose configuration is being fetched, so only that row's
+// button spins.
+const printingWellId = ref<number | null>(null)
+
+async function printWellConfiguration(well: WellRow): Promise<void> {
+  printingWellId.value = well.id
+  try {
+    printSheet.value = await api.get<WellConfigurationSheet>(`/rig-well/wells/${well.id}/configuration`)
+  }
+  catch (caught: unknown) {
+    printSheet.value = null
+    window.alert(caught instanceof Error ? caught.message : 'Configuration could not be loaded for printing')
+    return
+  }
+  finally {
+    printingWellId.value = null
+  }
+  await nextTick()
+  window.print()
+}
+
+function clearPrintSheet(): void {
+  printSheet.value = null
+}
+
+onMounted(() => {
+  window.addEventListener('afterprint', clearPrintSheet)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('afterprint', clearPrintSheet)
+})
 
 // ---------------------------------------------------------------------------
 // Deleted Entries tab
@@ -537,13 +621,24 @@ watch(activeTab, (tab) => {
               <td class="mono">{{ daysLabel(well) }}</td>
               <td class="text-right config-actions">
                 <Button label="Configure" icon="pi pi-sliders-h" size="small" severity="secondary" outlined @click="openConfigure(well)" />
+                <Button
+                  label="Print"
+                  icon="pi pi-print"
+                  size="small"
+                  severity="secondary"
+                  text
+                  :loading="printingWellId === well.id"
+                  :disabled="!well.section_count"
+                  :title="well.section_count ? `Print the ${well.well_code} configuration` : 'No configuration saved for this well yet'"
+                  @click="printWellConfiguration(well)"
+                />
               </td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <div class="print-sheet" aria-hidden="true">
+      <div v-if="!printSheet" class="print-sheet" aria-hidden="true">
         <header class="print-sheet__header">
           <p class="print-sheet__eyebrow">Drilling Costing</p>
           <h1>Well Configuration</h1>
@@ -576,6 +671,70 @@ watch(activeTab, (tab) => {
               <td>{{ daysLabel(well) }}</td>
             </tr>
           </tbody>
+        </table>
+      </div>
+
+      <!-- Row-wise print: one well's sections → phases → days -->
+      <div v-if="printSheet" class="print-sheet" aria-hidden="true">
+        <header class="print-sheet__header">
+          <p class="print-sheet__eyebrow">Drilling Costing</p>
+          <h1>Well Configuration — {{ printSheet.well_code }}</h1>
+          <p class="print-sheet__meta">
+            {{ printSheet.rig_code || '—' }}{{ printSheet.rig_name ? ` — ${printSheet.rig_name}` : '' }}
+            · {{ printSheet.well_name }}
+            · {{ printSheet.status === 'completed' ? 'Completed' : 'Active' }}
+            · {{ printSheet.config_status === 'configured' ? 'Configured' : 'Draft' }}
+            · Total depth {{ depthValue(printSheet.total_depth, printSheet.depth_unit) }}
+            · Total days {{ daysValue(printSheet.total_days) }}
+            · Printed {{ new Date().toLocaleString() }}
+          </p>
+        </header>
+        <table class="print-sheet__table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Hole Section</th>
+              <th>From ({{ printSheet.depth_unit === 'ft' ? 'ft' : 'm' }})</th>
+              <th>To ({{ printSheet.depth_unit === 'ft' ? 'ft' : 'm' }})</th>
+              <th>Phase</th>
+              <th>Days</th>
+              <th>Remarks</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="!printSheet.sections.length">
+              <td colspan="7" class="print-sheet__empty">No sections configured for this well.</td>
+            </tr>
+            <template v-for="(section, sIndex) in printSheet.sections" :key="`section-${section.id}`">
+              <tr v-if="!section.phases.length">
+                <td>{{ sIndex + 1 }}</td>
+                <td>{{ section.section_code || '—' }}{{ section.section_name ? ` — ${section.section_name}` : '' }}</td>
+                <td>{{ depthValue(section.from_depth, printSheet.depth_unit) }}</td>
+                <td>{{ depthValue(section.to_depth, printSheet.depth_unit) }}</td>
+                <td>—</td>
+                <td>{{ daysValue(section.total_days) }}</td>
+                <td>{{ section.remarks || '' }}</td>
+              </tr>
+              <tr v-for="(phase, pIndex) in section.phases" :key="`phase-${section.id}-${phase.id}`">
+                <td>{{ pIndex === 0 ? sIndex + 1 : '' }}</td>
+                <td>{{ pIndex === 0 ? `${section.section_code || '—'}${section.section_name ? ` — ${section.section_name}` : ''}` : '' }}</td>
+                <td>{{ pIndex === 0 ? depthValue(section.from_depth, printSheet.depth_unit) : '' }}</td>
+                <td>{{ pIndex === 0 ? depthValue(section.to_depth, printSheet.depth_unit) : '' }}</td>
+                <td>{{ phase.phase_code || '—' }}{{ phase.phase_name ? ` — ${phase.phase_name}` : '' }}</td>
+                <td>{{ daysValue(phase.days) }}</td>
+                <td>{{ pIndex === 0 ? [section.remarks, phase.remarks].filter(Boolean).join(' · ') : (phase.remarks || '') }}</td>
+              </tr>
+            </template>
+          </tbody>
+          <tfoot v-if="printSheet.sections.length">
+            <tr>
+              <th colspan="3">Total — {{ printSheet.sections.length }} section(s)</th>
+              <th>{{ depthValue(printSheet.total_depth, printSheet.depth_unit) }}</th>
+              <th>Total days</th>
+              <th>{{ daysValue(printSheet.total_days) }}</th>
+              <th />
+            </tr>
+          </tfoot>
         </table>
       </div>
     </section>
@@ -657,34 +816,13 @@ watch(activeTab, (tab) => {
   margin: 0 auto;
 }
 
+/* The tab strip uses the shared underline tabs from assets/css/main.css —
+   the same design as the Master Data page. Only the overflow behaviour is
+   adjusted: these four are navigation tabs, so they sit side by side (and
+   wrap on a narrow screen) instead of scrolling horizontally. */
 .tabs {
-  display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-bottom: 1rem;
-}
-
-.tabs__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  border: 1px solid var(--app-border);
-  background: var(--app-surface);
-  color: var(--app-muted);
-  border-radius: 999px;
-  padding: 0.45rem 0.9rem;
-  font-size: 0.78rem;
-  cursor: pointer;
-}
-
-.tabs__item--active {
-  background: var(--p-primary-color, var(--app-teal));
-  color: #fff;
-  border-color: transparent;
-}
-
-.tabs__item--danger {
-  color: #e11d48;
+  overflow-x: visible;
 }
 
 .grid-card {

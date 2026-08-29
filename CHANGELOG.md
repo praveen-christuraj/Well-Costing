@@ -2,6 +2,46 @@
 
 All notable project changes are documented here.
 
+## 2026-08-29 — Well configuration re-save fixed, row-wise print, tab & popup polish
+
+### Fixed
+
+- **Saving a well configuration a second time no longer fails with "The data
+  could not be saved because it conflicts with existing records".** Saving a
+  configuration replaced the well's sections with a bulk SQL `DELETE`, which
+  skips the ORM cascade to each section's phases. PostgreSQL refuses to delete
+  a section that still has phases (foreign-key violation), so **Save & Mark
+  Configured** — which re-saves the draft before marking it — returned a 409,
+  while the first **Save Draft** on an empty configuration succeeded. Sections
+  are now deleted through the ORM so their phases go first, and the response is
+  rebuilt from the rows just written. On databases that do not enforce
+  foreign keys the same bug silently kept the old phases and double-counted
+  the days. Regression test: `test_well_configuration_can_be_re_saved`.
+- **Backend tests now enforce foreign keys.** The SQLite test engine runs with
+  `PRAGMA foreign_keys=ON`, so an orphaning `DELETE` fails in the suite instead
+  of only on PostgreSQL.
+
+### Added
+
+- **Row-wise Print in the Well Configuration tab.** Every row now has a Print
+  button that prints that single well's configuration — sections with from/to
+  depths, their phases, days and the section/well totals — on the same
+  print-sheet layout as the list. It is enabled for any well that has a saved
+  configuration (draft or configured) and disabled, with an explanatory
+  tooltip, when nothing has been saved yet. The toolbar Print button still
+  prints the whole filtered list.
+
+### Changed
+
+- **Rig & Well Management tabs use the shared Master Data tab design.** The
+  page-local pill styles were removed, so the four navigation tabs render as
+  the same underline tabs as the Master Data page and no longer scroll
+  horizontally (they wrap on a narrow screen instead).
+- **The "Add section" button in the Configure Well popup keeps its size.** The
+  section list scrolls, but its flex children were squeezed as more sections
+  were added; section cards and the Add section button now keep their natural
+  height.
+
 ## 2026-08-28 — Relaxed duplicate validation for Tangibles (names may repeat)
 
 ### Changed
