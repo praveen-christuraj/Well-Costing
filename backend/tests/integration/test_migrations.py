@@ -15,7 +15,7 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
-HEAD_REVISION = "20260827_0007"
+HEAD_REVISION = "20260829_0008"
 EXPECTED_TABLES = {
     "users",
     "roles",
@@ -32,6 +32,13 @@ EXPECTED_TABLES = {
     "wells",
     "well_sections",
     "well_phases",
+    "afes",
+    "afe_service_lines",
+    "afe_service_rates",
+    "afe_service_charge_lines",
+    "afe_service_section_rates",
+    "afe_consumable_lines",
+    "afe_tangible_lines",
 }
 
 

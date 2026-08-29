@@ -2,6 +2,100 @@
 
 All notable project changes are documented here.
 
+## 2026-08-29 — AFE Management: well-scoped AFEs and the AFE Cost Estimation engine
+
+### Added
+
+- **AFE Management page** (`/afe-management`, sidebar group *Costing*) with three
+  tabs: **AFE**, **AFE Cost Estimation** and **Deleted Entries**. It carries the
+  common template used by every entry page: Import (XLSX/CSV) with a
+  fill-and-upload template, XLSX/CSV export, Print, per-row edit and soft
+  delete, duplicate-code prevention and full audit logging.
+- **AFE tab** — create the well-scoped AFE: Rig (dropdown from Rig Management),
+  Well (dropdown filtered to the selected rig), AFE Code (manual, unique),
+  AFE Name, AFE Type (Drilling / Completion) and Remarks. The status is
+  displayed here but can only be changed from the AFE Cost Estimation tab; a new
+  AFE is always a **Draft**. Bulk import resolves rigs and wells by code *or*
+  name, accepts the usual spellings of the AFE type, rejects duplicate
+  `afe_code` rows (inside the file and against existing AFEs) and reports
+  per-row errors.
+- **AFE Cost Estimation tab** — lists every AFE with its status, line counts and
+  compiled total, and opens a configuration dialog with four sections:
+  - **Services** — picked from the Master Data services list (code, name and
+    Inhouse / 3rd Party shown in the picker). Each line chooses its rate
+    charging criteria (**Daily Rate**, **Per Service Rate**, **Per Section
+    Rate**) and carries the eight constant charge categories (Mobilization,
+    Demobilization, Operation, Standby, Personnel-Operation, Personnel-Standby,
+    Fixed Charge, Others) whether or not they are priced. Day-based quantities
+    are entered in decimal days (`0.2`, `0.73`) or in hours (0–24, converted
+    with `/24`) and priced as `days x unit rate` of the selected category.
+  - **Consumables** — picked from Mud Chemicals and Drill Bits, scoped to a
+    section and/or a phase of the well, with the rate captured from Master Data
+    and an optional override.
+  - **Tangibles** — picked from the Tangibles master list with the rate captured
+    automatically, plus an **Override rate** row that wins when filled in.
+  - **Summary** — the three group totals, the section rollup and the compiled
+    AFE cost estimate.
+- **Status workflow** on the cost estimation tab: **Submit** (draft →
+  submitted), **Approve** (submitted → approved) and **Reopen as Draft**, each
+  requiring remarks and each audit-logged. A submitted or approved AFE is
+  read-only until it is reopened.
+- **Complete AFE print sheet** — one AFE per sheet with the well configuration
+  in the metadata (sections, phases, depths, planned days), then the service
+  breakdown by charge category, the consumable and tangible costs, the group
+  totals and the grand total. Available from the list's per-row Print button and
+  from inside the dialog.
+- **AFE cost estimation engine** in the new framework-free
+  `backend/app/domain/afe_costing.py`, with the rules:
+  - Daily Rate services cost `planned days x Operation rate` — the planned days
+    come from the well configuration for the line's section / phase scope — plus
+    **one** Mobilization, Demobilization and Fixed Charge when those rates
+    exist, plus any other day-based category the user entered. An explicitly
+    entered Operation quantity replaces the planned days instead of adding to
+    them.
+  - Per Section Rate services charge the configured amount for that section, or
+    that section and phase only when a phase is chosen.
+  - Per Service Rate services charge their lump sum once, for the section /
+    phase the service was added to.
+  - Consumables and Tangibles cost `quantity x effective rate`, the effective
+    rate being the override when entered and the captured rate otherwise.
+  - Sections and phases are only ever the ones the well configuration contains;
+    a scope that has drifted out of the configuration is ignored and reported as
+    a warning rather than silently priced.
+- **Live preview endpoint** (`POST /afe/estimates/{id}/preview`) so the totals
+  on screen are produced by the same engine that saves them — the money rules
+  are never re-implemented in the browser.
+- **Export of the estimate** — every priced component of every AFE as one flat
+  sheet (XLSX or CSV), or one AFE at a time.
+- **Database**: migration `20260829_0008` adds `afes`, `afe_service_lines`,
+  `afe_service_rates`, `afe_service_charge_lines`, `afe_service_section_rates`,
+  `afe_consumable_lines` and `afe_tangible_lines`; all seven are registered in
+  `CRITICAL_SCHEMA` so drift is reported by `/health`.
+- **Tests**: engine unit tests for every rule above, an AST import-boundary test
+  that keeps `app/domain` free of FastAPI / SQLAlchemy / Pydantic (ADR-009),
+  API integration tests for the header, the estimate workflow, the status
+  transitions, the preview and the exports, plus page and dialog component tests.
+
+### Changed
+
+- **The well-configuration read model is shared.** `well_totals()` and
+  `build_configuration_out()` moved to
+  `backend/app/services/well_configuration.py` so Rig & Well Management and AFE
+  Management build the same section → phase → days view instead of each keeping
+  a copy.
+- **Navigation** gained a *Costing* group with AFE Management, and the Audit Log
+  filter now knows the `AFE` and `AFE Cost Estimation` modules.
+
+### Notes on the calculation
+
+- Mobilization, Demobilization and Fixed Charge are treated as the special case
+  described in the requirement: they are never multiplied by days, sections or
+  services — each is added exactly once per service line when it has a rate.
+- A Per Section Rate line without a section rate, or a Per Service Rate line
+  without a price, is rejected on save instead of being priced as zero.
+- No currency conversion is applied: each line keeps the currency captured from
+  its master-data record and the totals are summed as entered.
+
 ## 2026-08-29 — Well configuration re-save fixed, row-wise print, tab & popup polish
 
 ### Fixed

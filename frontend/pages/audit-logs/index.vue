@@ -26,6 +26,8 @@ const KNOWN_MODULES = [
   'Rigs',
   'Wells',
   'Well Configuration',
+  'AFE',
+  'AFE Cost Estimation',
   'Unit of Measurements',
   'Currency',
   'Phases',

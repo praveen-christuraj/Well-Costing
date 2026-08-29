@@ -63,6 +63,13 @@ CRITICAL_SCHEMA: dict[str, tuple[str, ...]] = {
     "wells": ("rig_id", "well_code", "well_name", "status", "config_status", "is_deleted"),
     "well_sections": ("well_id", "section_id", "from_depth", "to_depth"),
     "well_phases": ("section_id", "phase_id", "days"),
+    "afes": ("afe_code", "afe_name", "afe_type", "rig_id", "well_id", "status", "is_deleted"),
+    "afe_service_lines": ("afe_id", "service_id", "charging_basis"),
+    "afe_service_rates": ("line_id", "category", "unit_rate"),
+    "afe_service_charge_lines": ("line_id", "category", "quantity", "quantity_unit"),
+    "afe_service_section_rates": ("line_id", "section_id", "amount"),
+    "afe_consumable_lines": ("afe_id", "item_kind", "item_id", "quantity", "captured_rate"),
+    "afe_tangible_lines": ("afe_id", "tangible_id", "quantity", "captured_rate"),
 }
 
 REMEDIATION = (

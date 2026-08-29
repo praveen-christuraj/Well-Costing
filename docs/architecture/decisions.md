@@ -139,3 +139,49 @@ correctly keeps the parts worth keeping and removes the coupling.
   testing docs remain.
 - A rebuilt module is expected to reintroduce a framework-free domain package
   with an import-boundary test (see [`../testing/strategy.md`](../testing/strategy.md)).
+
+## ADR-009 — The AFE cost estimate is calculated in one framework-free engine
+
+**Status:** Accepted
+**Date:** 2026-08-29
+
+### Decision
+
+Rebuild the AFE module with its calculation rules in
+`backend/app/domain/afe_costing.py`: pure functions over frozen dataclasses, no
+FastAPI, no SQLAlchemy, no Pydantic. The AFE Cost Estimation tab sends its
+unsaved lines to `POST /afe/estimates/{id}/preview`, which prices them with the
+same code path that `PUT /afe/estimates/{id}` saves, and shows the result. The
+browser never recalculates money.
+
+The AFE is well-scoped and its sections and phases are referenced by
+**master-data** ids (`hole_sections`, `phases`) rather than by `well_sections`
+rows, which a configuration re-save replaces wholesale.
+
+### Rationale
+
+The estimate combines day-based charging (planned days from the well
+configuration, or hours/decimal days entered by the user), one-time
+mobilization / demobilization / fixed charges, per-section amounts, per-service
+lump sums and override rates. Rules that live in two places drift, and a
+Vue-side copy would be untestable without a browser. Keeping them in one pure
+module means every rule has a unit test and the preview, the save and the print
+sheet cannot disagree.
+
+Pointing scope at `well_sections` would have been the obvious modelling choice
+and would silently break every AFE the first time a well configuration was
+re-saved.
+
+### Consequences
+
+- The eight charge categories, the three charging bases and the estimation rules
+  are declared once, in the domain module, and are covered by unit tests.
+- A live preview costs one extra request per debounced edit; it writes nothing
+  and is not audited.
+- Scope that has drifted out of the well configuration is not priced: it is
+  reported as a warning on the estimate, so a stale AFE is visible instead of
+  quietly wrong.
+- Only the AFE itself is soft-deleted; its estimate lines are replaced wholesale
+  on save, like the well configuration they mirror.
+- `CRITICAL_SCHEMA` covers the seven new tables, so a database missing them
+  reports `schema_outdated` instead of failing on the first request.

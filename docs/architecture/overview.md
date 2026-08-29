@@ -2,15 +2,17 @@
 
 ## Context
 
-The application was restructured down to its foundation. Every business module
-— Master Data catalogues, AFE, AFE Cost Estimates, Daily Cost, Well Activities,
-Cost Control, Cost Analytics, Reports, Assurance, Audit Log and Administration —
-was removed together with its pages, API routes, services, models and database
-tables. What remains is the shell those modules will be rebuilt inside:
-authentication, the application layout, and an empty Master Data stub.
+The application was restructured down to its foundation (ADR-008) and the
+business modules are being rebuilt on top of it. Master Data, Rig & Well
+Management, AFE Management and the Audit Log are back; Daily Cost, Well
+Activities, Cost Control, Cost Analytics, Reports, Assurance, Administration and
+Help are still to come. The shell underneath — authentication, the application
+layout, the migration chain and schema-drift reporting — never moved.
 
 See [`decisions.md`](decisions.md#adr-008--restructure-to-an-authenticated-empty-shell)
-for the rationale and for what a rebuilt module must provide.
+for the rationale behind the reset, and
+[ADR-009](decisions.md#adr-009--the-afe-cost-estimate-is-calculated-in-one-framework-free-engine)
+for how the rebuilt AFE module keeps its costing rules in one place.
 
 ## Modular monolith
 
@@ -35,9 +37,13 @@ distributed-system overhead.
 - Repositories depend on SQLAlchemy models/session.
 - Frontend code has no direct database path and performs no calculations.
 
-The domain layer (`app/domain/`) was removed with the costing rules. A rebuilt
-module should reintroduce it as a framework-free package with an AST-based
-import-boundary test, rather than growing calculation logic inside services.
+The domain layer (`app/domain/`) is back with the AFE module: a framework-free
+package whose pure functions own the AFE cost estimation rules. Nothing in it
+imports FastAPI, SQLAlchemy or Pydantic — `tests/unit/test_domain_boundaries.py`
+parses the package with `ast` and fails the build if that ever changes. Services
+translate database rows into the domain's dataclasses and translate the result
+back; the browser never recalculates money, it calls
+`POST /afe/estimates/{id}/preview`.
 
 ## Cross-cutting foundations
 

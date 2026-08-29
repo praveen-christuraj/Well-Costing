@@ -2,6 +2,15 @@
 
 # pyright: reportAttributeAccessIssue=false, reportUnknownVariableType=false
 
+from app.models.afe import (
+    Afe,
+    AfeConsumableLine,
+    AfeServiceChargeLine,
+    AfeServiceLine,
+    AfeServiceRate,
+    AfeServiceSectionRate,
+    AfeTangibleLine,
+)
 from app.models.audit_log import AuditLog
 from app.models.catalogue import (
     CatalogueConfig,
@@ -29,6 +38,13 @@ from app.models.user import User, user_roles
 
 __all__ = [
     "Activity",
+    "Afe",
+    "AfeConsumableLine",
+    "AfeServiceChargeLine",
+    "AfeServiceLine",
+    "AfeServiceRate",
+    "AfeServiceSectionRate",
+    "AfeTangibleLine",
     "AuditLog",
     "CatalogueConfig",
     "ConsumableSubcategory",

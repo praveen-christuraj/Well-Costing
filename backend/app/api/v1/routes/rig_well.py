@@ -30,16 +30,15 @@ from app.models.user import User
 from app.schemas.master_data import BulkImportResponse
 from app.schemas.rig_well import (
     MarkWellIn,
-    PhaseOut,
     RigDropdownOut,
     RigOut,
-    SectionOut,
     WellConfigurationIn,
     WellConfigurationOut,
     WellOut,
 )
 from app.services.audit import log_audit
 from app.services.import_helpers import read_tabular_file, row_get, template_xlsx_response
+from app.services.well_configuration import build_configuration_out, well_totals
 
 router = APIRouter(prefix="/rig-well", tags=["rig-well"])
 
@@ -65,18 +64,9 @@ def _check_rig_exists(db: Session, rig_id: int) -> Rig:
 
 
 def _well_totals(well: Well) -> tuple[Decimal | None, Decimal]:
-    """(total_depth, total_days) for a well.
+    """(total_depth, total_days) for a well — shared with AFE Management."""
 
-    Total depth is the ``to_depth`` of the last ordered section; total days is
-    the sum of every phase's day count across all sections.
-    """
-    total_depth: Decimal | None = None
-    total_days = Decimal("0")
-    for section in well.sections:
-        total_depth = section.to_depth
-        for phase in section.phases:
-            total_days += phase.days
-    return total_depth, total_days
+    return well_totals(well)
 
 
 def _build_well_out(well: Well) -> WellOut:
@@ -109,50 +99,9 @@ def _build_well_out(well: Well) -> WellOut:
 
 
 def _build_config_out(well: Well) -> WellConfigurationOut:
-    total_depth, total_days = _well_totals(well)
-    sections: list[SectionOut] = []
-    for section in well.sections:
-        phases: list[PhaseOut] = []
-        section_days = Decimal("0")
-        for phase in section.phases:
-            days = phase.days
-            section_days += days
-            phases.append(
-                PhaseOut(
-                    id=phase.id,
-                    phase_id=phase.phase_id,
-                    phase_code=phase.phase.phase_code if phase.phase else None,
-                    phase_name=phase.phase.phase_name if phase.phase else None,
-                    days=days,
-                    remarks=phase.remarks,
-                )
-            )
-        sections.append(
-            SectionOut(
-                id=section.id,
-                section_id=section.section_id,
-                section_code=section.section.section_code if section.section else None,
-                section_name=section.section.section_name if section.section else None,
-                from_depth=section.from_depth,
-                to_depth=section.to_depth,
-                remarks=section.remarks,
-                total_days=section_days,
-                phases=phases,
-            )
-        )
-    return WellConfigurationOut(
-        well_id=well.id,
-        well_code=well.well_code,
-        well_name=well.well_name,
-        rig_code=well.rig.rig_code if well.rig else None,
-        rig_name=well.rig.rig_name if well.rig else None,
-        status=well.status,
-        config_status=well.config_status,
-        depth_unit=well.depth_unit,
-        total_depth=total_depth,
-        total_days=total_days,
-        sections=sections,
-    )
+    """Sections → phases → days for one well — shared with AFE Management."""
+
+    return build_configuration_out(well)
 
 
 def _ensure_well_editable(well: Well) -> None:

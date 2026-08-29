@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.routes import (
+    afe,
     audit_logs,
     auth,
     catalogue_config,
@@ -30,4 +31,6 @@ api_router.include_router(catalogue_tangibles.router)
 api_router.include_router(vendor_po.router)
 api_router.include_router(master_data.router)
 api_router.include_router(rig_well.router)
+# AFE routes own /afe/... (AFE header + AFE cost estimation).
+api_router.include_router(afe.router)
 api_router.include_router(audit_logs.router)

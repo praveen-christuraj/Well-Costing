@@ -18,6 +18,7 @@ export interface AppNavigationGroup {
 export const appNavigation: AppNavigationItem[] = [
   { key: 'dashboard', label: 'Dashboard', icon: 'pi pi-home', to: '/dashboard', enabled: true },
   { key: 'rig-well-management', label: 'Rig & Well Management', icon: 'pi pi-sitemap', to: '/rig-well-management', enabled: true },
+  { key: 'afe-management', label: 'AFE Management', icon: 'pi pi-wallet', to: '/afe-management', enabled: true },
   { key: 'master-data', label: 'Master Data', icon: 'pi pi-book', to: '/master-data', enabled: true },
   { key: 'audit-logs', label: 'Audit Log', icon: 'pi pi-history', to: '/audit-logs', enabled: true },
 ]
@@ -28,6 +29,7 @@ export const enabledNavigation: AppNavigationItem[] = appNavigation.filter(item 
 const GROUPS: { key: string, label: string, keys: string[] }[] = [
   { key: 'home', label: 'Home', keys: ['dashboard'] },
   { key: 'wells', label: 'Rig & Well', keys: ['rig-well-management'] },
+  { key: 'costing', label: 'Costing', keys: ['afe-management'] },
   { key: 'foundation', label: 'Master Data & Auditing', keys: ['master-data', 'audit-logs'] },
 ]
 

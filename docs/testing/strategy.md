@@ -10,7 +10,9 @@ without FastAPI, SQLAlchemy, Pydantic, or a database.
 When a business module returns, its calculation rules belong in a
 framework-free domain package covered by unit tests, plus an AST-based
 import-boundary test that rejects FastAPI, SQLAlchemy, or Pydantic imports
-inside it.
+inside it. The AFE module is the first one back: `app/domain/afe_costing.py`
+holds the charging rules and `tests/unit/test_domain_boundaries.py` enforces the
+boundary.
 
 ### Repository/service tests
 

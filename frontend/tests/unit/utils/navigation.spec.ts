@@ -6,6 +6,7 @@ describe('application navigation', () => {
     expect(enabledNavigation.map(item => item.key)).toEqual([
       'dashboard',
       'rig-well-management',
+      'afe-management',
       'master-data',
       'audit-logs',
     ])
@@ -17,8 +18,9 @@ describe('application navigation', () => {
   })
 
   it('offers no removed business module', () => {
+    // '/afe-management' is the rebuilt AFE module; only the removed module's
+    // own path ('/afe') and the old estimate page stay on the forbidden list.
     const removedPrefixes = [
-      '/afe',
       '/afe-cost-estimates',
       '/daily-cost',
       '/cost-control',
@@ -28,7 +30,7 @@ describe('application navigation', () => {
       '/help',
     ]
     // audit-logs is valid, not removed; only generic /audit without -logs should be considered removed
-    const removedAuditExact = ['/audit', '/audit/']
+    const removedAuditExact = ['/audit', '/audit/', '/afe']
     const filtered = appNavigation.filter(item => {
       if (removedPrefixes.some(prefix => item.to.startsWith(prefix))) return true
       if (removedAuditExact.includes(item.to)) return true
