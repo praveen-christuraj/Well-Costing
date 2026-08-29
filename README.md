@@ -4,19 +4,25 @@ A modular-monolith web application for drilling cost management.
 
 ## Current delivery status
 
-**Restructured to an empty foundation.** Every business module has been removed
-— Master Data catalogues, AFE, AFE Cost Estimates, Daily Cost, Well Activities,
-Cost Analytics, Cost Control, Reports, Assurance, Audit Log, Administration and
-Help — together with their pages, API routes, services, models, and database
-tables.
+**Rebuilt on an empty foundation.** The application was first cut back to its
+shell (ADR-008) and the modules are being rebuilt on top of it, one vertical
+slice at a time. Daily Cost, Well Activities, Cost Analytics, Cost Control,
+Reports, Assurance, Administration and Help are still to come.
 
-What is left is the shell the modules will be rebuilt inside:
+What exists today — the shell plus the rebuilt modules:
 
 - Authentication (sign-in, JWT bearer tokens, `users`/`roles`/`user_roles`)
 - The PrimeVue application shell: grouped sidebar, topbar, dark mode, theme
   configurator
 - A **Dashboard** that reports API, database, and migration state
-- An intentionally **empty Master Data** page at `/master-data`
+- **Master Data** at `/master-data` — UOM, currencies, phases, activities, hole
+  sections, vendors, PO/SO, and the Services / Consumables / Tangibles catalogues
+- **Rig & Well Management** at `/rig-well-management` — rigs, wells and each
+  well's section → phase → days configuration
+- **AFE Management** at `/afe-management` — well-scoped AFEs and the AFE Cost
+  Estimation engine (Services / Consumables / Tangibles → the compiled AFE cost,
+  with draft → submitted → approved)
+- **Audit Log** at `/audit-logs`
 
 The Alembic history was reset to a single baseline revision
 (`20260827_0001_create_auth_tables`). **An existing database cannot be migrated
@@ -41,10 +47,12 @@ PostgreSQL 16
 
 See [`docs/architecture/overview.md`](docs/architecture/overview.md).
 
-The domain layer (`backend/app/domain/`) was removed with the costing rules. A
-rebuilt module should reintroduce it as a framework-free package with an
-AST-based import-boundary test rather than growing calculation logic inside
-services.
+The domain layer (`backend/app/domain/`) is back with the AFE module:
+`app/domain/afe_costing.py` holds the cost estimation rules as pure functions
+over plain dataclasses, and `tests/unit/test_domain_boundaries.py` fails the
+build if anything in that package imports FastAPI, SQLAlchemy or Pydantic. No
+money is calculated in a Vue component — the browser asks the API to price an
+unsaved estimate (`POST /afe/estimates/{id}/preview`).
 
 ## Prerequisites — Windows, no Docker
 

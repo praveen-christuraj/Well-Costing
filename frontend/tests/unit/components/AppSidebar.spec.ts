@@ -19,15 +19,17 @@ describe('AppSidebar', () => {
     const wrapper = mountNav()
 
     const links = wrapper.findAll('a')
-    expect(links).toHaveLength(4)
+    expect(links).toHaveLength(5)
     expect(links.map(link => link.attributes('href'))).toEqual([
       '/dashboard',
       '/rig-well-management',
+      '/afe-management',
       '/master-data',
       '/audit-logs',
     ])
     expect(wrapper.text()).toContain('Dashboard')
     expect(wrapper.text()).toContain('Rig & Well Management')
+    expect(wrapper.text()).toContain('AFE Management')
     expect(wrapper.text()).toContain('Master Data')
     expect(wrapper.text()).toContain('Audit Log')
   })
@@ -36,15 +38,17 @@ describe('AppSidebar', () => {
     const wrapper = mountNav()
 
     const headings = wrapper.findAll('.layout-menuitem-root-text').map(node => node.text())
-    expect(headings).toEqual(['Home', 'Rig & Well', 'Master Data & Auditing'])
+    expect(headings).toEqual(['Home', 'Rig & Well', 'Costing', 'Master Data & Auditing'])
   })
 
   it('renders no link to a removed business module', () => {
     const wrapper = mountNav()
 
+    // Exact hrefs: '/afe' is the removed module, '/afe-management' is the rebuilt one.
     for (const removed of ['/afe', '/daily-cost', '/cost-control', '/reports', '/assurance', '/administration', '/help']) {
-      expect(wrapper.html()).not.toContain(`href="${removed}`)
+      expect(wrapper.html()).not.toContain(`href="${removed}"`)
     }
+    expect(wrapper.html()).toContain('href="/afe-management"')
     const html = wrapper.html()
     expect(html).toContain('href="/audit-logs"')
   })

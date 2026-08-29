@@ -40,6 +40,71 @@ Supabase Auth has their password stored by Supabase; such a row carries
 `auth_provider = "supabase"` and is mirrored here only so application roles can
 be assigned.
 
+The rebuilt business modules add their own tables (master data, catalogues,
+`rigs` / `wells` / `well_sections` / `well_phases`, and the AFE tables below).
+Each migration is the authoritative description of its columns.
+
+### AFE Management
+
+```text
+afes
+  id serial PK
+  afe_code unique            -- manual, never duplicated
+  afe_name
+  afe_type                   -- "Drilling" | "Completion"
+  rig_id FK -> rigs
+  well_id FK -> wells        -- an AFE is always well-scoped
+  remarks
+  status                     -- "draft" | "submitted" | "approved"
+  status_remarks / submitted_at / approved_at
+  is_deleted / deleted_at    -- soft delete -> Deleted Entries tab
+  created_at / updated_at / created_by / updated_by
+
+afe_service_lines            -- one service added to an AFE
+  id serial PK
+  afe_id FK -> afes
+  service_id FK -> services  -- from the Master Data services list
+  charging_basis             -- "Daily Rate" | "Per Service Rate" | "Per Section Rate"
+  section_id FK -> hole_sections (nullable)   -- master-data ids on purpose, see below
+  phase_id FK -> phases (nullable)
+  per_service_amount / effective_date / remarks / sort_order
+
+afe_service_rates            -- the rate card: one row per charge category
+  line_id FK -> afe_service_lines, category, unit_rate
+  unique (line_id, category)
+
+afe_service_charge_lines     -- day-based quantities (days or hours 0-24)
+  line_id FK, category, quantity, quantity_unit ("days" | "hours"), sort_order
+
+afe_service_section_rates    -- per-section amounts (optionally per phase)
+  line_id FK, section_id FK -> hole_sections, phase_id FK -> phases, amount
+
+afe_consumable_lines         -- consumables, scoped to a section and/or a phase
+  afe_id FK, item_kind ("mud_chemical" | "drill_bit"), item_id,
+  item_code / item_name (snapshot), quantity, captured_rate, override_rate,
+  uom, currency, section_id, phase_id, remarks, sort_order
+
+afe_tangible_lines           -- tangibles with an optional override rate
+  afe_id FK, tangible_id FK -> tangibles, quantity, captured_rate,
+  override_rate, uom, currency, remarks, sort_order
+```
+
+Two deliberate choices:
+
+- **Only the AFE is soft-deleted.** It is the user's entry, so a delete moves it
+  to Deleted Entries. Its estimate lines are part of the AFE and are replaced
+  wholesale when an estimate is saved — the same lifecycle the well
+  configuration uses.
+- **Sections and phases reference the master-data ids** (`hole_sections`,
+  `phases`) rather than `well_sections` rows. Saving a well configuration
+  replaces those rows, so pointing at them would silently invalidate every AFE
+  scope; the estimation engine resolves the master ids against the current
+  configuration instead.
+
+`afe_consumable_lines.item_id` has no foreign key because the item can come
+from either `mud_chemicals` or `drill_bits`; `item_kind` selects the list and
+the code, name, UOM and captured rate are snapshotted on the row.
+
 ## Conventions
 
 Constraint names are deterministic:
