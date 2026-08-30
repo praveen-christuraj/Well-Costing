@@ -379,6 +379,108 @@ active_database_url() {
         | tr -d '"' || true
 }
 
+# True for PostgreSQL URLs the app accepts (before/after driver normalization).
+is_postgres_url() {
+    case "${1:-}" in
+        postgresql+psycopg://* | postgresql://* | postgres://*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Parse "<host> <port>" out of a PostgreSQL URL. Defaults to localhost:5432 when
+# the URL has no host/port so callers always get a usable pair; the port is the
+# one actually written in DATABASE_URL (e.g. 5433), never a hardcoded value.
+database_url_host_port() {
+    local url="${1:-}" rest host port
+    if [ -z "$url" ]; then
+        echo "localhost 5432"
+        return 0
+    fi
+    rest="${url#*://}"   # strip scheme ("postgresql+psycopg://", "postgresql://", ...)
+    rest="${rest##*@}"   # strip userinfo (everything up to the last '@')
+    rest="${rest%%/*}"   # strip path / query / fragment
+    if [[ "$rest" =~ ^\[([^]]+)\](:([0-9]+))?$ ]]; then
+        # IPv6 literal, e.g. [::1]:5433
+        host="${BASH_REMATCH[1]}"
+        port="${BASH_REMATCH[3]:-5432}"
+    else
+        host="${rest%%:*}"
+        port="${rest##*:}"
+        if [ "$port" = "$host" ] || ! [[ "$port" =~ ^[0-9]+$ ]]; then
+            port="5432"
+        fi
+    fi
+    echo "$host $port"
+}
+
+# Parse "user|password|database" out of a PostgreSQL URL. Falls back to the
+# application's defaults (drilling_costing / drilling_costing) when the URL has
+# no credentials, so local setups are usable with a bare host URL too.
+database_url_user_db() {
+    local url="$1" rest userinfo user password db
+    rest="${url#*://}"
+    if [[ "$rest" == *"@"* ]]; then
+        userinfo="${rest%%@*}"
+        if [[ "$userinfo" == *:* ]]; then
+            user="${userinfo%%:*}"
+            password="${userinfo#*:}"
+        else
+            user="$userinfo"
+            password=""
+        fi
+    else
+        user="drilling_costing"
+        password=""
+    fi
+    if [[ "$rest" == */* ]]; then
+        db="${rest#*/}"
+        db="${db%%\?*}"
+        db="${db%%#*}"
+    else
+        db=""
+    fi
+    [ -n "$db" ] || db="drilling_costing"
+    printf '%s|%s|%s' "$user" "$password" "$db"
+}
+
+# Percent-decode a URL component ("%40" → "@", "%25" → "%", ...). Used when a
+# URL credential must become the actual PostgreSQL password/role/database name.
+percent_decode() {
+    local s="${1:-}" out="" byte hex
+    while [[ "$s" =~ ^([^%]*)(%([0-9A-Fa-f]{2}))(.*)$ ]]; do
+        out+="${BASH_REMATCH[1]}"
+        hex="${BASH_REMATCH[3]}"
+        printf -v byte "\\x$hex"
+        out+="$byte"
+        s="${BASH_REMATCH[4]}"
+    done
+    out+="$s"
+    printf '%s' "$out"
+}
+
+# True when the URL's host is a loopback address on this phone.
+is_loopback_db_host() {
+    case "${1:-}" in
+        localhost | 127.0.0.1 | ::1) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Best-effort check that a PostgreSQL server answers on host:port. Uses
+# pg_isready when the Termux 'postgresql' package is installed and falls back to
+# /proc/net/tcp (Android always exposes it) so the scripts can tell a stopped
+# server from a refused port without extra packages.
+port_is_listening() {
+    local host="${1:-127.0.0.1}" port="${2:-5432}" hex
+    if command -v pg_isready >/dev/null 2>&1; then
+        pg_isready -h "$host" -p "$port" >/dev/null 2>&1 && return 0 || return 1
+    fi
+    printf -v hex '%04X' "$port"
+    awk -v p="$hex" '$4 == "0A" { from = index($2, ":"); if (substr($2, from + 1) == p) found = 1 }
+         END { exit found ? 0 : 1 }' /proc/net/tcp /proc/net/tcp6 2>/dev/null
+    return 1
+}
+
 # Preflight: refuse to run migrations against a database that cannot work.
 # Prints actionable guidance and returns 1 when configuration is missing.
 check_database_url() {
@@ -404,11 +506,27 @@ check_database_url() {
         err "  Fix: paste your real Supabase URI into backend/.env, or run 'bash termux/deploy.sh'."
         return 1
     fi
-    if [[ "$url" == *"@localhost:"* || "$url" == *"@127.0.0.1:"* ]]; then
-        warn "DATABASE_URL points at PostgreSQL on this phone (localhost:5432)."
-        warn "  Nothing in this deployment starts a PostgreSQL server, so the connection"
-        warn "  will be REFUSED unless you installed Termux's native 'postgresql' package"
-        warn "  and started it (see DEPLOYMENT.md → 'Local PostgreSQL on Termux')."
+    if is_postgres_url "$url"; then
+        local db_host db_port
+        read -r db_host db_port < <(database_url_host_port "$url")
+        if is_loopback_db_host "$db_host"; then
+            warn "DATABASE_URL points at PostgreSQL on this phone ($db_host:$db_port)."
+            if command -v pg_ctl >/dev/null 2>&1; then
+                if port_is_listening "$db_host" "$db_port"; then
+                    warn "  A local PostgreSQL server is answering there — good."
+                else
+                    warn "  Termux PostgreSQL is installed but NOT running on $db_host:$db_port."
+                    warn "  The deploy script will try to start it automatically; or run:"
+                    warn "      bash termux/postgres.sh start"
+                fi
+            else
+                warn "  Nothing in this deployment starts a PostgreSQL server, so the connection"
+                warn "  will be REFUSED unless you install Termux's native 'postgresql' package"
+                warn "  and start it. One command does everything:"
+                warn "      pkg install -y postgresql && bash termux/postgres.sh setup"
+                warn "  (see DEPLOYMENT.md → 'Local PostgreSQL on Termux', or use a Supabase URL.)"
+            fi
+        fi
     fi
     if [[ "$url" == postgresql+psycopg:///* ]]; then
         warn "DATABASE_URL uses the local Unix socket (no host in the URL)."
@@ -418,26 +536,82 @@ check_database_url() {
     return 0
 }
 
-run_migrations() {
-    check_database_url || die "Migrations skipped — fix DATABASE_URL above, then re-run this script."
-    log "Running database migrations (inside Debian)..."
-    local migration_log="$TERMUX_DIR/migration.log"
-    local status
+run_migrations_once() {
+    local migration_log="$1"
     set +e
     backend_shell "$VENV_NAME/bin/python -m alembic upgrade head" 2>&1 | tee "$migration_log"
-    status=${PIPESTATUS[0]}
+    local status=${PIPESTATUS[0]}
     set -e
-    if [ "$status" -ne 0 ]; then
-        err "Migrations FAILED (exit $status) — full log: termux/migration.log"
-        if grep -q "port 5432 failed: Connection refused" "$migration_log"; then
+    return "$status"
+}
+
+# When DATABASE_URL points at a local PostgreSQL server and the Termux
+# 'postgresql' package is installed but the server is stopped, start it before
+# running migrations. A stopped server is the #1 cause of the
+# "connection refused at 127.0.0.1:<port>" failure this deployment sees.
+maybe_start_local_postgres() {
+    local url db_host db_port
+    url=$(active_database_url)
+    if ! is_postgres_url "$url"; then
+        return 0
+    fi
+    read -r db_host db_port < <(database_url_host_port "$url")
+    if ! is_loopback_db_host "$db_host" || ! command -v pg_ctl >/dev/null 2>&1; then
+        return 0
+    fi
+    if port_is_listening "$db_host" "$db_port"; then
+        return 0
+    fi
+    warn "Local PostgreSQL server is not running on $db_host:$db_port — starting it..."
+    if bash "$TERMUX_DIR/postgres.sh" start; then
+        ok "Local PostgreSQL started on $db_host:$db_port"
+    else
+        err "Could not start local PostgreSQL on $db_host:$db_port."
+        err "  First-time setup (installs, initializes, starts, creates role/database):"
+        err "      bash termux/postgres.sh setup"
+        return 1
+    fi
+}
+
+run_migrations() {
+    check_database_url || die "Migrations skipped — fix DATABASE_URL above, then re-run this script."
+    maybe_start_local_postgres || die "Migrations skipped — fix the local PostgreSQL server above, then re-run this script."
+    log "Running database migrations (inside Debian)..."
+    local migration_log="$TERMUX_DIR/migration.log"
+    local migration_status
+    run_migrations_once "$migration_log" && migration_status=0 || migration_status=$?
+    if [ "$migration_status" -ne 0 ]; then
+        err "Migrations FAILED (exit $migration_status) — full log: termux/migration.log"
+        local url db_host db_port refused_port refused
+        url=$(active_database_url)
+        read -r db_host db_port < <(database_url_host_port "$url")
+        refused=""
+        if grep -qE "port [0-9]+ failed: Connection refused" "$migration_log" 2>/dev/null; then
+            refused_port=$(grep -oE "port [0-9]+ failed: Connection refused" "$migration_log" | head -1 | grep -oE "[0-9]+")
+            refused="$db_host:$refused_port"
+        fi
+        if [ -n "$refused" ]; then
             err ""
-            err "  Nothing is listening on 127.0.0.1:5432 — no PostgreSQL server is"
-            err "  running on this phone, so the URL in backend/.env cannot be reached."
-            err "  Pick one of:"
-            err "    1) Supabase (recommended): put the 'Transaction pooler' URI"
-            err "       (port 6543) in backend/.env → DATABASE_URL, then re-run."
-            err "    2) Native Termux PostgreSQL: see DEPLOYMENT.md →"
-            err "       'Local PostgreSQL on Termux' (pkg install, initdb, pg_ctl start)."
+            err "  No PostgreSQL server is accepting connections at $refused."
+            if is_loopback_db_host "$db_host"; then
+                err "  This is a local URL — the server on this phone is not running (or not installed)."
+                err "  Pick one of:"
+                err "    1) Local PostgreSQL:  bash termux/postgres.sh setup   (installs, initializes,"
+                err "                           starts the server, creates the role + database)"
+                err "       Then re-run:       bash termux/deploy.sh"
+                err "    2) Supabase (recommended): put the 'Transaction pooler' URI (port 6543)"
+                err "       in backend/.env → DATABASE_URL, then re-run."
+                err "    3) SQLite (dev only):  bash termux/deploy.sh and choose option 2."
+            else
+                err "  The host '$db_host' is remote — check the phone's internet access, the port,"
+                err "  hostname typos, and that the database accepts connections from this network."
+            fi
+        elif grep -qiE "database \"[^\"]*\" does not exist" "$migration_log"; then
+            err ""
+            err "  The database named in DATABASE_URL does not exist (migrations never create it)."
+            err "  For a local Termux server:  bash termux/postgres.sh setup"
+            err "  For Supabase: create the database in the Supabase dashboard, or point"
+            err "  DATABASE_URL at an existing empty database."
         elif grep -qiE "name (or service not known|resolution)|nodename nor servname|TranslateFailed|failed to resolve" "$migration_log"; then
             err ""
             err "  The database hostname in backend/.env could not be resolved."

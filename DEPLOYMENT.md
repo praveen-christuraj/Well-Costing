@@ -268,21 +268,24 @@ lsof -i :8000 || ss -tlnp | grep 8000
 fuser -k 8000/tcp
 ```
 
-#### Problem: Database connection refused (`port 5432 ... Connection refused`)
+#### Problem: Database connection refused (any local port, e.g. `5432` / `5433`)
 
 ```
 sqlalchemy.exc.OperationalError: (psycopg.OperationalError) connection failed:
-connection to server at "127.0.0.1", port 5432 failed: Connection refused
+connection to server at "127.0.0.1", port 5433 failed: Connection refused
 ```
 
-Nothing on the phone listens on port 5432: the Termux deployment never starts a
-local PostgreSQL server, and `backend/.env` either has no active `DATABASE_URL`
-line or points at `localhost`. With no URL configured, the backend falls back to
-its built-in default (`...@localhost:5432/drilling_costing`), which cannot work.
+Nothing on the phone is answering on the host/port in `backend/.env` — the
+Termux deployment does not ship a PostgreSQL server, and `backend/.env` points
+at a **local** URL (`localhost` / `127.0.0.1`, any port). With no URL configured
+at all, the backend also falls back to `...@localhost:5432/drilling_costing`,
+which cannot work.
 
-The deploy/start/migrate scripts now preflight this and stop with instructions
-before printing a stack trace. To fix it, pick one of the options below, then
-re-run `bash termux/deploy.sh` (or `bash termux/migrate.sh`).
+The deploy/start/migrate scripts preflight this, report the **actual** port from
+your URL, and — when the Termux `postgresql` package is installed but the server
+is stopped — start it automatically before retrying migrations. To fix it, pick
+one of the options below, then re-run `bash termux/deploy.sh` (or
+`bash termux/migrate.sh`).
 
 **Option A: Use Supabase (recommended for Termux)**
 1. Create a free Supabase account.
@@ -291,29 +294,45 @@ re-run `bash termux/deploy.sh` (or `bash termux/migrate.sh`).
 4. Put it on the `DATABASE_URL=` line of `backend/.env` (replace the line — do
    not comment it out; a commented-out line re-enables the broken default).
 
-**Option B: Local PostgreSQL on Termux**
+**Option B: Local PostgreSQL on Termux (one command)**
 
 Termux's `postgresql` package and the Debian container share the phone's
-network, so a server started in Termux is reachable at `127.0.0.1:5432` from
-inside the container — use the **TCP** URL, not the Unix-socket URL (the
-socket directory is not visible inside the container):
+network, so a server started in Termux is reachable from inside the container —
+use the **TCP** URL, not the Unix-socket URL (the socket directory is not
+visible inside the container). **Any port works** (5432, 5433, …) as long as the
+same port is in the URL; the helpers read it from `backend/.env`.
 
 ```bash
-pkg install -y postgresql
-initdb ~/postgres-data
-pg_ctl -D ~/postgres-data -l ~/postgres.log start
-createuser --superuser drilling_costing
-createdb --owner=drilling_costing drilling_costing
+# 1. Point DATABASE_URL at the local server (edit port/password to taste)
+nano backend/.env
+#   DATABASE_URL=postgresql+psycopg://drilling_costing:PASSWORD@127.0.0.1:5432/drilling_costing
+
+# 2. One command: installs the postgresql package (if needed), initializes the
+#    data directory, starts the server, and creates the role + database
+#    that DATABASE_URL names.
+bash termux/postgres.sh setup
+
+# 3. Migrate and start everything
+bash termux/deploy.sh
 ```
 
-Then in `backend/.env`:
+Manage the server manually if you prefer:
 
-```
-DATABASE_URL=postgresql+psycopg://drilling_costing@127.0.0.1:5432/drilling_costing
+```bash
+bash termux/postgres.sh status   # installed? initialized? running?
+bash termux/postgres.sh start    # start after initdb
+bash termux/postgres.sh stop
+bash termux/postgres.sh init     # initdb only
 ```
 
-Note: PostgreSQL does not survive a phone reboot — run
-`pg_ctl -D ~/postgres-data -l ~/postgres.log start` again after restarting.
+`postgres.sh` stores data in `~/postgres-data` by default and reads the
+host/port/role/database from `backend/.env` (`PGDATA` / `PGHOST` / `PGPORT`
+override it). `deploy.sh`, `start.sh`, `migrate.sh`, and `update.sh` all start
+an installed-but-stopped local server automatically before running migrations.
+
+Note: PostgreSQL does not survive a phone reboot — re-run
+`bash termux/postgres.sh start` after restarting (or just
+`bash termux/deploy.sh`, which starts it automatically).
 
 **Option C: SQLite on this phone (fully offline, dev environment)**
 
@@ -492,5 +511,6 @@ After deployment, verify these endpoints:
 | `termux/stop.sh` | Stop servers in Termux |
 | `termux/update.sh` | Pull, update, migrate, restart |
 | `termux/migrate.sh` | Run Alembic migrations |
+| `termux/postgres.sh` | Install/init/start/stop a local Termux PostgreSQL (reads DATABASE_URL) |
 | `.github/workflows/ci.yml` | CI pipeline |
 | `docs/deployment/free-uat-vercel-render-neon.md` | Full UAT deployment guide |
