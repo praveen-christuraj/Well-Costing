@@ -19,12 +19,15 @@ describe('AppSidebar', () => {
     const wrapper = mountNav()
 
     const links = wrapper.findAll('a')
-    expect(links).toHaveLength(6)
+    expect(links).toHaveLength(9)
     expect(links.map(link => link.attributes('href'))).toEqual([
       '/dashboard',
       '/rig-well-management',
       '/well-sub-activities',
       '/afe-management',
+      '/daily-costs',
+      '/cost-analytics',
+      '/cost-reports',
       '/master-data',
       '/audit-logs',
     ])
@@ -32,6 +35,9 @@ describe('AppSidebar', () => {
     expect(wrapper.text()).toContain('Rig & Well Management')
     expect(wrapper.text()).toContain('Well Sub Activities')
     expect(wrapper.text()).toContain('AFE Management')
+    expect(wrapper.text()).toContain('Daily Costs')
+    expect(wrapper.text()).toContain('Cost Analytics')
+    expect(wrapper.text()).toContain('Cost Reports')
     expect(wrapper.text()).toContain('Master Data')
     expect(wrapper.text()).toContain('Audit Log')
   })

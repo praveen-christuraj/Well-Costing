@@ -16,7 +16,8 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, lazyload, noload, selectinload
+from sqlalchemy.sql import Select
 
 from app.domain import afe_costing as engine
 from app.models.afe import (
@@ -28,7 +29,7 @@ from app.models.afe import (
     AfeServiceSectionRate,
     AfeTangibleLine,
 )
-from app.models.catalogue import DrillBit, Service, Tangible
+from app.models.catalogue import DrillBit, MudChemical, Service, Tangible
 from app.models.rig_well import Well
 from app.models.user import User
 from app.schemas.afe import (
@@ -48,6 +49,78 @@ from app.services.well_configuration import build_configuration_out
 
 class AfeValidationError(ValueError):
     """Raised for anything the user must fix before an estimate can be saved."""
+
+
+# ---------------------------------------------------------------------------
+# Loading AFEs without the eager-load cycles
+# ---------------------------------------------------------------------------
+
+#: ``Afe`` is wired with joined child→parent back-references
+#: (``AfeServiceLine.afe``, ``AfeServiceRate.line`` …) and selectin collections,
+#: so a plain ``select(Afe)`` makes SQLAlchemy walk that cyclic relationship
+#: graph on every query. On a modest AFE that costs ~2 s of pure ORM path
+#: bookkeeping per request — the Daily Costs, Cost Analytics and Reports pages
+#: load AFEs constantly, so they build their statements with these explicit
+#: loader options instead (~0.03 s for the same rows). The rate cards and the
+#: estimate still work: the rate/charge/section collections simply load lazily
+#: when they are first touched, and their parents are already in the identity
+#: map by then.
+_AFE_HEADER_OPTIONS = (
+    joinedload(Afe.rig),
+    joinedload(Afe.well),
+    noload(Afe.service_lines),
+    noload(Afe.consumable_lines),
+    noload(Afe.tangible_lines),
+)
+
+_AFE_SERVICE_LINE_OPTIONS = selectinload(Afe.service_lines).options(
+    joinedload(AfeServiceLine.service),
+    lazyload(AfeServiceLine.afe),
+    lazyload(AfeServiceLine.rates),
+    lazyload(AfeServiceLine.charge_lines),
+    lazyload(AfeServiceLine.section_rates),
+)
+
+_AFE_ESTIMATE_OPTIONS = (
+    joinedload(Afe.rig),
+    joinedload(Afe.well),
+    _AFE_SERVICE_LINE_OPTIONS,
+    selectinload(Afe.consumable_lines).options(lazyload(AfeConsumableLine.afe)),
+    selectinload(Afe.tangible_lines).options(
+        lazyload(AfeTangibleLine.afe), joinedload(AfeTangibleLine.tangible)
+    ),
+)
+
+
+def afe_statement(*, with_estimate_lines: bool = False) -> Select[tuple[Afe]]:
+    """``select(Afe)`` with loader options that avoid the cyclic eager loads."""
+
+    options = _AFE_ESTIMATE_OPTIONS if with_estimate_lines else _AFE_HEADER_OPTIONS
+    return select(Afe).options(*options)
+
+
+def load_afes(
+    db: Session,
+    *,
+    well_id: int | None = None,
+    afe_id: int | None = None,
+    with_estimate_lines: bool = False,
+) -> list[Afe]:
+    """Load AFEs (optionally with their estimate lines) without the cycles."""
+
+    stmt = afe_statement(with_estimate_lines=with_estimate_lines).where(Afe.is_deleted == False)
+    if well_id is not None:
+        stmt = stmt.where(Afe.well_id == well_id)
+    if afe_id is not None:
+        stmt = stmt.where(Afe.id == afe_id)
+    return list(db.scalars(stmt.order_by(Afe.id)).all())
+
+
+def load_afe(db: Session, afe_id: int, *, with_estimate_lines: bool = False) -> Afe | None:
+    """One AFE by id, or ``None`` when it does not exist."""
+
+    records = load_afes(db, afe_id=afe_id, with_estimate_lines=with_estimate_lines)
+    return records[0] if records else None
 
 
 # ---------------------------------------------------------------------------
@@ -367,12 +440,29 @@ def resolve_consumable(db: Session, kind: str, item_id: int | None) -> dict[str,
             "currency": item.currency,
         }
     
-    # For lump-sum categories, we just map the kind to a display name.
+    # Fuel and cement additives have no item list of their own — they are
+    # estimated as a lump sum for the section/phase. An explicitly entered rate
+    # (e.g. a fuel price per litre) is kept so the daily costs can capture it.
     lump_sums = {
         "mud_chemical": "Mud Chemicals",
         "cement_additive": "Cement Additives",
-        "fuel": "Fuel"
+        "fuel": "Fuel",
     }
+    if kind == "mud_chemical" and item_id is not None:
+        # A picked mud chemical is a real catalogue item: its code, name, UOM
+        # and current unit rate come from the master list, so the AFE prices the
+        # estimate (and the daily costs capture the same rate later). Estimates
+        # that only carry a lump sum keep working as before.
+        item = db.get(MudChemical, item_id)
+        if not item or item.is_deleted:
+            raise AfeValidationError(f"Mud chemical #{item_id} no longer exists in the master data")
+        return {
+            "item_code": item.chemical_code,
+            "item_name": item.chemical_name,
+            "captured_rate": Decimal(item.current_rate or 0),
+            "uom": item.uom,
+            "currency": item.currency,
+        }
     if kind in lump_sums:
         return {
             "item_code": "LUMPSUM",
@@ -543,7 +633,9 @@ def normalize_consumables(
                 "item_code": str(master["item_code"]),
                 "item_name": str(master["item_name"]),
                 "quantity": entry.quantity,
-                "captured_rate": Decimal(master["captured_rate"]),
+                # The master list owns the rate; an explicitly entered rate is
+                # kept only when the master list has none (fuel, cement additives).
+                "captured_rate": Decimal(master["captured_rate"]) or entry.captured_rate,
                 "override_rate": entry.override_rate,
                 "uom": entry.uom or master.get("uom"),
                 "currency": entry.currency or master.get("currency"),

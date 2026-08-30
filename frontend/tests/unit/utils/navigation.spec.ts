@@ -8,6 +8,9 @@ describe('application navigation', () => {
       'rig-well-management',
       'well-sub-activities',
       'afe-management',
+      'daily-costs',
+      'cost-analytics',
+      'cost-reports',
       'master-data',
       'audit-logs',
     ])
@@ -19,11 +22,11 @@ describe('application navigation', () => {
   })
 
   it('offers no removed business module', () => {
-    // '/afe-management' is the rebuilt AFE module; only the removed module's
-    // own path ('/afe') and the old estimate page stay on the forbidden list.
+    // '/afe-management' is the rebuilt AFE module and '/daily-costs',
+    // '/cost-analytics' and '/cost-reports' are the rebuilt costing modules;
+    // only the removed modules' own paths stay on the forbidden list.
     const removedPrefixes = [
       '/afe-cost-estimates',
-      '/daily-cost',
       '/cost-control',
       '/reports',
       '/assurance',

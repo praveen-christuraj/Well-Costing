@@ -20,6 +20,9 @@ export const appNavigation: AppNavigationItem[] = [
   { key: 'rig-well-management', label: 'Rig & Well Management', icon: 'pi pi-sitemap', to: '/rig-well-management', enabled: true },
   { key: 'well-sub-activities', label: 'Well Sub Activities', icon: 'pi pi-list-check', to: '/well-sub-activities', enabled: true },
   { key: 'afe-management', label: 'AFE Management', icon: 'pi pi-wallet', to: '/afe-management', enabled: true },
+  { key: 'daily-costs', label: 'Daily Costs', icon: 'pi pi-calendar-clock', to: '/daily-costs', enabled: true },
+  { key: 'cost-analytics', label: 'Cost Analytics', icon: 'pi pi-chart-line', to: '/cost-analytics', enabled: true },
+  { key: 'cost-reports', label: 'Cost Reports', icon: 'pi pi-file-export', to: '/cost-reports', enabled: true },
   { key: 'master-data', label: 'Master Data', icon: 'pi pi-book', to: '/master-data', enabled: true },
   { key: 'audit-logs', label: 'Audit Log', icon: 'pi pi-history', to: '/audit-logs', enabled: true },
 ]
@@ -30,7 +33,7 @@ export const enabledNavigation: AppNavigationItem[] = appNavigation.filter(item 
 const GROUPS: { key: string, label: string, keys: string[] }[] = [
   { key: 'home', label: 'Home', keys: ['dashboard'] },
   { key: 'wells', label: 'Rig & Well', keys: ['rig-well-management', 'well-sub-activities'] },
-  { key: 'costing', label: 'Costing', keys: ['afe-management'] },
+  { key: 'costing', label: 'Costing', keys: ['afe-management', 'daily-costs', 'cost-analytics', 'cost-reports'] },
   { key: 'foundation', label: 'Master Data & Auditing', keys: ['master-data', 'audit-logs'] },
 ]
 

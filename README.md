@@ -6,8 +6,9 @@ A modular-monolith web application for drilling cost management.
 
 **Rebuilt on an empty foundation.** The application was first cut back to its
 shell (ADR-008) and the modules are being rebuilt on top of it, one vertical
-slice at a time. Daily Cost, Well Activities, Cost Analytics, Cost Control,
-Reports, Assurance, Administration and Help are still to come.
+slice at a time. Cost Control, Assurance, Administration and Help are still to
+come; reconciliation between the AFE and the daily actuals is designed for (the
+daily entries carry their reconciliation state) but not built yet.
 
 What exists today — the shell plus the rebuilt modules:
 
@@ -22,6 +23,19 @@ What exists today — the shell plus the rebuilt modules:
 - **AFE Management** at `/afe-management` — well-scoped AFEs and the AFE Cost
   Estimation engine (Services / Consumables / Tangibles → the compiled AFE cost,
   with draft → submitted → approved)
+- **Daily Costs** at `/daily-costs` — the daily cost sheet per rig / well /
+  date: services priced from the AFE rate card (charge category, hours 0-24 or
+  days 0-1, one-time mobilization / demobilization / fixed charges), the four
+  consumable categories (mud chemicals, fuel, cement additives, drill bits),
+  the tangibles block from Master Data, override unit rates, draft → submitted,
+  bulk import, export and print
+- **Cost Analytics** at `/cost-analytics` — AFE estimated cost vs actual cost
+  vs balance remaining per well and cost group, the forecast at well completion
+  from the burn rate, and the Depth vs Cost curve
+- **Cost Reports** at `/cost-reports` — the daily costs incurred drilled
+  through by date, section, phase, activity, sub activity, service, charge
+  category, consumable category, tangible or overall well, down to the cost
+  lines behind each row
 - **Audit Log** at `/audit-logs`
 
 The Alembic history was reset to a single baseline revision

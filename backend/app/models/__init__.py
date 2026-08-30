@@ -23,6 +23,12 @@ from app.models.catalogue import (
     Tangible,
     TangibleRate,
 )
+from app.models.daily_cost import (
+    DailyCostConsumableLine,
+    DailyCostEntry,
+    DailyCostServiceLine,
+    DailyCostTangibleLine,
+)
 from app.models.master_data import (
     Activity,
     Currency,
@@ -50,6 +56,10 @@ __all__ = [
     "CatalogueConfig",
     "ConsumableSubcategory",
     "Currency",
+    "DailyCostConsumableLine",
+    "DailyCostEntry",
+    "DailyCostServiceLine",
+    "DailyCostTangibleLine",
     "DrillBit",
     "DrillBitRate",
     "HoleSection",
