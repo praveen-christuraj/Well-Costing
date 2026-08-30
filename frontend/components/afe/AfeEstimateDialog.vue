@@ -10,7 +10,7 @@
  * here — the totals come from the backend engine (live through the debounced
  * preview, permanently on Save).
  */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
@@ -36,6 +36,7 @@ import {
   type TangibleLineRow,
   type TangibleOption,
 } from '~/types/afe'
+import { matchesAdvancedSearch } from '~/utils/search'
 
 const props = defineProps<{
   visible: boolean
@@ -80,6 +81,9 @@ const expandedRows = ref<Record<string, boolean>>({})
 const printedAt = ref('')
 
 let previewTimer: ReturnType<typeof setTimeout> | undefined
+let previewAbort: AbortController | null = null
+/** Fingerprint of the payload the current preview (or loaded estimate) is for. */
+let lastPreviewedPayload = ''
 let uid = 0
 function nextKey(): string {
   uid += 1
@@ -119,10 +123,13 @@ interface LocalService {
   section_rates: SectionRateRow[]
 }
 
+/** Every consumable category the dialog offers; only drill bits pick an item. */
+type ConsumableKind = 'mud_chemical' | 'drill_bit' | 'cement_additive' | 'fuel'
+
 interface LocalConsumable {
   _key: string
-  item_kind: 'mud_chemical' | 'drill_bit'
-  item_id: number
+  item_kind: ConsumableKind
+  item_id: number | null
   item_code: string
   item_name: string
   quantity: string
@@ -301,6 +308,10 @@ async function load(): Promise<void> {
       warnings: data.warnings,
     }
     expandedRows.value = {}
+    // What was just loaded already has its server-computed preview; remember
+    // its fingerprint so replacing the row arrays does not queue a redundant
+    // (and, while many pile up, backend-crushing) preview request.
+    lastPreviewedPayload = JSON.stringify(buildPayload())
   }
   catch (caught: unknown) {
     error.value = caught instanceof Error ? caught.message : 'The cost estimate could not be loaded'
@@ -317,10 +328,15 @@ watch(
       activeSub.value = SUB_SERVICES
       void load()
     }
+    else {
+      cancelPendingPreview()
+    }
   },
   // The dialog can be mounted already open; do not wait for a change to load.
   { immediate: true },
 )
+
+onBeforeUnmount(cancelPendingPreview)
 
 // ---------------------------------------------------------------------------
 // Payload + live preview
@@ -380,19 +396,50 @@ function buildPayload(): EstimatePayload {
 
 async function refreshPreview(): Promise<void> {
   if (props.afeId == null || !isDraft.value) return
+  const payload = buildPayload()
+  const fingerprint = JSON.stringify(payload)
+  if (fingerprint === lastPreviewedPayload) return
+  lastPreviewedPayload = fingerprint
+  // Never let previews pile up: cancel whatever is still in flight before
+  // asking again. Overlapping preview posts are what wedges the backend
+  // (surfacing as 502 Bad Gateway on this endpoint).
+  previewAbort?.abort()
+  const controller = new AbortController()
+  previewAbort = controller
   try {
-    preview.value = await api.post(`/afe/estimates/${props.afeId}/preview`, buildPayload())
+    preview.value = await api.post(`/afe/estimates/${props.afeId}/preview`, payload, {
+      signal: controller.signal,
+    })
+    // The engine accepted the current rows — an earlier validation message
+    // (e.g. about a duplicated scope the user just removed) is stale.
+    error.value = null
   }
   catch (caught: unknown) {
-    // A preview failure is not fatal: the message explains what to fix.
-    error.value = caught instanceof Error ? caught.message : null
+    // A cancelled preview is normal (a newer edit superseded it); a real
+    // failure is not fatal either — the message explains what to fix.
+    if (!controller.signal.aborted) {
+      error.value = caught instanceof Error ? caught.message : null
+    }
   }
+  finally {
+    if (previewAbort === controller) previewAbort = null
+  }
+}
+
+function cancelPendingPreview(): void {
+  if (previewTimer) clearTimeout(previewTimer)
+  previewTimer = undefined
+  previewAbort?.abort()
+  previewAbort = null
 }
 
 function schedulePreview(): void {
   if (!isDraft.value) return
   if (previewTimer) clearTimeout(previewTimer)
-  previewTimer = setTimeout(() => { void refreshPreview() }, 350)
+  previewTimer = setTimeout(() => {
+    previewTimer = undefined
+    void refreshPreview()
+  }, 600)
 }
 
 watch([serviceRows, consumableRows, tangibleRows], schedulePreview, { deep: true })
@@ -413,23 +460,71 @@ const picker = ref<null | 'service' | 'consumable' | 'tangible'>(null)
 const pickerSearch = ref('')
 const pickerSelection = ref<number[]>([])
 
+/** Join the present parts of a catalogue detail line with a separator. */
+function joinParts(parts: (string | null | undefined)[]): string {
+  return parts.map(part => (part ?? '').toString().trim()).filter(Boolean).join(' · ')
+}
+
+const CONSUMABLE_KIND_LABELS: Record<string, string> = {
+  mud_chemical: 'Mud Chemical',
+  drill_bit: 'Drill Bit',
+}
+
+const drillBitOptions = computed(() =>
+  props.consumables
+    .filter(item => item.kind === 'drill_bit')
+    .map(bit => ({
+      ...bit,
+      label: joinParts([bit.code, bit.name]),
+      sub: joinParts([bit.itemType, bit.size, bit.manufacturer, bit.iadcCode, bit.modelNo, bit.description]),
+      rateLabel: `Rate ${money(bit.rate)}${bit.currency ? ` ${bit.currency}` : ''}`,
+      searchText: [
+        bit.code, bit.name, bit.itemType, bit.size, bit.manufacturer,
+        bit.iadcCode, bit.modelNo, bit.description,
+      ].map(part => (part ?? '').toString().trim().toLowerCase()).join(' '),
+    })),
+)
+
+function drillBitOf(id: number | null) {
+  return drillBitOptions.value.find(bit => bit.id === id)
+}
+
 const pickerRows = computed(() => {
-  const query = pickerSearch.value.trim().toLowerCase()
-  const matches = (text: string): boolean => !query || text.toLowerCase().includes(query)
+  const query = pickerSearch.value
   if (picker.value === 'service') {
     return props.services
-      .filter(service => matches(`${service.service_code} ${service.service_name} ${service.provider_type}`))
+      .filter(service => matchesAdvancedSearch(service, query))
       .map(service => ({
         id: service.id,
         code: service.service_code,
         name: service.service_name,
-        detail: service.provider_type,
+        detail: joinParts([service.provider_type, service.vendor_display]),
         extra: '',
+        sub: '',
+      }))
+  }
+  if (picker.value === 'consumable') {
+    return props.consumables
+      .filter(item => matchesAdvancedSearch(item, query))
+      .map(item => ({
+        id: item.id,
+        code: item.code,
+        name: item.name,
+        detail: joinParts([CONSUMABLE_KIND_LABELS[item.kind] ?? item.kind, item.itemType, item.size, item.manufacturer, item.uom]),
+        extra: `Rate ${money(item.rate)}`,
+        sub: (item.description ?? '').trim(),
       }))
   }
   return props.tangibles
-    .filter(item => matches(`${item.code} ${item.name} ${item.detail}`))
-    .map(item => ({ id: item.id, code: item.code, name: item.name, detail: item.detail, extra: `Rate ${money(item.rate)}` }))
+    .filter(item => matchesAdvancedSearch(item, query))
+    .map(item => ({
+      id: item.id,
+      code: item.code,
+      name: item.name,
+      detail: joinParts([item.manufacturer, item.category, item.subcategory]),
+      extra: `Rate ${money(item.rate)}`,
+      sub: (item.description ?? '').trim(),
+    }))
 })
 
 const pickerVisible = computed({
@@ -441,10 +536,11 @@ const pickerVisible = computed({
 
 const pickerTitle = computed(() => {
   if (picker.value === 'service') return 'Add services'
+  if (picker.value === 'consumable') return 'Add consumables'
   return 'Add tangibles'
 })
 
-function openPicker(kind: 'service' | 'tangible'): void {
+function openPicker(kind: 'service' | 'consumable' | 'tangible'): void {
   picker.value = kind
   pickerSearch.value = ''
   pickerSelection.value = []
@@ -476,6 +572,28 @@ function addPicked(): void {
       })
     }
   }
+  else if (picker.value === 'consumable') {
+    for (const id of pickerSelection.value) {
+      const item = props.consumables.find(candidate => candidate.id === id)
+      if (!item) continue
+      if (consumableRows.value.some(row => row.item_id === id && row.section_id == null && row.phase_id == null)) continue
+      consumableRows.value.push({
+        _key: nextKey(),
+        item_kind: item.kind,
+        item_id: item.id,
+        item_code: item.code,
+        item_name: item.name,
+        quantity: '1',
+        captured_rate: String(item.rate),
+        override_rate: '',
+        uom: item.uom ?? '',
+        currency: item.currency ?? '',
+        section_id: null,
+        phase_id: null,
+        remarks: '',
+      })
+    }
+  }
   else {
     for (const id of pickerSelection.value) {
       const item = props.tangibles.find(candidate => candidate.id === id)
@@ -500,7 +618,8 @@ function addPicked(): void {
   schedulePreview()
 }
 
-function addConsumable(): void {
+/** Lump-sum categories (Fuel, Cement Additives, …) are typed by hand. */
+function addLumpSum(): void {
   consumableRows.value.push({
     _key: nextKey(),
     item_kind: 'mud_chemical',
@@ -555,6 +674,17 @@ function onDrillBitSelect(row: LocalConsumable, itemId: number): void {
   schedulePreview()
 }
 
+function tangibleOf(id: number): TangibleOption | undefined {
+  return props.tangibles.find(item => item.id === id)
+}
+
+/** Master-data identity of a tangible line: make, category, description. */
+function tangibleDetail(id: number): string {
+  const item = tangibleOf(id)
+  if (!item) return ''
+  return joinParts([item.manufacturer, item.category, item.subcategory, item.description])
+}
+
 function removeService(row: LocalService): void {
   serviceRows.value = serviceRows.value.filter(item => item._key !== row._key)
 }
@@ -607,10 +737,11 @@ function onScopeChange(row: LocalService | LocalConsumable): void {
 // ---------------------------------------------------------------------------
 
 async function save(): Promise<void> {
-  if (props.afeId == null) return
+  if (props.afeId == null || saving.value) return
   saving.value = true
   error.value = null
   notice.value = null
+  cancelPendingPreview()
   try {
     estimate.value = await api.put<AfeEstimate>(`/afe/estimates/${props.afeId}`, buildPayload())
     await load()
@@ -626,7 +757,7 @@ async function save(): Promise<void> {
 }
 
 async function changeStatus(action: 'submit' | 'approve' | 'reopen'): Promise<void> {
-  if (props.afeId == null) return
+  if (props.afeId == null || saving.value) return
   const prompt = {
     submit: 'Remarks for submitting this AFE:',
     approve: 'Remarks for approving this AFE:',
@@ -991,9 +1122,11 @@ const oneTimeCategories = [...ONE_TIME_CATEGORIES]
       <!-- Consumables -->
       <section v-else-if="activeSub === SUB_CONSUMABLES" class="afe-est__panel">
         <div class="afe-est__actions">
-          <Button label="Add consumable" icon="pi pi-plus" size="small" severity="secondary" outlined :disabled="!isDraft" @click="addConsumable" />
+          <Button label="Add consumable" icon="pi pi-plus" size="small" severity="secondary" outlined :disabled="!isDraft" @click="openPicker('consumable')" />
+          <Button label="Add lump sum" icon="pi pi-wallet" size="small" severity="secondary" text :disabled="!isDraft" @click="addLumpSum" />
           <span class="afe-est__hint">
-            Select the consumable category and section. For drill bits, pick from the master data. For others, enter an estimated cost.
+            Pick mud chemicals and drill bits from the master data (searchable by make, type, size, IADC, description), or add a lump-sum
+            category (Cement Additives, Fuel, …) and type its estimated cost. For drill bits the rate is captured from the master list.
           </span>
         </div>
 
@@ -1012,21 +1145,41 @@ const oneTimeCategories = [...ONE_TIME_CATEGORIES]
               />
             </template>
           </Column>
-          <Column header="Selection" header-style="width: 220px">
+          <Column header="Selection" header-style="width: 260px">
             <template #body="{ data }">
               <Select
                 v-if="data.item_kind === 'drill_bit'"
                 v-model="data.item_id"
-                :options="props.consumables.filter(c => c.kind === 'drill_bit')"
-                option-label="name"
+                :options="drillBitOptions"
+                option-label="label"
                 option-value="id"
+                filter
+                :filter-fields="['searchText']"
+                filter-placeholder="Search make, type, size, IADC…"
                 size="small"
                 fluid
                 placeholder="Select a Drill Bit"
                 :disabled="!isDraft"
                 @change="onDrillBitSelect(data, $event.value)"
-              />
-              <div v-else class="afe-est__cell-sub">Lump sum estimate</div>
+              >
+                <template #value="{ value, placeholder }">
+                  <div v-if="value != null && drillBitOf(value)" class="afe-est__bit">
+                    <div class="afe-est__bit-main">{{ drillBitOf(value)!.label }}</div>
+                    <div v-if="drillBitOf(value)!.sub" class="afe-est__bit-sub">{{ drillBitOf(value)!.sub }}</div>
+                  </div>
+                  <span v-else class="afe-est__bit-placeholder">{{ placeholder }}</span>
+                </template>
+                <template #option="{ option }">
+                  <div class="afe-est__bit">
+                    <div class="afe-est__bit-main">{{ option.label }}</div>
+                    <div v-if="option.sub" class="afe-est__bit-sub">{{ option.sub }}</div>
+                    <div class="afe-est__bit-rate">{{ option.rateLabel }}</div>
+                  </div>
+                </template>
+              </Select>
+              <div v-else class="afe-est__cell-strong">
+                {{ data.item_code === 'LUMPSUM' ? 'Lump sum estimate' : `${data.item_code || '—'} · ${data.item_name || ''}` }}
+              </div>
             </template>
           </Column>
           <Column header="Section" header-style="width: 150px">
@@ -1087,10 +1240,11 @@ const oneTimeCategories = [...ONE_TIME_CATEGORIES]
         </div>
 
         <DataTable :value="tangibleRows" data-key="_key" size="small" scrollable scroll-height="48vh" class="afe-est__table">
-          <Column field="tangible_name" header="Tangible" header-style="width: 240px">
+          <Column field="tangible_name" header="Tangible" header-style="width: 260px">
             <template #body="{ data }">
               <div class="afe-est__cell-strong">{{ data.tangible_name }}</div>
               <div class="afe-est__cell-sub">{{ data.tangible_code }}</div>
+              <div v-if="tangibleDetail(data.tangible_id)" class="afe-est__cell-sub">{{ tangibleDetail(data.tangible_id) }}</div>
             </template>
           </Column>
           <Column header="Qty" header-style="width: 90px">
@@ -1209,14 +1363,17 @@ const oneTimeCategories = [...ONE_TIME_CATEGORIES]
     <div class="afe-picker">
       <div class="afe-picker__search">
         <i class="pi pi-search" />
-        <InputText v-model="pickerSearch" placeholder="Search code, name or provider…" size="small" fluid />
+        <InputText v-model="pickerSearch" placeholder="Search by any keyword — code, name, manufacturer, category, description…" size="small" fluid />
       </div>
       <div class="afe-picker__list">
         <label v-for="row in pickerRows" :key="row.id" class="afe-picker__row">
           <input v-model="pickerSelection" type="checkbox" :value="row.id">
           <span class="afe-picker__code">{{ row.code }}</span>
-          <span class="afe-picker__name">{{ row.name }}</span>
-          <span class="afe-picker__detail">{{ row.detail }}</span>
+          <span class="afe-picker__main">
+            <span class="afe-picker__name">{{ row.name }}</span>
+            <span v-if="row.detail" class="afe-picker__detail">{{ row.detail }}</span>
+            <span v-if="row.sub" class="afe-picker__sub">{{ row.sub }}</span>
+          </span>
           <span class="afe-picker__extra">{{ row.extra }}</span>
         </label>
         <p v-if="!pickerRows.length" class="afe-est__mini-empty">
@@ -1494,7 +1651,7 @@ const oneTimeCategories = [...ONE_TIME_CATEGORIES]
 
   .afe-picker__row {
     display: grid;
-    grid-template-columns: 18px 110px 1fr 110px 110px;
+    grid-template-columns: 18px 110px 1fr 110px;
     align-items: center;
     gap: 8px;
     padding: 5px 6px;
@@ -1511,14 +1668,62 @@ const oneTimeCategories = [...ONE_TIME_CATEGORIES]
     font-variant-numeric: tabular-nums;
   }
 
+  .afe-picker__main {
+    display: grid;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  .afe-picker__name {
+    font-weight: 600;
+  }
+
   .afe-picker__detail,
-  .afe-picker__extra {
+  .afe-picker__sub {
     color: var(--app-muted);
     font-size: .72rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .afe-picker__sub {
+    font-style: italic;
   }
 
   .afe-picker__extra {
+    color: var(--app-muted);
+    font-size: .72rem;
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+
+  .afe-est__bit {
+    display: grid;
+    gap: 1px;
+    line-height: 1.25;
+  }
+
+  .afe-est__bit-main {
+    font-size: .78rem;
+    font-weight: 600;
+  }
+
+  .afe-est__bit-sub {
+    color: var(--app-muted);
+    font-size: .7rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .afe-est__bit-rate {
+    color: var(--app-muted);
+    font-size: .7rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .afe-est__bit-placeholder {
+    color: var(--app-muted);
   }
 </style>

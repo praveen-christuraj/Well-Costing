@@ -92,10 +92,38 @@ const services = [
   { id: 6, service_code: 'SVC-0002', service_name: 'Cementing', provider_type: '3rd Party' },
 ]
 const consumables = [
-  { id: 7, code: 'MC-0001', name: 'Bentonite', rate: 120, uom: 'Sack', currency: 'USD', kind: 'mud_chemical' as const, detail: 'Mud Chemical · Sack' },
+  { id: 7, code: 'MC-0001', name: 'Bentonite', rate: 120, uom: 'Sack', currency: 'USD', kind: 'mud_chemical' as const, detail: 'Mud Chemical · Sack', description: 'Viscosifier for drilling mud' },
+  {
+    id: 8,
+    code: 'DB-0001',
+    name: 'Bit 12-1/4 PDC',
+    rate: 1200,
+    uom: null,
+    currency: 'USD',
+    kind: 'drill_bit' as const,
+    detail: 'Drill Bit · PDC',
+    manufacturer: 'NOV',
+    itemType: 'PDC',
+    size: '12-1/4',
+    iadcCode: 'M123',
+    modelNo: 'Model123',
+    description: 'Six-blade PDC bit for interbedded formations',
+  },
 ]
 const tangibles = [
-  { id: 9, code: 'TNG-0001', name: 'Casing 9-5/8', rate: 500, uom: 'm', currency: 'USD', detail: 'Drilling · Casing' },
+  {
+    id: 9,
+    code: 'TNG-0001',
+    name: 'Casing 9-5/8',
+    rate: 500,
+    uom: 'm',
+    currency: 'USD',
+    detail: 'Drilling · Casing',
+    manufacturer: 'Tenaris',
+    category: 'Casing',
+    subcategory: 'Surface Casing',
+    description: '9-5/8 53.5# P110 casing string',
+  },
 ]
 
 type ApiMock = Record<'get' | 'post' | 'put' | 'delete', ReturnType<typeof vi.fn>>
@@ -245,11 +273,72 @@ describe('AFE Cost Estimation dialog', () => {
     expect(payload.consumables).toEqual([])
     expect(payload.tangibles).toEqual([])
 
-    // The live preview is debounced and goes through the same engine as Save.
-    await new Promise(resolve => setTimeout(resolve, 450))
+    // Saving cancels the pending preview and the reload after it skips the
+    // redundant request (the loaded estimate already carries the totals), so
+    // the live preview is asserted from a *new* edit: add the service again,
+    // type a rate and wait out the debounce. It goes through the same engine
+    // as Save.
+    await findButton(wrapper, 'Add service')?.trigger('click')
+    await flushPromises()
+    await wrapper.find('.afe-picker__row input').setValue(true)
+    await findButton(wrapper, 'Add 1')?.trigger('click')
+    await flushPromises()
+    await wrapper.find('tbody button[aria-expanded]').trigger('click')
+    await flushPromises()
+    const rateInput = wrapper.find('input[inputmode="decimal"]')
+    await rateInput.setValue('1000')
+    await new Promise(resolve => setTimeout(resolve, 800))
     await flushPromises()
     const previewCalls = api.post.mock.calls.filter(call => String(call[0]).endsWith('/preview'))
     expect(previewCalls.length).toBeGreaterThan(0)
+    expect((previewCalls.at(-1) as unknown[])?.[1]).toMatchObject({
+      services: [expect.objectContaining({ service_id: 5 })],
+    })
+    wrapper.unmount()
+  })
+
+  it('matches the picker rows by any catalogue keyword', async () => {
+    const { wrapper } = await mountDialog()
+
+    // Tangibles: manufacturer, description and code fragments all match —
+    // and several tokens can be combined (advanced search semantics).
+    await findButton(wrapper, 'Tangibles')?.trigger('click')
+    await flushPromises()
+    await findButton(wrapper, 'Add tangible')?.trigger('click')
+    await flushPromises()
+
+    const search = wrapper.find('.afe-picker__search input')
+    await search.setValue('tenaris')
+    await flushPromises()
+    expect(wrapper.findAll('.afe-picker__row')).toHaveLength(1)
+    expect(wrapper.text()).toContain('Tenaris · Casing · Surface Casing')
+    expect(wrapper.text()).toContain('9-5/8 53.5# P110 casing string')
+
+    await search.setValue('p110 casing')
+    await flushPromises()
+    expect(wrapper.findAll('.afe-picker__row')).toHaveLength(1)
+
+    await search.setValue('tenaris drill bit')
+    await flushPromises()
+    expect(wrapper.findAll('.afe-picker__row')).toHaveLength(0)
+
+    // Consumables: a drill bit matches on its make, type and description too.
+    await findButton(wrapper, 'Cancel')?.trigger('click')
+    await findButton(wrapper, 'Consumables')?.trigger('click')
+    await flushPromises()
+    await findButton(wrapper, 'Add consumable')?.trigger('click')
+    await flushPromises()
+    await wrapper.find('.afe-picker__search input').setValue('interbedded')
+    await flushPromises()
+    expect(wrapper.findAll('.afe-picker__row')).toHaveLength(1)
+    expect(wrapper.text()).toContain('NOV')
+
+    await wrapper.find('.afe-picker__row input').setValue(true)
+    await findButton(wrapper, 'Add 1')?.trigger('click')
+    await flushPromises()
+    // The picked bit row shows its identity: code + name, make, type, size.
+    expect(wrapper.text()).toContain('DB-0001')
+    expect(wrapper.text()).toContain('Bit 12-1/4 PDC')
     wrapper.unmount()
   })
 

@@ -4,6 +4,8 @@ export type AfeType = 'Drilling' | 'Completion'
 export type AfeStatus = 'draft' | 'submitted' | 'approved'
 export type ChargingBasis = 'Daily Rate' | 'Per Service Rate' | 'Per Section Rate'
 export type QuantityUnit = 'days' | 'hours'
+/** Consumable categories: catalogue-picked kinds plus the lump-sum kinds. */
+export type ConsumableKind = 'mud_chemical' | 'drill_bit' | 'cement_additive' | 'fuel'
 
 /** The eight constant charge categories, in the order the UI shows them. */
 export const CHARGE_CATEGORIES = [
@@ -112,7 +114,7 @@ export interface ServiceLineRow {
 
 export interface ConsumableLineRow {
   id: number
-  item_kind: 'mud_chemical' | 'drill_bit'
+  item_kind: ConsumableKind
   item_id: number
   item_code: string
   item_name: string
@@ -216,8 +218,8 @@ export interface EstimatePayload {
     section_rates: ServiceSectionRateRow[]
   }[]
   consumables: {
-    item_kind: 'mud_chemical' | 'drill_bit'
-    item_id: number
+    item_kind: ConsumableKind
+    item_id: number | null
     quantity: string | number
     captured_rate: string | number
     override_rate: string | number | null
@@ -247,7 +249,31 @@ export interface ServiceOption {
   vendor_display?: string | null
 }
 
-export interface ConsumableOption {
+/**
+ * Shared extra attributes shown by the consumable / tangible pickers and
+ * matched by their search. All optional so older call sites keep compiling,
+ * but the AFE page fills them from the catalogue APIs.
+ */
+export interface CatalogueItemExtras {
+  /** Free-text catalogue description, when the record has one. */
+  description?: string | null
+  /** Manufacturer / make. */
+  manufacturer?: string | null
+  /** Bit type for drill bits (PDC, Tricone, …). */
+  itemType?: string | null
+  /** Bit size, e.g. `12-1/4`. */
+  size?: string | null
+  /** IADC code of a drill bit. */
+  iadcCode?: string | null
+  /** Manufacturer model number. */
+  modelNo?: string | null
+  /** Category of a tangible (e.g. Casing) or the mud-chemical UOM. */
+  category?: string | null
+  /** Subcategory of a tangible. */
+  subcategory?: string | null
+}
+
+export interface ConsumableOption extends CatalogueItemExtras {
   id: number
   code: string
   name: string
@@ -258,7 +284,7 @@ export interface ConsumableOption {
   detail: string
 }
 
-export interface TangibleOption {
+export interface TangibleOption extends CatalogueItemExtras {
   id: number
   code: string
   name: string

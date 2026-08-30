@@ -10,10 +10,12 @@ Everything the AFE Cost Estimation tab needs, minus the HTTP:
 The routes stay thin and translate :class:`AfeValidationError` into HTTP 400s.
 """
 
+import threading
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain import afe_costing as engine
@@ -26,7 +28,7 @@ from app.models.afe import (
     AfeServiceSectionRate,
     AfeTangibleLine,
 )
-from app.models.catalogue import DrillBit, MudChemical, Service, Tangible
+from app.models.catalogue import DrillBit, Service, Tangible
 from app.models.rig_well import Well
 from app.models.user import User
 from app.schemas.afe import (
@@ -431,6 +433,14 @@ def _clear_lines(afe: Afe) -> None:
         afe.tangible_lines.remove(line)
 
 
+#: Serializes estimate saves inside this process (the routes are sync, so two
+#: requests run on two threads of the same interpreter). Saving replaces an
+#: AFE's lines wholesale; without the lock two overlapping saves both read the
+#: same "old" lines, each inserts its own copy, and the AFE ends up with every
+#: line duplicated.
+_ESTIMATE_SAVE_LOCK = threading.RLock()
+
+
 def normalize_services(
     db: Session, payload: EstimateIn, well_scope: engine.WellScope
 ) -> list[dict[str, Any]]:
@@ -687,7 +697,14 @@ def preview_estimate(db: Session, afe: Afe, payload: EstimateIn) -> dict[str, An
 
 
 def save_estimate(db: Session, afe: Afe, payload: EstimateIn, user: User) -> AfeEstimateOut:
-    """Validate and replace the whole estimate of one AFE, then re-price it."""
+    """Validate and replace the whole estimate of one AFE, then re-price it.
+
+    The read-modify-write cycle is serialized per AFE (double-clicked saves,
+    or a save retried while a slow first request is still running, must not
+    stack two copies of the same lines), and the lines are re-read *inside*
+    the critical section so the second save replaces what the first one
+    committed instead of deleting rows that are already gone.
+    """
 
     ensure_draft(afe)
     services, consumables, tangibles = normalize_estimate(db, afe, payload)
@@ -769,15 +786,24 @@ def save_estimate(db: Session, afe: Afe, payload: EstimateIn, user: User) -> Afe
         for index, row in enumerate(tangibles)
     ]
 
-    _clear_lines(afe)
-    afe.service_lines.extend(service_rows)
-    afe.consumable_lines.extend(consumable_rows)
-    afe.tangible_lines.extend(tangible_rows)
-    afe.updated_by = user.id
-    db.commit()
-    db.refresh(afe)
-    db.expire(afe, ["service_lines", "consumable_lines", "tangible_lines"])
-    return build_estimate_out(afe)
+    with _ESTIMATE_SAVE_LOCK:
+        # Row lock for multi-worker deployments (PostgreSQL). SQLite ignores
+        # FOR UPDATE — there the in-process lock above does the serializing.
+        db.execute(select(Afe.id).where(Afe.id == afe.id).with_for_update())
+        # The lock is only half the fix: the lines and the status were loaded
+        # before it was acquired. Drop that (possibly stale) read so this
+        # transaction sees whatever the previous save really committed.
+        db.expire(afe, ["status", "service_lines", "consumable_lines", "tangible_lines"])
+        ensure_draft(afe)
+        _clear_lines(afe)
+        afe.service_lines.extend(service_rows)
+        afe.consumable_lines.extend(consumable_rows)
+        afe.tangible_lines.extend(tangible_rows)
+        afe.updated_by = user.id
+        db.commit()
+        db.refresh(afe)
+        db.expire(afe, ["service_lines", "consumable_lines", "tangible_lines"])
+        return build_estimate_out(afe)
 
 # ---------------------------------------------------------------------------
 # Status transitions (the only place the AFE status changes)
