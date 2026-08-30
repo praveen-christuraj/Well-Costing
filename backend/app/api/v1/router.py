@@ -15,6 +15,7 @@ from app.api.v1.routes import (
     master_data,
     rig_well,
     vendor_po,
+    well_sub_activity,
 )
 
 api_router = APIRouter()
@@ -33,4 +34,6 @@ api_router.include_router(master_data.router)
 api_router.include_router(rig_well.router)
 # AFE routes own /afe/... (AFE header + AFE cost estimation).
 api_router.include_router(afe.router)
+# Well Sub Activities owns /well-sub-activities/... (completely well scoped).
+api_router.include_router(well_sub_activity.router)
 api_router.include_router(audit_logs.router)

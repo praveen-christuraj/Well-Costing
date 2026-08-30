@@ -6,6 +6,7 @@ describe('application navigation', () => {
     expect(enabledNavigation.map(item => item.key)).toEqual([
       'dashboard',
       'rig-well-management',
+      'well-sub-activities',
       'afe-management',
       'master-data',
       'audit-logs',

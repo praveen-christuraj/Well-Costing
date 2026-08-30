@@ -105,6 +105,26 @@ Two deliberate choices:
 from either `mud_chemicals` or `drill_bits`; `item_kind` selects the list and
 the code, name, UOM and captured rate are snapshotted on the row.
 
+### Well Sub Activities
+
+```text
+well_sub_activities
+  id serial PK
+  well_id FK -> wells        -- completely well scoped (rig -> well picked first)
+  sub_activity_code          -- manual, unique within the well:
+  unique (well_id, sub_activity_code)      -- another well may reuse the code
+  sub_activity_name          -- manual, mandatory
+  activity_id FK -> activities               -- controlled by Master Data Activities
+  responsible_party          -- company executing the sub activity, mandatory
+  description                -- description/remarks, mandatory
+  is_deleted / deleted_at    -- soft delete -> Deleted Entries tab
+  created_at / updated_at / created_by / updated_by
+```
+
+The composite unique constraint (rather than a global one) is deliberate: the
+page is completely well scoped, so uniqueness is enforced *per well* and a
+manual code such as `RIH-01` can still be used on a different well.
+
 ## Conventions
 
 Constraint names are deterministic:

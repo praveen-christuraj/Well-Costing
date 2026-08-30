@@ -2,6 +2,41 @@
 
 All notable project changes are documented here.
 
+## 2026-08-30 — Well Sub Activities: well-scoped activity distribution to companies
+
+### Added
+
+- **Well Sub Activities page** (`/well-sub-activities`, sidebar group *Rig &
+  Well*) — the page that distributes each well's main Activities to the
+  responsible parties/companies executing them. It is **completely well
+  scoped**: the user picks the **Rig** first and then the corresponding
+  **Well** (wells filtered to the selected rig) before any data entry, and
+  every grid row, import, export, print and deleted entry belongs to that
+  well. Switching the rig or well with unsaved rows asks before discarding.
+- **Data entry columns** — all manual and mandatory, exactly as specified:
+  **Sub Activity Code** (unique **within the well** — the same code may exist
+  on another well; duplicates are rejected in the grid, on import and by the
+  database's composite unique constraint), **Sub Activity Name**, **Activity**
+  (dropdown controlled by the Master Data *Activities* page, so only
+  master-defined activities can be picked), **Responsible Party/Company** and
+  **Description/Remarks**.
+- **Common template on both tabs**: the Sub Activities tab carries the
+  excel-style bulk grid (add/paste/duplicate/bulk edit) plus Import
+  (XLSX/CSV — rows import into the currently selected well, resolve the
+  Activity by code *or* name, upsert per well+code and report per-row errors),
+  well-scoped XLSX/CSV export, Print (with the rig/well context stamped on the
+  sheet) and soft delete; the Deleted Entries tab lists the selected well's
+  soft-deleted sub activities with restore (guarded against a code clash) and
+  permanent delete. Every action is audit-logged under module *Well Sub
+  Activities*.
+- **Backend** — new `well_sub_activities` table (migration `20260830_0009`:
+  `well_id → wells`, `activity_id → activities`, `(well_id, sub_activity_code)`
+  unique), the `/api/v1/well-sub-activities` router with well-scoped list /
+  deleted / import-template / import / export endpoints plus guarded create /
+  update / soft-delete / restore / permanent-delete, and the
+  `WellSubActivityIn/Update/Out` schemas. Recreating a soft-deleted code
+  restores that row, matching the convention of the other entry pages.
+
 ## 2026-08-30 — AFE Cost Estimation: concurrency, catalogue pickers, print order
 
 ### Fixed
