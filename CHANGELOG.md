@@ -6,6 +6,21 @@ All notable project changes are documented here.
 
 ### Fixed
 
+- **Termux deploys with a local `DATABASE_URL` on a non-5432 port failed with an
+  unactionable `Connection refused`.** The scripts hard-coded `5432` in their
+  warning and only matched `port 5432` in the migration log, so a URL such as
+  `postgresql+psycopg://…@127.0.0.1:5433/…` (a local PostgreSQL on another
+  port) got a generic "Fix the database configuration" message. The deploy /
+  start / migrate / update scripts now parse the **actual** host and port from
+  `DATABASE_URL`, report it in the preflight, start an installed-but-stopped
+  local Termux PostgreSQL automatically before retrying migrations, and print
+  exact steps (including `pkg install -y postgresql && bash termux/postgres.sh
+  setup`) when it is missing. New `termux/postgres.sh` manages the local
+  server: `setup` installs, initializes (`initdb`), starts it on the URL's
+  port, and creates the role + database named in `DATABASE_URL` (percent-encoded
+  passwords are decoded correctly); `start` / `stop` / `status` / `init` cover
+  day-to-day use.
+
 - **AFE estimate lines no longer duplicate after a page reload.** Saving an
   estimate replaces its lines wholesale, but two overlapping saves of the same
   AFE (a double-clicked **Save**, or a save retried while a slow first request

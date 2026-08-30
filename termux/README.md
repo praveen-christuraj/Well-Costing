@@ -2,7 +2,9 @@
 
 Host the drilling-costing app on your Android phone using Termux. The frontend runs
 natively on Termux; the Python backend runs inside a **Debian container**
-(proot-distro); the database lives in **Supabase** (free tier, PostgreSQL in the cloud).
+(proot-distro); the database is **Supabase** (free tier, PostgreSQL in the cloud)
+by default, or a **local PostgreSQL server** on the phone via
+[`postgres.sh`](#local-postgresql-on-the-phone-optional).
 
 ## Architecture
 
@@ -55,6 +57,36 @@ broken deploy script — it is removed automatically).
 3. Copy the **Transaction pooler** URL (port **6543**) — it works best on mobile
 4. It looks like: `postgresql://postgres.xxxx:PASSWORD@aws-0-region.pooler.supabase.com:6543/postgres`
 
+## Local PostgreSQL on the phone (optional)
+
+Prefer to keep data on the device instead of the cloud? Install a PostgreSQL
+server in Termux — one command does everything:
+
+```bash
+# 1. Point backend/.env at the phone (ANY local port works)
+nano backend/.env
+#   DATABASE_URL=postgresql+psycopg://drilling_costing:PASSWORD@127.0.0.1:5432/drilling_costing
+
+# 2. Install (if needed) + initdb + start + create the role/database from the URL
+bash termux/postgres.sh setup
+
+# 3. Migrate and start the app
+bash termux/deploy.sh
+```
+
+`postgres.sh` reads the host/port/role/database from `backend/.env`, so custom
+ports (e.g. `127.0.0.1:5433`) need no extra configuration. Other commands:
+`bash termux/postgres.sh status | start | stop | init`. Override with
+`PGDATA=... PGHOST=... PGPORT=...`.
+
+The Debian container shares the phone's network, so the backend reaches the
+Termux-native server at `127.0.0.1:<port>`. Use the **TCP** URL, never the
+Unix-socket URL (the socket directory is not visible inside the container).
+`deploy.sh`, `start.sh`, `migrate.sh`, and `update.sh` start an
+installed-but-stopped local server automatically before running migrations;
+PostgreSQL still does not survive a phone reboot, so re-run `deploy.sh` (or
+`postgres.sh start`) after restarting.
+
 ## First-time Termux setup
 
 ```bash
@@ -96,6 +128,9 @@ The app is available at:
 | `bash termux/update.sh` | `git pull` + reinstall deps + migrate |
 | `bash termux/migrate.sh` | Run Alembic migrations only |
 | `bash termux/deploy.sh` | One-shot: setup or update, then migrate + start |
+| `bash termux/postgres.sh setup` | First-time local PostgreSQL: install + initdb + start + create role/db |
+| `bash termux/postgres.sh start` | Start the local PostgreSQL server (also runs automatically) |
+| `bash termux/postgres.sh status` | Local PostgreSQL: installed? initialized? running? |
 | `bash termux/backend-exec.sh <cmd>` | Run any backend command inside Debian |
 | `bash termux/share.sh` | Open a public tunnel URL for testers off your Wi-Fi |
 
@@ -221,8 +256,8 @@ Neither file is committed to git.
 The deploy migrates into whatever database `DATABASE_URL` names — it never
 creates it. If you wiped the database (via PostgresApp, psql, or Supabase),
 recreate an empty one and let migrations build the schema. For a local
-PostgreSQL on the phone, connect as the superuser (psql or the PostgresApp
-query window) and run:
+PostgreSQL on the phone, re-run `bash termux/postgres.sh setup` (it creates the
+role and database from `DATABASE_URL`), or connect as the superuser and run:
 
 ```sql
 CREATE ROLE wellcosting LOGIN PASSWORD 'wellcosting1234';  -- skip if it exists
