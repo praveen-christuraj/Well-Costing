@@ -275,7 +275,8 @@ def scopes_for(entries: list[DailyCostEntry]) -> dict[int, WellScope]:
 
     scopes: dict[int, WellScope] = {}
     for entry in entries:
-        if entry.well is not None and entry.well_id not in scopes:
+        # `well_id` is not nullable, so the entry always carries its well.
+        if entry.well_id not in scopes:
             scopes[entry.well_id] = build_well_scope(entry.well)
     return scopes
 

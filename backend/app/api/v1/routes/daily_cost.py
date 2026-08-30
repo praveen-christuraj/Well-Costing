@@ -116,12 +116,6 @@ def _get_afe(db: Session, afe_id: int | None, well: Well) -> Afe | None:
     return afe
 
 
-def _default_afe(db: Session, well: Well) -> Afe | None:
-    """The AFE the page preselects: the newest submitted/approved one."""
-
-    return pick_default_afe(load_afes(db, well_id=well.id, with_estimate_lines=True))
-
-
 def pick_default_afe(afes: list[Afe]) -> Afe | None:
     """Prefer the newest submitted/approved AFE, else the newest one."""
 
