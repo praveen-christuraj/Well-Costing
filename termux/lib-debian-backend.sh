@@ -366,17 +366,41 @@ ensure_backend_toolchain() {
 
 # ─── Migrations ──────────────────────────────────────────────────────────────
 
-# Echo the active DATABASE_URL from backend/.env (comments ignored, last one
-# wins, dotenv-compatible "export " prefix allowed). Empty output means the
-# URL is not configured — in that case the app falls back to its built-in
-# default (drilling_costing@localhost:5432), which nothing on this phone
-# serves, so every migration would die with a connection-refused traceback.
-active_database_url() {
+# Echo one variable's value from backend/.env (comments ignored, last one wins,
+# dotenv-compatible "export " prefix allowed). Empty output means unset.
+env_value_from_backend() {
+    local key="$1"
     [ -f "$BACKEND_ENV" ] || return 0
-    grep -E '^[[:space:]]*(export[[:space:]]+)?DATABASE_URL=' "$BACKEND_ENV" 2>/dev/null \
+    grep -E "^[[:space:]]*(export[[:space:]]+)?${key}=" "$BACKEND_ENV" 2>/dev/null \
         | tail -1 \
-        | sed -E 's/^[[:space:]]*(export[[:space:]]+)?DATABASE_URL=//; s/[[:space:]]+$//' \
+        | sed -E "s/^[[:space:]]*(export[[:space:]]+)?${key}=//; s/[[:space:]]+\$//" \
         | tr -d '"' || true
+}
+
+# Echo the active DATABASE_URL from backend/.env. Empty output means the URL is
+# not configured — in that case the app falls back to its built-in default
+# (drilling_costing@localhost:5432), which nothing on this phone serves, so
+# every migration would die with a connection-refused traceback.
+active_database_url() {
+    env_value_from_backend DATABASE_URL
+}
+
+# Echo the URL Alembic will actually connect to. backend/alembic/env.py uses
+# MIGRATION_DATABASE_URL when set and non-empty, otherwise DATABASE_URL. Every
+# preflight / server-start / diagnostic below must use THIS function — checking
+# only DATABASE_URL was the root cause of the confusing
+# "preflight says localhost:5432, migration dies on 127.0.0.1:5433 refused"
+# failure: a stale MIGRATION_DATABASE_URL pointing at another port silently
+# overrides the runtime URL for migrations.
+active_migration_url() {
+    local migration runtime
+    migration=$(env_value_from_backend MIGRATION_DATABASE_URL)
+    runtime=$(active_database_url)
+    if [ -n "$migration" ]; then
+        printf '%s' "$migration"
+    else
+        printf '%s' "$runtime"
+    fi
 }
 
 # True for PostgreSQL URLs the app accepts (before/after driver normalization).
@@ -481,18 +505,87 @@ port_is_listening() {
     return 1
 }
 
+# True when a URL still carries the setup placeholder.
+database_url_is_placeholder() {
+    case "${1:-}" in
+        *"postgres.XXXX:PASSWORD"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# A DATABASE_URL naming a loopback PostgreSQL server means "the local Termux
+# server". Migrations must run against that same server: an unrelated
+# MIGRATION_DATABASE_URL (e.g. a stale 127.0.0.1:5433 from an old edit) makes
+# Alembic connect somewhere the app never uses — the app then talks to a server
+# that is never started, and migrations fail with a confusing connection
+# refused on a different port than the preflight reported. When this happens,
+# clear the override so both the app and Alembic converge on DATABASE_URL.
+# Remote (Supabase) setups keep their separate direct/migration URL untouched.
+repair_migration_url_conflict() {
+    local runtime_url migration_url rt_host rt_port mg_host mg_port
+    runtime_url=$(active_database_url)
+    migration_url=$(env_value_from_backend MIGRATION_DATABASE_URL)
+    if ! is_postgres_url "$runtime_url" || ! is_postgres_url "$migration_url"; then
+        return 0
+    fi
+    read -r rt_host rt_port < <(database_url_host_port "$runtime_url")
+    read -r mg_host mg_port < <(database_url_host_port "$migration_url")
+    if is_loopback_db_host "$rt_host" && [ "$rt_host:$rt_port" != "$mg_host:$mg_port" ]; then
+        warn "MIGRATION_DATABASE_URL ($mg_host:$mg_port) differs from DATABASE_URL ($rt_host:$rt_port)."
+        warn "  Alembic would migrate into a different local server than the app uses, so"
+        warn "  migrations fail with 'connection refused' on an unexpected port. Clearing"
+        warn "  MIGRATION_DATABASE_URL so both use DATABASE_URL ($rt_host:$rt_port)."
+        sed -i -E 's/^[[:space:]]*(export[[:space:]]+)?MIGRATION_DATABASE_URL=.*/MIGRATION_DATABASE_URL=/' "$BACKEND_ENV"
+        ok "MIGRATION_DATABASE_URL cleared — migrations will use DATABASE_URL"
+    fi
+}
+
+# Warn about a local (loopback) PostgreSQL URL, using the URL Alembic really
+# uses. Returns 0 always; validation failures are handled by check_database_url.
+warn_about_local_database_url() {
+    local url="$1" db_host db_port
+    if ! is_postgres_url "$url"; then
+        return 0
+    fi
+    if [[ "$url" == postgresql+psycopg:///* ]]; then
+        warn "DATABASE_URL uses the local Unix socket (no host in the URL)."
+        warn "  The PostgreSQL socket of a Termux-native server is not visible inside"
+        warn "  the Debian container — use 127.0.0.1:<port> in the URL instead."
+        return 0
+    fi
+    read -r db_host db_port < <(database_url_host_port "$url")
+    if ! is_loopback_db_host "$db_host"; then
+        return 0
+    fi
+    warn "DATABASE_URL points at PostgreSQL on this phone ($db_host:$db_port)."
+    if command -v pg_ctl >/dev/null 2>&1; then
+        if port_is_listening "$db_host" "$db_port"; then
+            warn "  A local PostgreSQL server is answering there — good."
+        else
+            warn "  Termux PostgreSQL is installed but NOT running on $db_host:$db_port."
+            warn "  The deploy script will install/start it automatically; or run:"
+            warn "      bash termux/postgres.sh setup"
+        fi
+    else
+        warn "  The deploy script will install Termux's native 'postgresql' package and"
+        warn "  set the server up automatically on $db_host:$db_port (no action needed)."
+        warn "  (see DEPLOYMENT.md → 'Local PostgreSQL on Termux', or use a Supabase URL.)"
+    fi
+}
+
 # Preflight: refuse to run migrations against a database that cannot work.
 # Prints actionable guidance and returns 1 when configuration is missing.
 check_database_url() {
-    local url
+    local runtime_url migration_url
     if [ ! -f "$BACKEND_ENV" ]; then
         err "backend/.env not found — no database is configured."
         err "  Run 'bash termux/deploy.sh' (it creates the file and asks for a database),"
         err "  or copy backend/.env.example to backend/.env and set DATABASE_URL."
         return 1
     fi
-    url=$(active_database_url)
-    if [ -z "$url" ]; then
+    runtime_url=$(active_database_url)
+    migration_url=$(active_migration_url)
+    if [ -z "$runtime_url" ]; then
         err "backend/.env has no active DATABASE_URL line (missing or commented out)."
         err "  Unset, the backend falls back to localhost:5432 — but nothing on this"
         err "  phone runs PostgreSQL there, so migrations fail with"
@@ -501,37 +594,20 @@ check_database_url() {
         err "       of backend/.env, or run 'bash termux/deploy.sh' to pick a database."
         return 1
     fi
-    if [[ "$url" == *"postgres.XXXX:PASSWORD"* ]]; then
+    if database_url_is_placeholder "$runtime_url" || database_url_is_placeholder "$migration_url"; then
         err "backend/.env still contains the placeholder DATABASE_URL (postgres.XXXX:PASSWORD...)."
         err "  Fix: paste your real Supabase URI into backend/.env, or run 'bash termux/deploy.sh'."
         return 1
     fi
-    if is_postgres_url "$url"; then
-        local db_host db_port
-        read -r db_host db_port < <(database_url_host_port "$url")
-        if is_loopback_db_host "$db_host"; then
-            warn "DATABASE_URL points at PostgreSQL on this phone ($db_host:$db_port)."
-            if command -v pg_ctl >/dev/null 2>&1; then
-                if port_is_listening "$db_host" "$db_port"; then
-                    warn "  A local PostgreSQL server is answering there — good."
-                else
-                    warn "  Termux PostgreSQL is installed but NOT running on $db_host:$db_port."
-                    warn "  The deploy script will try to start it automatically; or run:"
-                    warn "      bash termux/postgres.sh start"
-                fi
-            else
-                warn "  Nothing in this deployment starts a PostgreSQL server, so the connection"
-                warn "  will be REFUSED unless you install Termux's native 'postgresql' package"
-                warn "  and start it. One command does everything:"
-                warn "      pkg install -y postgresql && bash termux/postgres.sh setup"
-                warn "  (see DEPLOYMENT.md → 'Local PostgreSQL on Termux', or use a Supabase URL.)"
-            fi
-        fi
-    fi
-    if [[ "$url" == postgresql+psycopg:///* ]]; then
-        warn "DATABASE_URL uses the local Unix socket (no host in the URL)."
-        warn "  The PostgreSQL socket of a Termux-native server is not visible inside"
-        warn "  the Debian container — use 127.0.0.1:5432 in the URL instead."
+    # Report the URL that will actually be used (MIGRATION_DATABASE_URL wins),
+    # never a value that differs from what Alembic dials.
+    warn_about_local_database_url "$migration_url"
+    if is_postgres_url "$runtime_url" && is_postgres_url "$migration_url" \
+        && [ "$runtime_url" != "$migration_url" ]; then
+        warn "MIGRATION_DATABASE_URL overrides DATABASE_URL for migrations."
+        warn "  App runtime:  $runtime_url"
+        warn "  Migrations:   $migration_url"
+        warn "  (cleared automatically by deploy/start/migrate/update when the app targets a local server.)"
     fi
     return 0
 }
@@ -545,35 +621,38 @@ run_migrations_once() {
     return "$status"
 }
 
-# When DATABASE_URL points at a local PostgreSQL server and the Termux
-# 'postgresql' package is installed but the server is stopped, start it before
-# running migrations. A stopped server is the #1 cause of the
-# "connection refused at 127.0.0.1:<port>" failure this deployment sees.
+# When DATABASE_URL points at a local PostgreSQL server, install (if needed),
+# initialize, start, and ensure the role + database exist before running
+# migrations. `postgres.sh setup` is idempotent, so it is safe to call on every
+# run: it repairs a stopped server, a missing postgresql package, an
+# uninitialized cluster, or a dropped database/role — the whole class of
+# "connection refused at 127.0.0.1:<port>" failures this deployment sees.
 maybe_start_local_postgres() {
     local url db_host db_port
-    url=$(active_database_url)
+    url=$(active_migration_url)
     if ! is_postgres_url "$url"; then
         return 0
     fi
     read -r db_host db_port < <(database_url_host_port "$url")
-    if ! is_loopback_db_host "$db_host" || ! command -v pg_ctl >/dev/null 2>&1; then
+    if ! is_loopback_db_host "$db_host"; then
         return 0
     fi
-    if port_is_listening "$db_host" "$db_port"; then
+    log "Ensuring local PostgreSQL on $db_host:$db_port (installs Termux 'postgresql' on first run)..."
+    if bash "$TERMUX_DIR/postgres.sh" setup; then
+        ok "Local PostgreSQL ready on $db_host:$db_port"
         return 0
     fi
-    warn "Local PostgreSQL server is not running on $db_host:$db_port — starting it..."
-    if bash "$TERMUX_DIR/postgres.sh" start; then
-        ok "Local PostgreSQL started on $db_host:$db_port"
-    else
-        err "Could not start local PostgreSQL on $db_host:$db_port."
-        err "  First-time setup (installs, initializes, starts, creates role/database):"
-        err "      bash termux/postgres.sh setup"
-        return 1
-    fi
+    err "Could not prepare local PostgreSQL on $db_host:$db_port."
+    err "  Install/init/start/role+db manually:  bash termux/postgres.sh setup"
+    err "  Or point DATABASE_URL at a Supabase 'Transaction pooler' URL instead."
+    return 1
 }
 
 run_migrations() {
+    # First heal a stale MIGRATION_DATABASE_URL that points at a different
+    # local server than DATABASE_URL — the exact cause of "preflight reported
+    # 5432 but the migration died on 127.0.0.1:5433".
+    repair_migration_url_conflict
     check_database_url || die "Migrations skipped — fix DATABASE_URL above, then re-run this script."
     maybe_start_local_postgres || die "Migrations skipped — fix the local PostgreSQL server above, then re-run this script."
     log "Running database migrations (inside Debian)..."
@@ -583,7 +662,7 @@ run_migrations() {
     if [ "$migration_status" -ne 0 ]; then
         err "Migrations FAILED (exit $migration_status) — full log: termux/migration.log"
         local url db_host db_port refused_port refused
-        url=$(active_database_url)
+        url=$(active_migration_url)
         read -r db_host db_port < <(database_url_host_port "$url")
         refused=""
         if grep -qE "port [0-9]+ failed: Connection refused" "$migration_log" 2>/dev/null; then
@@ -891,6 +970,18 @@ EOF
     ok "Created frontend/.env"
 }
 
+# Remove any MIGRATION_DATABASE_URL override after a new DATABASE_URL is saved
+# interactively. Otherwise a stale value from an earlier setup keeps winning in
+# alembic/env.py and migrations silently target a different host/port than the
+# app uses (see repair_migration_url_conflict). Users who deliberately need a
+# separate migration URL can add the line back afterwards.
+clear_migration_database_url() {
+    if grep -Eq '^[[:space:]]*(export[[:space:]]+)?MIGRATION_DATABASE_URL=' "$BACKEND_ENV" 2>/dev/null; then
+        sed -i -E 's/^[[:space:]]*(export[[:space:]]+)?MIGRATION_DATABASE_URL=.*/MIGRATION_DATABASE_URL=/' "$BACKEND_ENV"
+        ok "MIGRATION_DATABASE_URL cleared (migrations follow DATABASE_URL)"
+    fi
+}
+
 # Prompt for DATABASE_URL when backend/.env still holds the placeholder.
 # Offers both Supabase and SQLite options interactively.
 # Returns non-zero (without failing the caller) when the URL is still missing.
@@ -920,6 +1011,7 @@ prompt_for_database_url() {
         # environment ('termux' hard-requires PostgreSQL), so SQLite on the
         # phone must run with ENVIRONMENT=development.
         sed -i 's|^ENVIRONMENT=.*|ENVIRONMENT=development|' "$BACKEND_ENV"
+        clear_migration_database_url
         ok "SQLite selected — database file: $SQLITE_PATH"
         warn "ENVIRONMENT switched to development (SQLite is only allowed there)."
         return 0
@@ -942,6 +1034,7 @@ prompt_for_database_url() {
         local DB_URL_ESCAPED
         DB_URL_ESCAPED=$(printf '%s' "$DB_URL" | sed -e 's/\\/\\\\/g' -e 's/|/\\|/g' -e 's/&/\\&/g')
         sed -i "s|^DATABASE_URL=.*|DATABASE_URL=$DB_URL_ESCAPED|" "$BACKEND_ENV"
+        clear_migration_database_url
         ok "DATABASE_URL saved"
         return 0
     fi
