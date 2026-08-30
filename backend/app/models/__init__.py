@@ -35,6 +35,7 @@ from app.models.master_data import (
 from app.models.rig_well import Rig, Well, WellPhase, WellSection
 from app.models.role import Role
 from app.models.user import User, user_roles
+from app.models.well_sub_activity import WellSubActivity
 
 __all__ = [
     "Activity",
@@ -67,5 +68,6 @@ __all__ = [
     "Well",
     "WellPhase",
     "WellSection",
+    "WellSubActivity",
     "user_roles",
 ]
