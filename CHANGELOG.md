@@ -2,6 +2,65 @@
 
 All notable project changes are documented here.
 
+## 2026-08-30 — AFE Cost Estimation: concurrency, catalogue pickers, print order
+
+### Fixed
+
+- **AFE estimate lines no longer duplicate after a page reload.** Saving an
+  estimate replaces its lines wholesale, but two overlapping saves of the same
+  AFE (a double-clicked **Save**, or a save retried while a slow first request
+  was still running) both read the same "old" lines — the second transaction
+  then deleted rows that were already gone and inserted its own copy next to
+  the first one, so every line appeared twice (and the totals doubled) the next
+  time the page loaded. `save_estimate` now serialises the read-modify-write
+  cycle per AFE (an in-process lock plus `SELECT … FOR UPDATE` on the AFE row
+  for multi-worker deployments) and re-reads the lines *inside* the critical
+  section, so a racing save replaces what the previous one committed.
+  Regression-tested with genuinely concurrent saves in
+  `tests/integration/test_afe_estimate_concurrency.py`.
+- **`POST /afe/estimates/{id}/preview` no longer returns 502 Bad Gateway under
+  load.** Two causes, both fixed:
+  - The live preview fired on every deep edit of the dialog's rows (debounced
+    only 350 ms), did not cancel the request it superseded, and re-fired with
+    an unchanged payload right after every load or save. The dialog now skips
+    previews whose payload matches the last one, cancels any in-flight preview
+    before issuing the next one, cancels pending previews on save/close, and
+    debounces at 600 ms.
+  - A file-backed SQLite `DATABASE_URL` shared one connection across every
+    request thread (`StaticPool`). Under concurrent requests the sync endpoint
+    threadpool deadlocked on that shared connection and the backend stopped
+    answering *any* database request until restarted — which the Nuxt proxy
+    reports as 502. The engine now gives file-backed SQLite one connection per
+    checkout (`NullPool`) with WAL and a 30 s busy timeout; in-memory SQLite
+    (tests) keeps the single shared connection. 150 concurrent preview posts,
+    previously 131 × 502 and a wedged backend, now all return 200.
+  - `Save` and the status buttons also ignore double invocation while a
+    request is in flight.
+
+### Changed
+
+- **Drill bits in the AFE consumables table show their full identity.** The
+  bit dropdown lists code, name, type, size, manufacturer, IADC code, model
+  number, description and rate on two lines, and its filter box matches any of
+  those keywords. The closed dropdown shows the same identity for the selected
+  bit.
+- **Tangibles show description and manufacturer everywhere they are picked.**
+  The tangible picker rows carry manufacturer · category · subcategory plus the
+  catalogue description, and the tangible table in the dialog repeats them
+  under the name. The service, consumable and tangible pickers now use the
+  same tokenized advanced search as the rest of the application, so any
+  keyword (or several, all of which must match) finds a line item.
+- **"Add consumable" opens the catalogue picker** (mud chemicals and drill
+  bits, searchable); a separate **Add lump sum** button adds the hand-typed
+  lump-sum categories (Cement Additives, Fuel, …) as before.
+- **The printed AFE follows the specified section order**: metadata header →
+  well configuration → **AFE cost estimate summary** (group totals, grand
+  total, per-section rollup of planned days and cost) → services →
+  consumables → tangibles. Previously the summary sat at the end and the
+  services table only labelled the section on a line's first component row —
+  each priced row now shows the section/phase it was actually charged against
+  (well-wide daily services are split per configured section).
+
 ## 2026-08-29 — AFE Management: well-scoped AFEs and the AFE Cost Estimation engine
 
 ### Added

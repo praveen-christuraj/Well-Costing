@@ -1,13 +1,19 @@
 <script setup lang="ts">
 /**
- * Print-only sheet for a complete AFE: the well configuration in the metadata
- * header, then the service, consumable and tangible costs with the compiled
- * group totals. Rendered invisible on screen — the print stylesheet is what
- * shows it — so the same markup serves the list's row-wise Print button and
- * the cost estimation dialog.
+ * Print-only sheet for a complete AFE. Section order (as specified):
+ *
+ *   1. metadata header — rig / well / type / status / totals
+ *   2. well configuration — hole sections, phases, depths, planned days
+ *   3. AFE cost estimate summary — group totals, grand total and the
+ *      per-section rollup of planned days and cost
+ *   4. services breakdown, 5. consumables, 6. tangibles
+ *
+ * Rendered invisible on screen — the print stylesheet is what shows it — so
+ * the same markup serves the list's row-wise Print button and the cost
+ * estimation dialog.
  */
 import { computed } from 'vue'
-import type { AfeEstimate } from '~/types/afe'
+import type { AfeEstimate, CostComponent, ServiceLineRow } from '~/types/afe'
 
 const props = defineProps<{
   estimate: AfeEstimate
@@ -29,6 +35,22 @@ function quantity(value: string | number | null): string {
 function depth(value: string | number | null): string {
   if (value == null || value === '') return '—'
   return `${Number(value)} ${props.estimate.well_configuration?.depth_unit === 'ft' ? 'ft' : 'm'}`
+}
+
+/**
+ * Section / phase of one priced component row. Components carry their own
+ * scope (a well-wide daily service is split per configured section), so every
+ * row shows the section it was charged against instead of only the first.
+ */
+function componentScope(line: ServiceLineRow, component: CostComponent | null): string {
+  if (component && (component.section_label || component.phase_label)) {
+    return [component.section_label, component.phase_label].filter(Boolean).join(' / ')
+  }
+  if (component == null) return ''
+  const lineScope = [line.estimate.components[0]?.section_label, line.estimate.components[0]?.phase_label]
+    .filter(Boolean)
+    .join(' / ')
+  return lineScope || 'Whole well'
 }
 
 const afe = computed(() => props.estimate.afe)
@@ -62,6 +84,7 @@ const summaryTotal = computed(() => money(props.estimate.grand_total))
       <p v-if="afe.remarks" class="print-sheet__meta">Remarks: {{ afe.remarks }}</p>
     </header>
 
+    <!-- 1 — well configuration metadata -->
     <h2 class="afe-print__title">Well configuration</h2>
     <table class="print-sheet__table">
       <thead>
@@ -101,100 +124,8 @@ const summaryTotal = computed(() => money(props.estimate.grand_total))
       </tbody>
     </table>
 
-    <h2 class="afe-print__title">Services</h2>
-    <table class="print-sheet__table">
-      <thead>
-        <tr>
-          <th>Service</th>
-          <th>Provider</th>
-          <th>Charging Basis</th>
-          <th>Section / Phase</th>
-          <th>Charge Category</th>
-          <th>Qty</th>
-          <th>Rate</th>
-          <th>Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-if="!estimate.services.length">
-          <td colspan="8" class="print-sheet__empty">No services configured.</td>
-        </tr>
-        <template v-for="line in estimate.services" :key="`svc-${line.id}`">
-          <tr v-for="(component, cIndex) in (line.estimate.components.length ? line.estimate.components : [null])" :key="`svc-${line.id}-${cIndex}`">
-            <td>{{ cIndex === 0 ? `${line.service_code || ''} ${line.service_name || ''}` : '' }}</td>
-            <td>{{ cIndex === 0 ? (line.provider_type || '—') : '' }}</td>
-            <td>{{ cIndex === 0 ? line.charging_basis : '' }}</td>
-            <td>{{ cIndex === 0 ? [line.estimate.components[0]?.section_label, line.estimate.components[0]?.phase_label].filter(Boolean).join(' / ') || 'Whole well' : '' }}</td>
-            <td>{{ component ? component.category : '—' }}</td>
-            <td>{{ component ? quantity(component.quantity) : '' }}</td>
-            <td>{{ component ? money(component.rate) : '' }}</td>
-            <td>{{ component ? money(component.amount) : '0.00' }}</td>
-          </tr>
-          <tr class="afe-print__subtotal">
-            <td colspan="7">{{ line.service_code }} total</td>
-            <td>{{ money(line.estimate.amount) }}</td>
-          </tr>
-        </template>
-      </tbody>
-    </table>
-
-    <h2 class="afe-print__title">Consumables</h2>
-    <table class="print-sheet__table">
-      <thead>
-        <tr>
-          <th>Code</th>
-          <th>Consumable</th>
-          <th>Section / Phase</th>
-          <th>Qty</th>
-          <th>Captured Rate</th>
-          <th>Override Rate</th>
-          <th>Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-if="!estimate.consumables.length">
-          <td colspan="7" class="print-sheet__empty">No consumables configured.</td>
-        </tr>
-        <tr v-for="line in estimate.consumables" :key="`con-${line.id}`">
-          <td>{{ line.item_code }}</td>
-          <td>{{ line.item_name }}</td>
-          <td>{{ [line.estimate.components[0]?.section_label, line.estimate.components[0]?.phase_label].filter(Boolean).join(' / ') || '—' }}</td>
-          <td>{{ quantity(line.quantity) }} {{ line.uom || '' }}</td>
-          <td>{{ money(line.captured_rate) }}</td>
-          <td>{{ line.override_rate == null || line.override_rate === '' ? '—' : money(line.override_rate) }}</td>
-          <td>{{ money(line.estimate.amount) }}</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h2 class="afe-print__title">Tangibles</h2>
-    <table class="print-sheet__table">
-      <thead>
-        <tr>
-          <th>Code</th>
-          <th>Tangible</th>
-          <th>Qty</th>
-          <th>Captured Rate</th>
-          <th>Override Rate</th>
-          <th>Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-if="!estimate.tangibles.length">
-          <td colspan="6" class="print-sheet__empty">No tangibles configured.</td>
-        </tr>
-        <tr v-for="line in estimate.tangibles" :key="`tan-${line.id}`">
-          <td>{{ line.tangible_code || '—' }}</td>
-          <td>{{ line.tangible_name || '—' }}</td>
-          <td>{{ quantity(line.quantity) }} {{ line.uom || '' }}</td>
-          <td>{{ money(line.captured_rate) }}</td>
-          <td>{{ line.override_rate == null || line.override_rate === '' ? '—' : money(line.override_rate) }}</td>
-          <td>{{ money(line.estimate.amount) }}</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h2 class="afe-print__title">Compiled AFE cost estimate</h2>
+    <!-- 2 — compiled AFE cost estimate summary -->
+    <h2 class="afe-print__title">AFE cost estimate summary</h2>
     <table class="print-sheet__table">
       <thead>
         <tr>
@@ -228,9 +159,105 @@ const summaryTotal = computed(() => money(props.estimate.grand_total))
       </thead>
       <tbody>
         <tr v-for="row in estimate.by_section" :key="`roll-${row.section_id ?? 'well'}`">
-          <td>{{ row.section_label }}</td>
+          <td>{{ row.section_label || '—' }}</td>
           <td>{{ quantity(row.planned_days) }}</td>
           <td>{{ money(row.amount) }}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- 3 — services -->
+    <h2 class="afe-print__title">Services</h2>
+    <table class="print-sheet__table">
+      <thead>
+        <tr>
+          <th>Service</th>
+          <th>Provider</th>
+          <th>Charging Basis</th>
+          <th>Section / Phase</th>
+          <th>Charge Category</th>
+          <th>Qty</th>
+          <th>Rate</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-if="!estimate.services.length">
+          <td colspan="8" class="print-sheet__empty">No services configured.</td>
+        </tr>
+        <template v-for="line in estimate.services" :key="`svc-${line.id}`">
+          <tr v-for="(component, cIndex) in (line.estimate.components.length ? line.estimate.components : [null])" :key="`svc-${line.id}-${cIndex}`">
+            <td>{{ cIndex === 0 ? `${line.service_code || ''} ${line.service_name || ''}` : '' }}</td>
+            <td>{{ cIndex === 0 ? (line.provider_type || '—') : '' }}</td>
+            <td>{{ cIndex === 0 ? line.charging_basis : '' }}</td>
+            <td>{{ componentScope(line, component) }}</td>
+            <td>{{ component ? component.category : '—' }}</td>
+            <td>{{ component ? quantity(component.quantity) : '' }}</td>
+            <td>{{ component ? money(component.rate) : '' }}</td>
+            <td>{{ component ? money(component.amount) : '0.00' }}</td>
+          </tr>
+          <tr class="afe-print__subtotal">
+            <td colspan="7">{{ line.service_code }} total</td>
+            <td>{{ money(line.estimate.amount) }}</td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+
+    <!-- 4 — consumables -->
+    <h2 class="afe-print__title">Consumables</h2>
+    <table class="print-sheet__table">
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Consumable</th>
+          <th>Section / Phase</th>
+          <th>Qty</th>
+          <th>Captured Rate</th>
+          <th>Override Rate</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-if="!estimate.consumables.length">
+          <td colspan="7" class="print-sheet__empty">No consumables configured.</td>
+        </tr>
+        <tr v-for="line in estimate.consumables" :key="`con-${line.id}`">
+          <td>{{ line.item_code }}</td>
+          <td>{{ line.item_name }}</td>
+          <td>{{ [line.estimate.components[0]?.section_label, line.estimate.components[0]?.phase_label].filter(Boolean).join(' / ') || '—' }}</td>
+          <td>{{ quantity(line.quantity) }} {{ line.uom || '' }}</td>
+          <td>{{ money(line.captured_rate) }}</td>
+          <td>{{ line.override_rate == null || line.override_rate === '' ? '—' : money(line.override_rate) }}</td>
+          <td>{{ money(line.estimate.amount) }}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- 5 — tangibles -->
+    <h2 class="afe-print__title">Tangibles</h2>
+    <table class="print-sheet__table">
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Tangible</th>
+          <th>Qty</th>
+          <th>Captured Rate</th>
+          <th>Override Rate</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-if="!estimate.tangibles.length">
+          <td colspan="6" class="print-sheet__empty">No tangibles configured.</td>
+        </tr>
+        <tr v-for="line in estimate.tangibles" :key="`tan-${line.id}`">
+          <td>{{ line.tangible_code || '—' }}</td>
+          <td>{{ line.tangible_name || '—' }}</td>
+          <td>{{ quantity(line.quantity) }} {{ line.uom || '' }}</td>
+          <td>{{ money(line.captured_rate) }}</td>
+          <td>{{ line.override_rate == null || line.override_rate === '' ? '—' : money(line.override_rate) }}</td>
+          <td>{{ money(line.estimate.amount) }}</td>
         </tr>
       </tbody>
     </table>
@@ -258,6 +285,11 @@ const summaryTotal = computed(() => money(props.estimate.grand_total))
 
   .afe-print__rollup {
     margin-top: 10px;
+  }
+
+  .print-sheet__table :deep(tfoot th) {
+    background: #e8eef1;
+    font-weight: 800;
   }
 
   .afe-print__warnings {

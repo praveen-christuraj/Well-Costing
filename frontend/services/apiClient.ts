@@ -49,8 +49,8 @@ export class ApiClient {
     return this.request<T>(path, { method: 'GET' })
   }
 
-  post<T>(path: string, body: Record<string, unknown>): Promise<T> {
-    return this.request<T>(path, { method: 'POST', body })
+  post<T>(path: string, body: Record<string, unknown>, options: FetchOptions<'json'> = {}): Promise<T> {
+    return this.request<T>(path, { method: 'POST', body, ...options })
   }
 
   postForm<T>(path: string, body: FormData): Promise<T> {

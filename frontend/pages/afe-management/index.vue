@@ -118,6 +118,9 @@ async function loadLookups(): Promise<void> {
         currency: (item.currency as string | null) ?? null,
         kind: 'mud_chemical' as const,
         detail: `Mud Chemical · ${item.uom ?? '—'}`,
+        manufacturer: (item.part_number as string | null) ?? null,
+        description: (item.description as string | null) ?? null,
+        category: (item.uom as string | null) ?? null,
       })),
       ...bits.map(item => ({
         id: item.id as number,
@@ -128,6 +131,12 @@ async function loadLookups(): Promise<void> {
         currency: (item.currency as string | null) ?? null,
         kind: 'drill_bit' as const,
         detail: `Drill Bit · ${item.bit_type ?? ''}`,
+        manufacturer: (item.manufacturer as string | null) ?? null,
+        description: (item.description as string | null) ?? null,
+        itemType: (item.bit_type as string | null) ?? null,
+        size: (item.size as string | null) ?? null,
+        iadcCode: (item.iadc_code as string | null) ?? null,
+        modelNo: (item.model_no as string | null) ?? null,
       })),
     ]
     tangibleOptions.value = tangibles.map(item => ({
@@ -138,6 +147,10 @@ async function loadLookups(): Promise<void> {
       uom: (item.uom as string | null) ?? null,
       currency: (item.currency as string | null) ?? null,
       detail: `${item.tangible_scope ?? ''} · ${item.category ?? ''}`,
+      manufacturer: (item.manufacturer as string | null) ?? null,
+      description: (item.description as string | null) ?? null,
+      category: (item.category as string | null) ?? null,
+      subcategory: (item.subcategory as string | null) ?? null,
     }))
   }
   catch (caught: unknown) {
