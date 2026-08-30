@@ -11,6 +11,8 @@ from app.api.v1.routes import (
     catalogue_drill_bits,
     catalogue_services,
     catalogue_tangibles,
+    cost_analytics,
+    daily_cost,
     health,
     master_data,
     rig_well,
@@ -36,4 +38,10 @@ api_router.include_router(rig_well.router)
 api_router.include_router(afe.router)
 # Well Sub Activities owns /well-sub-activities/... (completely well scoped).
 api_router.include_router(well_sub_activity.router)
+# Daily Costs owns /daily-cost/... (the daily sheet: services, consumables, tangibles).
+api_router.include_router(daily_cost.router)
+# Cost Analytics + Reports own /cost-analytics/... and /cost-reports/... — both
+# read the AFE estimates and the daily actuals, they store nothing themselves.
+api_router.include_router(cost_analytics.analytics_router)
+api_router.include_router(cost_analytics.reports_router)
 api_router.include_router(audit_logs.router)

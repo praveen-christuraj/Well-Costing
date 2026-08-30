@@ -20,7 +20,7 @@ from tests.conftest import TEST_PASSWORD
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 AUTH_JSON = {"email": "engineer@example.com", "password": TEST_PASSWORD}
-BASELINE_REVISION = "20260830_0009"
+BASELINE_REVISION = "20260831_0010"
 
 
 @pytest.fixture
@@ -237,5 +237,9 @@ def test_migrations_round_trip_on_sqlite(tmp_path: Path) -> None:
         "afe_service_section_rates",
         "afe_consumable_lines",
         "afe_tangible_lines",
+        "daily_cost_entries",
+        "daily_cost_service_lines",
+        "daily_cost_consumable_lines",
+        "daily_cost_tangible_lines",
         "alembic_version",
     } <= tables

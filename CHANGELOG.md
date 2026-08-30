@@ -2,6 +2,115 @@
 
 All notable project changes are documented here.
 
+## 2026-08-30 — Daily Costs, Cost Analytics and Cost Reports: the cost-incurred engine
+
+### Added
+
+- **Daily Costs page** (`/daily-costs`, sidebar group *Costing*) — the page the
+  well team uses every day. The user picks the **Rig**, then its **Well**, then
+  the **cost date** (with previous/next-day buttons); the sheet for that
+  *(rig, well, date)* is opened or started, and its stable code is
+  `<well code>/<yyyymmdd>` (`WELL001/20260801`). Switching rig, well or date
+  with unsaved lines asks before discarding them.
+- **Two daily cost types plus the tangibles block.** *Services* and
+  *Consumables* are entered on the day; *Tangibles* are entered in bulk at well
+  completion from the **Master Data** list — never from the AFE — so a planned
+  tangible that was damaged can be replaced by the one actually used.
+- **Services price from the AFE rate card, not from the browser.** Each service
+  takes its **charging basis** and **unit rate** from its line on the selected
+  AFE cost estimation: *Daily Rate* lines are charged against the **charge
+  category** relevant to the entry (Mobilization, Demobilization, Operation,
+  Standby, Personnel-Operation, Personnel-Standby, Fixed Charge, Others) with
+  hours **0-24** (`hours/24 × rate`) or days **0-1** (`days × rate`);
+  *Per Service Rate* pulls the allotted lump sum; *Per Section Rate* pulls the
+  amount for the selected section. **Mobilization, demobilization and fixed
+  charges are one-time amounts** — the hours/days are recorded for the record
+  but never multiply the rate. An **override unit rate** bypasses the captured
+  rate on every line.
+- **Cost distribution criteria per service line** — Section, Phase and **Well
+  Sub Activity** (sections/phases from Master Data, sub activities from the
+  well's own Well Sub Activities page). The same day, service and
+  section/phase can carry several sub-activity lines, each with its own
+  hours/days and charge category.
+- **Four consumable categories**, entered only when consumed: **mud chemicals**
+  (picked from the Master Data chemical list, usage × the catalogue unit
+  rate), **fuel** (the user enters the usage only — the unit rate is captured
+  from the AFE cost estimate), **cement additives** (the total consumption cost
+  is entered for the chosen section, phase and sub activity) and **drill bits**
+  (picked from the Master Data bit list, number used × the catalogue rate).
+  Override unit rates are available on all of them.
+- **One money engine, server-side.** The rows on screen are posted debounced to
+  `POST /api/v1/daily-cost/preview` and the page shows exactly what the engine
+  returned — the same engine that prices the save, so what the user sees is
+  what is stored. The day totals services, consumables and tangibles into the
+  total cost for the date; **Save draft** keeps it editable, **Submit** closes
+  it for the report, and a submitted day can be **reopened** as a draft.
+- **Common template**: Import (XLSX/CSV with a downloadable template — dates
+  accept `dd/mm/yyyy`, `dd-mm-yyyy`, `yyyy-mm-dd` and friends, and
+  rigs/wells/services/items/sections/phases/sub activities resolve by code
+  *or* name; the selected well and date pre-fill blank columns), per-well and
+  per-day XLSX/CSV export, a print-only **Daily Cost Sheet** (rig, well, date,
+  AFE, group totals, every line with its scope and rate, signature block),
+  edit, soft delete → **Deleted Entries** tab → restore or permanent delete,
+  and audit logging of every action under module *Daily Costs*.
+- **Reconciliation is planned, not hidden.** Every day carries
+  `reconciliation_status` / `reconciliation_ref` / `reconciled_at` /
+  `reconciled_by` (all days start *pending*, the sheet shows it), and the
+  analytics reports reconciled vs unreconciled actual cost — the middle layer
+  between the AFE and the actual cost can be added later without touching the
+  daily model.
+- **Cost Analytics page** (`/cost-analytics`) — every well's **AFE estimated
+  cost vs actual cost vs balance remaining**, split per cost group with the
+  utilisation percentage, plus a **forecast at well completion** (the burn rate
+  of the days actually worked, projected across the remaining planned days,
+  with the variance to the AFE). Opening a well adds the **Depth vs Cost**
+  chart — depth from the Well Configuration, estimated cost from the AFE cost
+  estimates, actual cost at that depth from the daily costs, with cost that has
+  no section scope reported separately instead of being dropped — the daily
+  cost trend, and the same rollups the Reports page offers. XLSX/CSV export and
+  print included; module *Cost Analytics*.
+- **Cost Reports page** (`/cost-reports`) — user-interactable drill-throughs:
+  **date, hole section, phase, well activity, well sub activity** (sub
+  activities reported under their main activity), **service, charge category,
+  consumable category, tangible** and the **overall well cost**, filterable by
+  rig, well, date range and whether draft days count. Clicking a row lists the
+  cost lines behind it (date, daily cost code, group, category, item, scope,
+  quantity, rate, amount, status), and the rollup or its detail lines export to
+  XLSX/CSV and print; module *Cost Reports*.
+- **Backend** — new tables `daily_cost_entries`, `daily_cost_service_lines`,
+  `daily_cost_consumable_lines` and `daily_cost_tangible_lines` (migration
+  `20260831_0010`; unique `(well_id, cost_date)` and `daily_cost_code`), the
+  pure pricing engine `app/domain/daily_costing.py` (import-free, unit tested),
+  the analytics engine `app/domain/cost_analytics.py` (group comparison,
+  burn-rate forecast, depth-vs-cost series), the services
+  `app/services/daily_cost.py` and `app/services/cost_reporting.py`, and the
+  routers `/api/v1/daily-cost` (context, rate card, preview, day CRUD, status,
+  soft delete/restore/permanent, import template/import, export) and
+  `/api/v1/cost-analytics` + `/api/v1/cost-reports`.
+- **Loader discipline for the AFE graph** — `load_afes` / `load_afe` in
+  `app/services/afe_estimation.py` read AFEs with explicit loader options
+  instead of the mapper's eager defaults, and the daily sheet resolves its
+  AFE code with a scalar query. Reading a day's lines dropped from ~50 s to
+  ~0.05 s and the AFE list from ~2 s to ~0.04 s, because the eagerly joined
+  line relationships made SQLAlchemy walk a cyclic graph.
+
+### Fixed
+
+- **AFE mud-chemical lines were estimated at zero.** `resolve_consumable`
+  mapped every non-drill-bit consumable to a `LUMPSUM` placeholder with a
+  `0.00` rate, discarding the rate the AFE page sends — so a picked mud
+  chemical contributed nothing to the AFE total, and the daily costs had no
+  rate to capture. A picked mud chemical now resolves its code, name, UOM,
+  currency and **current catalogue rate**; estimates that carry only a lump sum
+  keep working exactly as before.
+- **A fuel unit rate could not be recorded on the AFE at all.** Lump-sum
+  consumable kinds overwrote any explicitly entered rate with `0`, so the daily
+  page's "fuel rate captured from the AFE cost estimate" had nothing to
+  capture. An explicitly entered rate now survives normalisation for fuel and
+  cement additives (the master list still owns the rate wherever there is one),
+  and the daily context exposes it as `fuel_rate` together with the selected
+  AFE's `afe_estimated_total`.
+
 ## 2026-08-30 — Well Sub Activities: well-scoped activity distribution to companies
 
 ### Added
