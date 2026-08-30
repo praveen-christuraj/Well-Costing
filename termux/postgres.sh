@@ -3,8 +3,9 @@
 #
 # The deployment scripts do not ship a PostgreSQL server; this helper makes a
 # local database on the phone a one-command setup. It reads backend/.env →
-# DATABASE_URL (any port — e.g. 127.0.0.1:5433) and uses the host/port/role/
-# database from it, so no extra editing is needed.
+# MIGRATION_DATABASE_URL (the URL Alembic actually uses) and falls back to
+# DATABASE_URL; any port works (e.g. 127.0.0.1:5433) and the host/port/role/
+# database are taken from it, so no extra editing is needed.
 #
 # Usage:
 #   bash termux/postgres.sh status   # is the server installed/running/initialized?
@@ -19,13 +20,20 @@ set -euo pipefail
 # shellcheck source=lib-debian-backend.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib-debian-backend.sh"
 
+# Self-heal before resolving the URL: if backend/.env still carries a
+# MIGRATION_DATABASE_URL that disagrees with a local DATABASE_URL, clear it so
+# this helper starts the server on the port the app and Alembic actually use.
+repair_migration_url_conflict
+
 PGDATA="${PGDATA:-$HOME/postgres-data}"
 PGLOG="${PGLOG:-$HOME/postgres.log}"
 
 # URL → host/port (defaults 127.0.0.1:5432 when no DATABASE_URL or a non-Postgres URL).
+# MIGRATION_DATABASE_URL is the URL Alembic uses (see backend/alembic/env.py),
+# so the server must be started there; DATABASE_URL is the fallback.
 DEFAULT_DB_HOST="127.0.0.1"
 DEFAULT_DB_PORT="5432"
-DB_URL="$(active_database_url)"
+DB_URL="$(active_migration_url)"
 if is_postgres_url "$DB_URL"; then
     read -r DB_HOST DB_PORT < <(database_url_host_port "$DB_URL")
 else
@@ -121,6 +129,24 @@ cmd_init() {
     return 0
 }
 
+# True when the cluster in $PGDATA is started at all (any port). pg_ctl status
+# reads the data directory's postmaster.pid, so it works even when the server
+# listens on a port different from the one in the current DATABASE_URL.
+cluster_running_anywhere() {
+    [ -f "$PGDATA/postmaster.pid" ] && pg_ctl -D "$PGDATA" status >/dev/null 2>&1
+}
+
+# Wait until postmaster.pid disappears (bounded).
+wait_for_cluster_stop() {
+    local tries="${1:-10}"
+    while [ "$tries" -gt 0 ]; do
+        cluster_running_anywhere || return 0
+        sleep 1
+        tries=$((tries - 1))
+    done
+    return 1
+}
+
 cmd_start() {
     require_postgresql || return 1
     if ! cluster_initialized; then
@@ -131,6 +157,15 @@ cmd_start() {
     if port_is_listening "$PG_CONNECT_HOST" "$PGPORT"; then
         ok "PostgreSQL is already running on $PGHOST:$PGPORT"
         return 0
+    fi
+    # The same data directory cannot run twice: if the cluster is still up on
+    # an older port (e.g. a previous DATABASE_URL used 5433), stop it before
+    # starting on the port the URL names now — otherwise pg_ctl aborts with
+    # "another server might be running".
+    if cluster_running_anywhere; then
+        warn "PostgreSQL ($PGDATA) is running but not on $PGHOST:$PGPORT — restarting on the URL's port..."
+        pg_ctl -D "$PGDATA" stop -m fast || true
+        wait_for_cluster_stop || true
     fi
     # Listen only on the loopback address the URL names. 'localhost' URLs use
     # 127.0.0.1 because that is what psycopg inside the Debian container dials.
@@ -152,7 +187,7 @@ cmd_stop() {
         ok "No initialized PostgreSQL cluster ($PGDATA) — nothing to stop."
         return 0
     fi
-    if ! port_is_listening "$PG_CONNECT_HOST" "$PGPORT"; then
+    if ! port_is_listening "$PG_CONNECT_HOST" "$PGPORT" && ! cluster_running_anywhere; then
         ok "PostgreSQL is not running."
         return 0
     fi

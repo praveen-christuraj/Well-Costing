@@ -6,6 +6,23 @@ All notable project changes are documented here.
 
 ### Fixed
 
+- **Termux migrations still failed with `Connection refused` when `backend/.env`
+  contained both `DATABASE_URL` (e.g. `localhost:5432`) and a stale
+  `MIGRATION_DATABASE_URL` (e.g. `127.0.0.1:5433`).** Alembic prefers
+  `MIGRATION_DATABASE_URL`, but the deployment scripts preflighted and started
+  the server from `DATABASE_URL` only — in the user's log the preflight said
+  "localhost:5432" while the migration dialed 127.0.0.1:5433 and died. All
+  Termux scripts (`deploy` / `start` / `migrate` / `update` / `postgres.sh`)
+  now resolve the **same URL Alembic uses**
+  (`MIGRATION_DATABASE_URL` → `DATABASE_URL`), warn about and automatically
+  clear a conflicting `MIGRATION_DATABASE_URL` when the app targets a local
+  loopback server (remote Supabase direct/migration URLs are left untouched),
+  and, for a loopback `DATABASE_URL`, run `postgres.sh setup` automatically —
+  installing the Termux `postgresql` package, initializing, starting the server
+  on the URL's exact host/port, and creating the role + database — instead of
+  only starting an already-installed server. Regression tests cover effective
+  URL precedence, commented/empty overrides, conflict repair, and the remote
+  no-touch case.
 - **Termux deploys with a local `DATABASE_URL` on a non-5432 port failed with an
   unactionable `Connection refused`.** The scripts hard-coded `5432` in their
   warning and only matched `port 5432` in the migration log, so a URL such as

@@ -111,6 +111,8 @@ update_code() {
     # database if it still holds the placeholder. Without this, migrations
     # would run against the built-in localhost:5432 default — and nothing on
     # this phone listens there, so they would fail with 'connection refused'.
+    # A stale MIGRATION_DATABASE_URL is repaired later by
+    # repair_migration_url_conflict() before migrations run.
     if [ ! -f "$BACKEND_ENV" ]; then
         log "backend/.env is missing — recreating it..."
         write_backend_env

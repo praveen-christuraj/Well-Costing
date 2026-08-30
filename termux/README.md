@@ -59,33 +59,53 @@ broken deploy script — it is removed automatically).
 
 ## Local PostgreSQL on the phone (optional)
 
-Prefer to keep data on the device instead of the cloud? Install a PostgreSQL
-server in Termux — one command does everything:
+Prefer to keep data on the device instead of the cloud? Point `DATABASE_URL`
+at the phone and the deployment scripts set up PostgreSQL automatically:
 
 ```bash
 # 1. Point backend/.env at the phone (ANY local port works)
 nano backend/.env
 #   DATABASE_URL=postgresql+psycopg://drilling_costing:PASSWORD@127.0.0.1:5432/drilling_costing
 
-# 2. Install (if needed) + initdb + start + create the role/database from the URL
-bash termux/postgres.sh setup
-
-# 3. Migrate and start the app
+# 2. Migrate and start. Because the URL targets a loopback address, deploy.sh
+#    installs the Termux 'postgresql' package (first run), initializes the
+#    data directory, starts the server, creates the role + database named in
+#    the URL, runs migrations, and starts the app — one command.
 bash termux/deploy.sh
 ```
 
-`postgres.sh` reads the host/port/role/database from `backend/.env`, so custom
-ports (e.g. `127.0.0.1:5433`) need no extra configuration. Other commands:
-`bash termux/postgres.sh status | start | stop | init`. Override with
-`PGDATA=... PGHOST=... PGPORT=...`.
+Or run the one-command server setup yourself:
+
+```bash
+# Install (if needed) + initdb + start + create the role/database from the URL
+bash termux/postgres.sh setup
+
+# Migrate and start the app
+bash termux/deploy.sh
+```
+
+`postgres.sh` reads the host/port/role/database from `backend/.env` —
+`MIGRATION_DATABASE_URL` first (that is the URL Alembic uses when set), then
+`DATABASE_URL` — so custom ports (e.g. `127.0.0.1:5433`) need no extra
+configuration. Other commands: `bash termux/postgres.sh status | start | stop |
+init`. Override with `PGDATA=... PGHOST=... PGPORT=...`.
+
+If `backend/.env` also sets a `MIGRATION_DATABASE_URL`, it takes precedence
+for migrations (Alembic uses it when present). If it points at a different
+**local** host/port than `DATABASE_URL`, the scripts automatically clear it so
+migrations and the app converge on the same server — this is the fix for the
+"preflight says `localhost:5432` but the migration dies on `127.0.0.1:5433`"
+failure. Remote (Supabase direct/pooled) `MIGRATION_DATABASE_URL` values are
+never touched.
 
 The Debian container shares the phone's network, so the backend reaches the
 Termux-native server at `127.0.0.1:<port>`. Use the **TCP** URL, never the
 Unix-socket URL (the socket directory is not visible inside the container).
-`deploy.sh`, `start.sh`, `migrate.sh`, and `update.sh` start an
-installed-but-stopped local server automatically before running migrations;
-PostgreSQL still does not survive a phone reboot, so re-run `deploy.sh` (or
-`postgres.sh start`) after restarting.
+`deploy.sh`, `start.sh`, `migrate.sh`, and `update.sh` all run the equivalent
+of `postgres.sh setup` automatically before migrations, so a stopped server, a
+missing package, or a dropped database/role are repaired by simply re-running
+the script. PostgreSQL still does not survive a phone reboot, so re-run
+`deploy.sh` (or `postgres.sh start`) after restarting.
 
 ## First-time Termux setup
 

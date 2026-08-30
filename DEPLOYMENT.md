@@ -281,11 +281,22 @@ at a **local** URL (`localhost` / `127.0.0.1`, any port). With no URL configured
 at all, the backend also falls back to `...@localhost:5432/drilling_costing`,
 which cannot work.
 
-The deploy/start/migrate scripts preflight this, report the **actual** port from
-your URL, and — when the Termux `postgresql` package is installed but the server
-is stopped — start it automatically before retrying migrations. To fix it, pick
-one of the options below, then re-run `bash termux/deploy.sh` (or
-`bash termux/migrate.sh`).
+The deploy/start/migrate/update scripts now self-heal this completely: when
+`DATABASE_URL` targets a loopback address they **install** Termux's
+`postgresql` package (first run), initialize the cluster, start the server on
+the exact host/port from the URL, and create the role + database that the URL
+names — all automatically, before retrying migrations. The preflight reports the
+**actual** host/port from the URL (including `MIGRATION_DATABASE_URL`, which is
+what Alembic uses when set), so no port is ever guessed or hard-coded.
+
+The one configuration the scripts detect and repair automatically is a
+`DATABASE_URL` (targeting the local server) that differs from a non-empty
+`MIGRATION_DATABASE_URL` — e.g. `DATABASE_URL` on `127.0.0.1:5432` but a stale
+`MIGRATION_DATABASE_URL` on `127.0.0.1:5433`. That used to produce exactly the
+confusing failure above ("preflight said 5432, migration died on 5433").
+The scripts now clear `MIGRATION_DATABASE_URL` so migrations and the app use
+the same server, then continue. To fix the original problem, pick one of the
+options below, then re-run `bash termux/deploy.sh` (or `bash termux/migrate.sh`).
 
 **Option A: Use Supabase (recommended for Termux)**
 1. Create a free Supabase account.
@@ -307,12 +318,24 @@ same port is in the URL; the helpers read it from `backend/.env`.
 nano backend/.env
 #   DATABASE_URL=postgresql+psycopg://drilling_costing:PASSWORD@127.0.0.1:5432/drilling_costing
 
-# 2. One command: installs the postgresql package (if needed), initializes the
-#    data directory, starts the server, and creates the role + database
-#    that DATABASE_URL names.
+# 2. Migrate and start everything. Because DATABASE_URL targets a loopback
+#    address, deploy.sh INSTALLS the postgresql package (first run),
+#    initializes the data directory, starts the server, creates the role +
+#    database that DATABASE_URL names, runs migrations, and starts the app —
+#    no separate postgres.sh step is required.
+bash termux/deploy.sh
+```
+
+Prefer to prepare the server explicitly (`postgres.sh setup` is equivalent to
+what the scripts run automatically):
+
+```bash
+# Optional one command: installs the postgresql package (if needed),
+# initializes the data directory, starts the server, and creates the role +
+# database that DATABASE_URL names.
 bash termux/postgres.sh setup
 
-# 3. Migrate and start everything
+# Then migrate and start everything
 bash termux/deploy.sh
 ```
 
@@ -326,9 +349,12 @@ bash termux/postgres.sh init     # initdb only
 ```
 
 `postgres.sh` stores data in `~/postgres-data` by default and reads the
-host/port/role/database from `backend/.env` (`PGDATA` / `PGHOST` / `PGPORT`
-override it). `deploy.sh`, `start.sh`, `migrate.sh`, and `update.sh` all start
-an installed-but-stopped local server automatically before running migrations.
+host/port/role/database from `backend/.env` — `MIGRATION_DATABASE_URL` first
+(the URL Alembic uses), falling back to `DATABASE_URL` (`PGDATA` / `PGHOST` /
+`PGPORT` override it). `deploy.sh`, `start.sh`, `migrate.sh`, and `update.sh` all
+run the equivalent of `postgres.sh setup` automatically before running
+migrations, so a stopped server, a missing package, and even a dropped
+database/role are repaired in one re-run.
 
 Note: PostgreSQL does not survive a phone reboot — re-run
 `bash termux/postgres.sh start` after restarting (or just

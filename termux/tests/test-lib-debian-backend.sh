@@ -110,5 +110,60 @@ assert_eq "$(percent_decode 'sec%40ret%25')" "sec@ret%" 'percent decoding of pas
 assert_eq "$(percent_decode 'plain')" "plain" 'percent decoding leaves plain text'
 assert_eq "$(percent_decode 'a%20b')" "a b" 'percent decoding of a space'
 
+# ─── Effective migration URL (DATABASE_URL vs MIGRATION_DATABASE_URL) ────────
+# backend/alembic/env.py uses MIGRATION_DATABASE_URL when set, otherwise
+# DATABASE_URL. Every preflight/start helper must use the SAME URL; the failure
+# this guards against is: DATABASE_URL=localhost:5432 (preflight OK) but
+# MIGRATION_DATABASE_URL=127.0.0.1:5433 → migration dies on an unexpected port.
+BACKEND_ENV="$BACKEND_DIR/.env"
+
+cat > "$BACKEND_ENV" <<'EOF'
+# comment lines must be ignored (last active line wins)
+DATABASE_URL=postgresql+psycopg://u:p@localhost:5432/db
+MIGRATION_DATABASE_URL=postgresql+psycopg://u:p@127.0.0.1:5433/db
+EOF
+assert_eq "$(active_database_url)" \
+    "postgresql+psycopg://u:p@localhost:5432/db" 'active_database_url reads DATABASE_URL'
+assert_eq "$(active_migration_url)" \
+    "postgresql+psycopg://u:p@127.0.0.1:5433/db" 'active_migration_url honors MIGRATION_DATABASE_URL'
+
+cat > "$BACKEND_ENV" <<'EOF'
+DATABASE_URL=postgresql+psycopg://u:p@127.0.0.1:5432/db
+MIGRATION_DATABASE_URL=
+EOF
+assert_eq "$(active_migration_url)" \
+    "postgresql+psycopg://u:p@127.0.0.1:5432/db" 'empty MIGRATION_DATABASE_URL falls back to DATABASE_URL'
+
+cat > "$BACKEND_ENV" <<'EOF'
+export DATABASE_URL=postgresql+psycopg://u:p@127.0.0.1:5432/db
+# export MIGRATION_DATABASE_URL=postgresql+psycopg://u:p@127.0.0.1:5433/db  (commented; must NOT win)
+EOF
+assert_eq "$(active_migration_url)" \
+    "postgresql+psycopg://u:p@127.0.0.1:5432/db" 'commented migration URL is ignored'
+
+# Conflicting local URLs must be repaired automatically so migrations and the
+# app converge on the same server.
+cat > "$BACKEND_ENV" <<'EOF'
+DATABASE_URL=postgresql+psycopg://u:p@localhost:5432/db
+MIGRATION_DATABASE_URL=postgresql+psycopg://u:p@127.0.0.1:5433/db
+EOF
+repair_migration_url_conflict
+assert_eq "$(active_migration_url)" \
+    "postgresql+psycopg://u:p@localhost:5432/db" 'conflicting local MIGRATION_DATABASE_URL cleared'
+assert_eq "$(env_value_from_backend MIGRATION_DATABASE_URL)" \
+    "" 'cleared migration URL is empty'
+
+# A remote (Supabase) migration URL is a legitimate separate endpoint and must
+# not be touched.
+cat > "$BACKEND_ENV" <<'EOF'
+DATABASE_URL=postgresql+psycopg://postgres.xxxx:pw@aws-0-region.pooler.supabase.com:6543/postgres
+MIGRATION_DATABASE_URL=postgresql+psycopg://postgres.xxxx:pw@aws-0-region.supabase.com:5432/postgres
+EOF
+repair_migration_url_conflict
+assert_eq "$(active_migration_url)" \
+    "postgresql+psycopg://postgres.xxxx:pw@aws-0-region.supabase.com:5432/postgres" \
+    'remote MIGRATION_DATABASE_URL left intact'
+
 echo 'Termux backend environment forwarding test passed'
 echo 'Termux database URL parsing tests passed'
+echo 'Termux effective migration URL tests passed'
