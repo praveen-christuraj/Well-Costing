@@ -342,6 +342,28 @@ function money(value: string | number | null | undefined): string {
 const printEstimateTarget = ref<AfeEstimate | null>(null)
 const printEstimateStamp = ref('')
 
+// The single-AFE estimate sheet prints portrait (well configuration + summary
+// on page 1, the tangibles list on page 2). @page cannot be scoped by selector,
+// so a runtime style sheet flips the page orientation only while that sheet is
+// mounted; the app-wide landscape rule keeps covering every other print.
+const PORTRAIT_PRINT_STYLE_ID = 'afe-portrait-print-style'
+
+function setPortraitPrint(enabled: boolean): void {
+  if (import.meta.server) return
+  const existing = document.getElementById(PORTRAIT_PRINT_STYLE_ID)
+  if (enabled && !existing) {
+    const style = document.createElement('style')
+    style.id = PORTRAIT_PRINT_STYLE_ID
+    style.textContent = '@media print { @page { size: A4 portrait; margin: 10mm; } }'
+    document.head.appendChild(style)
+  }
+  else if (!enabled && existing) {
+    existing.remove()
+  }
+}
+
+watch(printEstimateTarget, target => setPortraitPrint(target != null))
+
 async function printAfe(row: AfeRow): Promise<void> {
   loadingEstimateId.value = row.id
   try {
@@ -377,6 +399,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('afterprint', clearPrintSheet)
+  setPortraitPrint(false)
 })
 
 watch(activeTab, (tab) => {

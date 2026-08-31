@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload, lazyload, noload, selectinload
 from sqlalchemy.sql import Select
 
@@ -76,9 +76,15 @@ _AFE_HEADER_OPTIONS = (
 _AFE_SERVICE_LINE_OPTIONS = selectinload(Afe.service_lines).options(
     joinedload(AfeServiceLine.service),
     lazyload(AfeServiceLine.afe),
-    lazyload(AfeServiceLine.rates),
-    lazyload(AfeServiceLine.charge_lines),
-    lazyload(AfeServiceLine.section_rates),
+    # The rate card / charge / section-rate collections are batched with
+    # selectin (one query per collection for the whole result set) instead of
+    # lazy loading them line by line — the AFE list endpoints compile every
+    # AFE's estimate, and a query per line per collection is what made
+    # /afe/afes and /afe/estimates crawl. The child→parent back-references
+    # stay lazy so the load never walks the cycle back up to the AFE.
+    selectinload(AfeServiceLine.rates).options(lazyload(AfeServiceRate.line)),
+    selectinload(AfeServiceLine.charge_lines).options(lazyload(AfeServiceChargeLine.line)),
+    selectinload(AfeServiceLine.section_rates).options(lazyload(AfeServiceSectionRate.line)),
 )
 
 _AFE_ESTIMATE_OPTIONS = (
@@ -105,15 +111,27 @@ def load_afes(
     well_id: int | None = None,
     afe_id: int | None = None,
     with_estimate_lines: bool = False,
+    deleted: bool = False,
+    search: str | None = None,
+    newest_first: bool = False,
 ) -> list[Afe]:
     """Load AFEs (optionally with their estimate lines) without the cycles."""
 
-    stmt = afe_statement(with_estimate_lines=with_estimate_lines).where(Afe.is_deleted == False)
+    stmt = afe_statement(with_estimate_lines=with_estimate_lines).where(Afe.is_deleted == deleted)
     if well_id is not None:
         stmt = stmt.where(Afe.well_id == well_id)
     if afe_id is not None:
         stmt = stmt.where(Afe.id == afe_id)
-    return list(db.scalars(stmt.order_by(Afe.id)).all())
+    if search:
+        like = f"%{search}%"
+        stmt = stmt.where(
+            or_(Afe.afe_code.ilike(like), Afe.afe_name.ilike(like), Afe.remarks.ilike(like))
+        )
+    if newest_first:
+        stmt = stmt.order_by(Afe.deleted_at.desc() if deleted else Afe.id.desc())
+    else:
+        stmt = stmt.order_by(Afe.id)
+    return list(db.scalars(stmt).all())
 
 
 def load_afe(db: Session, afe_id: int, *, with_estimate_lines: bool = False) -> Afe | None:
@@ -427,7 +445,7 @@ def resolve_consumable(db: Session, kind: str, item_id: int | None) -> dict[str,
     """Look a consumable up in its master list or return category defaults."""
 
     if kind == "drill_bit":
-        if item_id is None:
+        if not item_id:
             raise AfeValidationError("Drill bit requires an item selection")
         item = db.get(DrillBit, item_id)
         if not item or item.is_deleted:
@@ -439,7 +457,7 @@ def resolve_consumable(db: Session, kind: str, item_id: int | None) -> dict[str,
             "uom": None,
             "currency": item.currency,
         }
-    
+
     # Fuel and cement additives have no item list of their own — they are
     # estimated as a lump sum for the section/phase. An explicitly entered rate
     # (e.g. a fuel price per litre) is kept so the daily costs can capture it.
@@ -448,11 +466,13 @@ def resolve_consumable(db: Session, kind: str, item_id: int | None) -> dict[str,
         "cement_additive": "Cement Additives",
         "fuel": "Fuel",
     }
-    if kind == "mud_chemical" and item_id is not None:
+    if kind == "mud_chemical" and item_id:
         # A picked mud chemical is a real catalogue item: its code, name, UOM
         # and current unit rate come from the master list, so the AFE prices the
         # estimate (and the daily costs capture the same rate later). Estimates
-        # that only carry a lump sum keep working as before.
+        # that only carry a lump sum keep working as before — a lump-sum line is
+        # stored with item_id 0 (the column is NOT NULL), and that 0 must read
+        # back as "no item" on the next preview/save, never as catalogue id 0.
         item = db.get(MudChemical, item_id)
         if not item or item.is_deleted:
             raise AfeValidationError(f"Mud chemical #{item_id} no longer exists in the master data")
@@ -621,15 +641,19 @@ def normalize_consumables(
         if entry.section_id is None and entry.phase_id is None:
             raise AfeValidationError(f"{where}: select the section and/or phase it is estimated for")
         _validate_scope(well_scope, entry.section_id, entry.phase_id, where)
-        key = (entry.item_kind, entry.item_id, entry.section_id, entry.phase_id)
+        # Lump-sum lines come back from the database with item_id 0 (the column
+        # is NOT NULL) and leave the browser as null — treat both as "no item"
+        # so the duplicate-scope check and the master-data lookup agree.
+        item_id = entry.item_id or None
+        key = (entry.item_kind, item_id or 0, entry.section_id, entry.phase_id)
         if key in seen:
             raise AfeValidationError(f"{where} is already estimated for the same section/phase scope")
         seen.add(key)
-        master = resolve_consumable(db, entry.item_kind, entry.item_id)
+        master = resolve_consumable(db, entry.item_kind, item_id)
         normalized.append(
             {
                 "item_kind": entry.item_kind,
-                "item_id": entry.item_id if entry.item_id is not None else 0,
+                "item_id": item_id or 0,
                 "item_code": str(master["item_code"]),
                 "item_name": str(master["item_name"]),
                 "quantity": entry.quantity,
@@ -893,9 +917,12 @@ def save_estimate(db: Session, afe: Afe, payload: EstimateIn, user: User) -> Afe
         afe.tangible_lines.extend(tangible_rows)
         afe.updated_by = user.id
         db.commit()
-        db.refresh(afe)
+        # Re-read the committed estimate through the cycle-safe statement — a
+        # bare db.refresh() would reload the whole relationship graph with the
+        # mapper defaults (the multi-second eager-load cycle), on every save.
         db.expire(afe, ["service_lines", "consumable_lines", "tangible_lines"])
-        return build_estimate_out(afe)
+        refreshed = load_afe(db, afe.id, with_estimate_lines=True)
+        return build_estimate_out(refreshed if refreshed is not None else afe)
 
 # ---------------------------------------------------------------------------
 # Status transitions (the only place the AFE status changes)
@@ -938,7 +965,9 @@ def change_status(
     afe.status_remarks = note
     afe.updated_by = user.id
     db.commit()
-    db.refresh(afe)
+    # No db.refresh() here: the session does not expire on commit, so the AFE's
+    # loaded lines stay valid — refreshing would pull the whole relationship
+    # graph back in through the slow mapper-default eager loads.
     return afe, f"{detail} — remarks: {note}"
 
 

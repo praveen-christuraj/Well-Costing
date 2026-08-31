@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import pytest
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AuthenticationError, AuthServiceUnavailableError
+from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.integrations.supabase.auth import SupabaseIdentity
 from app.main import create_app
@@ -66,6 +67,42 @@ def test_login_and_me_round_trip(client: TestClient) -> None:
     assert profile.json()["email"] == "engineer@example.com"
     assert profile.json()["full_name"] == "Test Engineer"
     assert "hashed_password" not in profile.json()
+
+
+def test_refresh_reissues_token_for_an_active_session(client: TestClient) -> None:
+    """The sliding refresh: a still-valid token buys a fresh one, quietly."""
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "engineer@example.com", "password": TEST_PASSWORD},
+    )
+    assert login.status_code == 200
+    old_token = login.json()["access_token"]
+
+    refreshed = client.post("/api/v1/auth/refresh", headers={"Authorization": f"Bearer {old_token}"})
+    assert refreshed.status_code == 200, refreshed.text
+    body = refreshed.json()
+    assert body["token_type"] == "bearer"
+    assert body["expires_in"] == 3600
+    # Same subject, freshly signed token with a new expiry.
+    assert decode_access_token(body["access_token"])["sub"] == decode_access_token(old_token)["sub"]
+    assert decode_access_token(body["access_token"])["exp"] >= decode_access_token(old_token)["exp"]
+
+    profile = client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {body['access_token']}"}
+    )
+    assert profile.status_code == 200
+    assert profile.json()["email"] == "engineer@example.com"
+
+
+def test_refresh_rejects_missing_and_garbage_tokens(client: TestClient) -> None:
+    assert client.post("/api/v1/auth/refresh").status_code == 401
+
+    garbage = client.post(
+        "/api/v1/auth/refresh", headers={"Authorization": "Bearer not-a-token"}
+    )
+    assert garbage.status_code == 401
+    assert garbage.json()["error"]["code"] == "authentication_failed"
 
 
 def test_login_failure_uses_normalized_error(client: TestClient) -> None:

@@ -258,7 +258,10 @@ function toLocalConsumable(line: ConsumableLineRow): LocalConsumable {
   return {
     _key: nextKey(),
     item_kind: line.item_kind,
-    item_id: line.item_id,
+    // Lump sums are stored with item_id 0 and come back that way; keep the
+    // local row on `null` so a re-save sends exactly what a freshly added
+    // lump sum sends (and the duplicate-scope fingerprints line up).
+    item_id: line.item_id || null,
     item_code: line.item_code,
     item_name: line.item_name,
     quantity: String(line.quantity),

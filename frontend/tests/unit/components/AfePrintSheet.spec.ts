@@ -4,10 +4,13 @@ import AfePrintSheet from '~/components/afe/AfePrintSheet.vue'
 import type { AfeEstimate } from '~/types/afe'
 
 /**
- * The printed AFE must read in the specified order — metadata, well
- * configuration, the AFE cost estimate summary, then services, consumables
- * and tangibles — and every priced service row has to show the section it was
- * charged against (a well-wide daily service is split per section).
+ * The printed AFE reads as a portrait two-pager:
+ *
+ *   page 1 — metadata, well configuration, then the summary: one row per
+ *   service with its cost (never split section-wise / phase-wise), the
+ *   consumable main categories with their totals, and Services +
+ *   Consumables + Tangibles rolled into the Total AFE cost;
+ *   page 2 — the list of tangibles to be used.
  */
 
 function component(sectionId: number | null, label: string | null) {
@@ -43,9 +46,9 @@ const estimate: AfeEstimate = {
     well_name: 'Exploratory 1',
     well_display: 'WELL001 - Exploratory 1',
     service_count: 1,
-    consumable_count: 1,
+    consumable_count: 2,
     tangible_count: 1,
-    estimated_total: '12700.00',
+    estimated_total: '13700.00',
   },
   well_configuration: {
     well_id: 1,
@@ -102,6 +105,7 @@ const estimate: AfeEstimate = {
       estimate: {
         amount: '9500.00',
         warnings: [],
+        // Split per section by the engine — the print shows one row anyway.
         components: [component(1, 'SEC1 — Surface Section'), component(2, 'SEC2 — Intermediate')],
       },
     },
@@ -136,6 +140,35 @@ const estimate: AfeEstimate = {
         }],
       },
     },
+    {
+      id: 4,
+      item_kind: 'mud_chemical',
+      item_id: 0,
+      item_code: 'LUMPSUM',
+      item_name: 'Mud Chemicals',
+      quantity: '1',
+      captured_rate: '0',
+      override_rate: '2000.00',
+      uom: null,
+      currency: null,
+      section_id: 2,
+      phase_id: null,
+      remarks: null,
+      estimate: {
+        amount: '2000.00',
+        warnings: [],
+        components: [{
+          category: 'Lump sum',
+          description: 'Mud Chemicals — lump sum',
+          quantity: '1',
+          rate: '2000.00',
+          unit: null,
+          amount: '2000.00',
+          section_label: 'SEC2 — Intermediate',
+          phase_label: null,
+        }],
+      },
+    },
   ],
   tangibles: [
     {
@@ -167,15 +200,14 @@ const estimate: AfeEstimate = {
   ],
   summary: [
     { group: 'Services', amount: '9500.00', line_count: 1 },
-    { group: 'Consumables', amount: '1200.00', line_count: 1 },
+    { group: 'Consumables', amount: '3200.00', line_count: 2 },
     { group: 'Tangibles', amount: '1000.00', line_count: 1 },
   ],
   by_section: [
     { section_id: 1, section_label: 'SEC1 — Surface Section', planned_days: '5.50', amount: '6700.00' },
-    { section_id: 2, section_label: 'SEC2 — Intermediate', planned_days: '4.00', amount: '2800.00' },
-    { section_id: null, section_label: 'Well-wide (no section)', planned_days: '0', amount: '1200.00' },
+    { section_id: 2, section_label: 'SEC2 — Intermediate', planned_days: '4.00', amount: '4800.00' },
   ],
-  grand_total: '11700.00',
+  grand_total: '13700.00',
   warnings: [],
 }
 
@@ -189,9 +221,10 @@ describe('AfePrintSheet', () => {
     const titles = [
       'Well configuration',
       'AFE cost estimate summary',
-      'Services',
-      'Consumables',
-      'Tangibles',
+      'Services total',
+      'Consumables total',
+      'Total AFE cost',
+      'Tangibles to be used',
     ]
     let previous = -1
     for (const title of titles) {
@@ -211,22 +244,53 @@ describe('AfePrintSheet', () => {
     expect(text).toContain('4')
   })
 
-  it('shows the section each priced service row was charged against', () => {
-    // The daily service is split per section; both rows must name theirs.
+  it('prints one row per service with its total cost, not per-section splits', () => {
     const wrapper = sheet()
-    expect(wrapper.text()).toContain('SEC1 — Surface Section')
-    expect(wrapper.text()).toContain('SEC2 — Intermediate')
-    const rows = wrapper.findAll('tbody tr')
-    const serviceRows = rows.filter(row => row.text().includes('Operation'))
-    expect(serviceRows).toHaveLength(2)
-    expect(serviceRows[0]!.text()).toContain('SEC1 — Surface Section')
-    expect(serviceRows[1]!.text()).toContain('SEC2 — Intermediate')
+    const servicesTable = wrapper.find('.afe-print__services')
+    expect(servicesTable.exists()).toBe(true)
+    const rows = servicesTable.findAll('tbody tr')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.text()).toContain('SVC-0001')
+    expect(rows[0]!.text()).toContain('Directional Drilling')
+    expect(rows[0]!.text()).toContain('9,500.00')
+    expect(servicesTable.text()).toContain('Services total')
   })
 
-  it('prints the summary with the grand total and the per-section rollup', () => {
-    const text = sheet().text()
-    expect(text).toContain('Total AFE cost estimate')
-    expect(text).toContain('11,700.00')
-    expect(text).toContain('Well-wide (no section)')
+  it('rolls consumables up to their main category', () => {
+    const wrapper = sheet()
+    const categoriesTable = wrapper.find('.afe-print__categories')
+    expect(categoriesTable.exists()).toBe(true)
+    const text = categoriesTable.text()
+    expect(text).toContain('Drill Bits')
+    expect(text).toContain('Mud Chemicals')
+    expect(text).toContain('1,200.00')
+    expect(text).toContain('2,000.00')
+    expect(text).toContain('Consumables total')
+    expect(text).toContain('3,200.00')
+    // Section-wise costs are not printed for consumables.
+    expect(text).not.toContain('SEC1 — Surface Section')
+  })
+
+  it('adds the three groups into the Total AFE cost', () => {
+    const totals = sheet().find('.afe-print__totals')
+    expect(totals.exists()).toBe(true)
+    const text = totals.text()
+    expect(text).toContain('Services total')
+    expect(text).toContain('Consumables total')
+    expect(text).toContain('Tangibles total')
+    expect(text).toContain('Total AFE cost')
+    expect(text).toContain('13,700.00')
+  })
+
+  it('lists the tangibles to be used on their own page', () => {
+    const wrapper = sheet()
+    const page2 = wrapper.find('.afe-print__page2')
+    expect(page2.exists()).toBe(true)
+    expect(page2.classes()).toContain('afe-print__page2')
+    const text = page2.text()
+    expect(text).toContain('Tangibles to be used')
+    expect(text).toContain('TNG-0001')
+    expect(text).toContain('Casing 9-5/8')
+    expect(text).toContain('1,000.00')
   })
 })

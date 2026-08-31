@@ -41,6 +41,23 @@ def login(
     return token
 
 
+@router.post("/refresh", response_model=TokenResponse)
+def refresh(
+    current_user: CurrentUser,
+    session: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> TokenResponse:
+    """Issue a fresh bearer token for the caller's still-valid token.
+
+    The frontend calls this periodically while the application is open, so an
+    active session is never interrupted mid-work by an expired token. An
+    expired or invalid token is rejected by the authentication dependency —
+    refresh cannot be used to resurrect a dead session.
+    """
+
+    return AuthService(UserRepository(session), settings).refresh(current_user)
+
+
 @router.get("/me", response_model=UserRead)
 def me(current_user: CurrentUser) -> UserRead:
     """Return the authenticated user's safe profile."""
