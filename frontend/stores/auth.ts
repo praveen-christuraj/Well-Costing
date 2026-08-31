@@ -5,6 +5,10 @@ import type { AuthenticatedUser } from '~/types/auth'
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<AuthenticatedUser | null>(null)
   const initialized = ref(false)
+  /** Seconds until the current access token expires, when the login/refresh
+   * response told us — drives the sliding-refresh cadence. Not persisted: a
+   * reloaded page falls back to the default interval. */
+  const tokenExpiresInSeconds = ref<number | null>(null)
 
   const isAuthenticated = computed(() => user.value !== null)
 
@@ -16,5 +20,9 @@ export const useAuthStore = defineStore('auth', () => {
     initialized.value = true
   }
 
-  return { user, initialized, isAuthenticated, setUser, markInitialized }
+  function setTokenExpiresIn(value: number | null): void {
+    tokenExpiresInSeconds.value = value
+  }
+
+  return { user, initialized, isAuthenticated, tokenExpiresInSeconds, setUser, markInitialized, setTokenExpiresIn }
 })

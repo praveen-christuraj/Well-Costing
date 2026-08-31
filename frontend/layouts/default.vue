@@ -6,12 +6,13 @@
  * `layout-overlay` floats it over the content, and the mobile variants slide it
  * in over a mask.
  */
-import { computed, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import AppHeader from '~/components/layout/AppHeader.vue'
 import AppSidebar from '~/components/layout/AppSidebar.vue'
 import { restoreLayoutConfig, useLayout } from '~/composables/useLayout'
 
 const { layoutConfig, layoutState, hideMobileMenu } = useLayout()
+const auth = useAuth()
 
 const containerClass = computed(() => ({
   'layout-static': layoutConfig.menuMode === 'static',
@@ -21,7 +22,16 @@ const containerClass = computed(() => ({
   'layout-mobile-active': layoutState.mobileMenuActive,
 }))
 
-onMounted(() => restoreLayoutConfig())
+onMounted(() => {
+  restoreLayoutConfig()
+  // Slide the access token forward while the app is open, so a long working
+  // session is never interrupted by an expired token.
+  auth.startSessionKeepAlive()
+})
+
+onBeforeUnmount(() => {
+  auth.stopSessionKeepAlive()
+})
 </script>
 
 <template>

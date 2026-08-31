@@ -48,6 +48,19 @@ class AuthService:
 
         raise AuthenticationError("Invalid email or password")
 
+    def refresh(self, user: User) -> TokenResponse:
+        """Re-issue a bearer token for an already-authenticated active user.
+
+        Tokens still expire after ``ACCESS_TOKEN_EXPIRE_MINUTES``; this lets the
+        frontend slide that window forward while somebody is actively working,
+        instead of interrupting them with "Invalid or expired access token" an
+        hour into a data-entry session.
+        """
+
+        if not user.is_active:
+            raise AuthenticationError("Invalid or expired access token")
+        return self._issue_token(user)
+
     @staticmethod
     def _local_credentials_match(user: User, password: str) -> bool:
         """Whether a locally-hashed password verifies, with a generic false elsewhere."""

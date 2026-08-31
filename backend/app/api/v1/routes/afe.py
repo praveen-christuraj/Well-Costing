@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import get_current_user
@@ -62,8 +62,11 @@ AFE_TYPES = ("Drilling", "Completion")
 
 
 def _get_afe(db: Session, afe_id: int) -> Afe:
-    afe = db.get(Afe, afe_id)
-    if not afe or afe.is_deleted:
+    # Loaded through afe_estimation.load_afe so the estimate lines come in with
+    # the cycle-safe loader options — db.get() would walk the Afe → lines →
+    # back-reference eager-load cycle and take seconds on a modest estimate.
+    afe = afe_estimation.load_afe(db, afe_id, with_estimate_lines=True)
+    if not afe:
         raise HTTPException(status_code=404, detail="AFE not found")
     return afe
 
@@ -129,12 +132,22 @@ def _resolve_well(db: Session, ref: Any, rig_id: int) -> Well:
 
 
 def _list_afes(db: Session, *, deleted: bool = False, search: str | None = None) -> list[Afe]:
-    stmt = select(Afe).where(Afe.is_deleted == deleted)
-    stmt = stmt.order_by(Afe.deleted_at.desc() if deleted else Afe.id.desc())
-    if search:
-        like = f"%{search}%"
-        stmt = stmt.where(or_(Afe.afe_code.ilike(like), Afe.afe_name.ilike(like), Afe.remarks.ilike(like)))
-    return list(db.scalars(stmt).all())
+    """Every AFE the caller asked for, with its estimate lines pre-loaded.
+
+    The line counts and the estimated total of each header row are compiled
+    from the lines, so the list endpoints need them — load_afes fetches them
+    with batched, cycle-safe loader options instead of the plain ``select(Afe)``
+    whose eager-load cycle made /afe/afes and /afe/estimates take seconds per
+    request (surfacing in the frontend as 502s from the API proxy).
+    """
+
+    return afe_estimation.load_afes(
+        db,
+        deleted=deleted,
+        search=search,
+        with_estimate_lines=True,
+        newest_first=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +160,11 @@ def list_afes_dropdown(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> list[AfeDropdownOut]:
-    records = db.scalars(select(Afe).where(Afe.is_deleted == False).order_by(Afe.id.desc())).all()
+    # Header-only statement: this endpoint never touches the estimate lines, and
+    # a plain select(Afe) would still drag them in through the mapper defaults.
+    records = db.scalars(
+        afe_estimation.afe_statement().where(Afe.is_deleted == False).order_by(Afe.id.desc())
+    ).all()
     return [
         AfeDropdownOut(
             id=afe.id,
@@ -239,7 +256,10 @@ async def import_afes(
         if not name:
             name = code
         remarks = row_get(row, "remarks", "remark")
-        existing = db.scalar(select(Afe).where(Afe.afe_code == code))
+        existing = db.scalar(
+            # Header-only lookup — see create_afe for why this is not select(Afe).
+            afe_estimation.afe_statement().where(Afe.afe_code == code)
+        )
         if existing and not existing.is_deleted:
             errors.append(f"Row {r_num}: afe_code '{code}' already exists")
             continue
@@ -342,7 +362,11 @@ def create_afe(
     if not payload.afe_name.strip():
         raise HTTPException(status_code=400, detail="AFE Name is required")
 
-    existing = db.scalar(select(Afe).where(Afe.afe_code == code))
+    existing = db.scalar(
+        # Header-only lookup: a plain select(Afe) here pulls the whole estimate
+        # graph through the eager-load cycle for what is just a clash check.
+        afe_estimation.afe_statement().where(Afe.afe_code == code)
+    )
     if existing and not existing.is_deleted:
         raise HTTPException(status_code=400, detail=f"AFE code '{code}' already exists")
 
@@ -368,7 +392,9 @@ def create_afe(
         existing.deleted_at = None
         existing.updated_by = current_user.id
         db.commit()
-        db.refresh(existing)
+        # Reload with the estimate lines (the header-only lookup above did not
+        # load them) through the cycle-safe statement instead of db.refresh().
+        existing = afe_estimation.load_afe(db, existing.id, with_estimate_lines=True) or existing
         log_audit(
             db, user=current_user, action="RESTORE", module=MODULE_AFE,
             entity_id=existing.id, entity_code=code,
@@ -416,7 +442,10 @@ def update_afe(
 
     if payload.afe_code and payload.afe_code.strip() != afe.afe_code:
         new_code = payload.afe_code.strip()
-        clash = db.scalar(select(Afe).where(Afe.afe_code == new_code))
+        clash = db.scalar(
+            # Header-only lookup — see create_afe for why this is not select(Afe).
+            afe_estimation.afe_statement().where(Afe.afe_code == new_code)
+        )
         if clash and clash.id != afe.id:
             raise HTTPException(status_code=400, detail=f"AFE code '{new_code}' already exists")
         afe.afe_code = new_code
@@ -442,7 +471,9 @@ def update_afe(
 
     afe.updated_by = current_user.id
     db.commit()
-    db.refresh(afe)
+    # Re-read through the cycle-safe statement — db.refresh() would re-walk the
+    # full eager-load graph, and build_afe_out below needs the estimate lines.
+    afe = afe_estimation.load_afe(db, afe.id, with_estimate_lines=True) or afe
     log_audit(
         db, user=current_user, action="UPDATE", module=MODULE_AFE,
         entity_id=afe.id, entity_code=afe.afe_code,

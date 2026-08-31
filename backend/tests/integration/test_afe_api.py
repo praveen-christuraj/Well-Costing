@@ -596,3 +596,100 @@ def test_preview_prices_an_unsaved_estimate_without_writing(client: TestClient) 
     bad["services"][0]["section_id"] = 9999
     rejected = client.post(f"/api/v1/afe/estimates/{afe['id']}/preview", json=bad, headers=headers)
     assert rejected.status_code == 400
+
+
+def test_mud_chemical_lump_sum_round_trips(client: TestClient) -> None:
+    """A saved lump-sum line must survive being re-sent on the next edit.
+
+    Lump sums are stored with item_id 0 (the column is NOT NULL) and come back
+    that way; the next preview/save sends that 0 back and must be treated as
+    "no item picked", not as master-data id 0 (issue: "Mud chemical #0 no
+    longer exists in the master data" when adding a second line).
+    """
+
+    headers = _auth_headers(client)
+    ids = _seed_master_data(client, headers)
+    well_id = _seed_rig_well_with_configuration(client, headers, ids)
+    afe = _create_afe(client, headers, well_id, code="AFE-LUMP")
+
+    first = {
+        "services": [],
+        "consumables": [
+            {
+                "item_kind": "mud_chemical",
+                "item_id": None,
+                "quantity": "1",
+                "captured_rate": "0",
+                "override_rate": "50000",
+                "section_id": ids["section1"],
+                "phase_id": None,
+            }
+        ],
+        "tangibles": [],
+    }
+    saved = client.put(f"/api/v1/afe/estimates/{afe['id']}", json=first, headers=headers)
+    assert saved.status_code == 200, saved.text
+    line = saved.json()["consumables"][0]
+    assert line["item_id"] == 0
+    assert line["item_code"] == "LUMPSUM"
+    assert Decimal(line["estimate"]["amount"]) == Decimal("50000.00")
+
+    # Re-send exactly what the API returned, plus a second lump-sum line —
+    # this is the "add another line" round trip that used to 400.
+    second = {
+        "services": [],
+        "consumables": [
+            line,
+            {
+                "item_kind": "mud_chemical",
+                "item_id": None,
+                "quantity": "1",
+                "captured_rate": "0",
+                "override_rate": "25000",
+                "section_id": ids["section2"],
+                "phase_id": None,
+            },
+        ],
+        "tangibles": [],
+    }
+    preview = client.post(f"/api/v1/afe/estimates/{afe['id']}/preview", json=second, headers=headers)
+    assert preview.status_code == 200, preview.text
+    assert Decimal(preview.json()["grand_total"]) == Decimal("75000.00")
+
+    resaved = client.put(f"/api/v1/afe/estimates/{afe['id']}", json=second, headers=headers)
+    assert resaved.status_code == 200, resaved.text
+    assert len(resaved.json()["consumables"]) == 2
+    assert Decimal(resaved.json()["grand_total"]) == Decimal("75000.00")
+
+    # Within one payload, a re-sent lump sum (item_id 0) and a freshly added
+    # one (item_id null) for the same scope are the same line — both forms of
+    # "no item picked" must trip the duplicate-scope guard.
+    duplicate = {
+        "services": [],
+        "consumables": [
+            {
+                "item_kind": "mud_chemical",
+                "item_id": 0,
+                "quantity": "1",
+                "captured_rate": "0",
+                "override_rate": "1",
+                "section_id": ids["section1"],
+                "phase_id": None,
+            },
+            {
+                "item_kind": "mud_chemical",
+                "item_id": None,
+                "quantity": "1",
+                "captured_rate": "0",
+                "override_rate": "2",
+                "section_id": ids["section1"],
+                "phase_id": None,
+            },
+        ],
+        "tangibles": [],
+    }
+    rejected = client.post(
+        f"/api/v1/afe/estimates/{afe['id']}/preview", json=duplicate, headers=headers
+    )
+    assert rejected.status_code == 400
+    assert "already estimated" in rejected.json()["error"]["message"]

@@ -299,16 +299,22 @@ describe('AFE Management — cost estimation tab', () => {
     expect(sheets).toHaveLength(1)
     const sheet = sheets[0]
     expect(sheet?.text()).toContain('AFE-001 — Surface section drilling')
-    // Well configuration metadata
+    // Page 1: well configuration metadata
     expect(sheet?.text()).toContain('SEC1 — Surface Section')
     expect(sheet?.text()).toContain('PH1 — Drilling')
     expect(sheet?.text()).toContain('1500 m')
-    // The three cost groups and the compiled total
+    // Page 1: the summary — service list, consumable categories, tangibles
+    // total and the compiled total, with no section-wise / phase-wise splits
     expect(sheet?.text()).toContain('Directional Drilling')
-    expect(sheet?.text()).toContain('Bentonite')
-    expect(sheet?.text()).toContain('Casing 9-5/8')
-    expect(sheet?.text()).toContain('Total AFE cost estimate')
+    expect(sheet?.text()).toContain('Services total')
+    expect(sheet?.text()).toContain('Mud Chemicals')
+    expect(sheet?.text()).toContain('Consumables total')
+    expect(sheet?.text()).toContain('Tangibles total')
+    expect(sheet?.text()).toContain('Total AFE cost')
     expect(sheet?.text()).toContain('15,100.00')
+    // Page 2: the tangibles to be used
+    expect(sheet?.text()).toContain('Tangibles to be used')
+    expect(sheet?.text()).toContain('Casing 9-5/8')
     // The list sheet is not part of the single-AFE print output.
     expect(sheet?.text()).not.toContain('AFE-002')
     wrapper.unmount()

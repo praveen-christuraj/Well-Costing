@@ -2,6 +2,50 @@
 
 All notable project changes are documented here.
 
+## 2026-08-31 — AFE Management: lump-sum round trip, page-load performance, session keep-alive and the portrait AFE print
+
+### Fixed
+
+- **Mud-chemical lump sums can be edited again.** Saving a lump-sum consumable
+  stored `item_id` 0 (the column is NOT NULL); the saved estimate returned that
+  0, and the next preview/save re-sent it — where the validator treated it as
+  master-data id 0 and rejected the whole estimate with *"Mud chemical #0 no
+  longer exists in the master data"*. A falsy `item_id` now reads back as "no
+  item picked" on both the save and the live preview, and the duplicate-scope
+  guard treats `0` and `null` as the same line. The cost estimation dialog also
+  normalises the loaded row back to `null`, so a re-save sends exactly what a
+  freshly added lump sum sends.
+- **AFE Management and its tabs load in milliseconds instead of seconds.**
+  `/api/v1/afe/afes`, `/afe/estimates`, `/afe/estimates/{id}` and every
+  save/status change were walking the `Afe → lines → back-reference` eager-load
+  cycle (a plain `select(Afe)` costs seconds of pure ORM path bookkeeping per
+  request, plus a lazy query per rate card per service line). All AFE reads and
+  writes now go through the cycle-safe, batched loader options the Daily Costs
+  page already uses, and the rate/charge/section-rate cards are fetched with
+  one batched query per collection. Measured on 12 AFEs × 12 services:
+  `GET /afe/afes` 3.96 s → 0.17 s, `GET /afe/estimates` 4.01 s → 0.05 s,
+  `GET /afe/estimates/{id}` 3.18 s → 0.02 s, estimate save ≈ 0.1 s. This is
+  also what made the API proxy time out with `502 Bad Gateway` on
+  `/api/v1/afe/afes` — the request no longer holds a worker for seconds on end.
+- **No more "Invalid or expired access token" mid-session.** Access tokens live
+  60 minutes and used to expire underneath a long data-entry session. A new
+  `POST /api/v1/auth/refresh` re-issues a still-valid token, and the app shell
+  slides the expiry forward on a timer while it is open (half the reported
+  lifetime, 30-minute fallback). `/auth/me` also no longer wipes the session
+  cookie on a transient failure — a busy API or a proxy blip used to log the
+  user out; it retries once and only clears the token on a real 401/403.
+
+### Changed
+
+- **The AFE cost estimate print is now portrait A4, two pages.** Page 1 keeps
+  the well configuration metadata followed by the summary: the service list
+  with one cost per service (no section-wise / phase-wise splits), the
+  consumable main categories with their costs, the tangibles total, and
+  Services + Consumables + Tangibles rolled into the Total AFE cost — all on
+  one page. Page 2 lists the tangibles to be used. The page orientation is
+  flipped only while that sheet is printed; every other print keeps the
+  app-wide landscape sheet.
+
 ## 2026-08-30 — Daily Costs, Cost Analytics and Cost Reports: the cost-incurred engine
 
 ### Added

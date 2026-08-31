@@ -71,6 +71,14 @@ to Supabase Auth's password grant and mirrors the identity locally.
 Requires `Authorization: Bearer <jwt>`. Returns the safe current-user
 projection without password data.
 
+## `POST /auth/refresh`
+
+Requires `Authorization: Bearer <jwt>` (a still-valid token). Returns a fresh
+bearer token with the same response shape as login. The frontend calls it
+periodically while the application is open so an active session is never
+interrupted by an expired token; an expired or invalid token is rejected with
+401 — refresh cannot resurrect a dead session.
+
 ## Error envelope
 
 ```json

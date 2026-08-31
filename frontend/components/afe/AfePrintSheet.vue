@@ -1,19 +1,23 @@
 <script setup lang="ts">
 /**
- * Print-only sheet for a complete AFE. Section order (as specified):
+ * Print-only sheet for a complete AFE, portrait A4, two pages.
  *
- *   1. metadata header — rig / well / type / status / totals
- *   2. well configuration — hole sections, phases, depths, planned days
- *   3. AFE cost estimate summary — group totals, grand total and the
- *      per-section rollup of planned days and cost
- *   4. services breakdown, 5. consumables, 6. tangibles
+ *   Page 1 — the estimate at a glance:
+ *     1. metadata header — rig / well / type / status
+ *     2. well configuration — hole sections, phases, depths, planned days
+ *     3. summary — the service list with one cost per service (no section /
+ *        phase split), the consumable main categories with their totals, the
+ *        tangibles total, and the Total AFE cost (services + consumables +
+ *        tangibles)
+ *
+ *   Page 2 — the list of tangibles going into the well.
  *
  * Rendered invisible on screen — the print stylesheet is what shows it — so
  * the same markup serves the list's row-wise Print button and the cost
  * estimation dialog.
  */
 import { computed } from 'vue'
-import type { AfeEstimate, CostComponent, ServiceLineRow } from '~/types/afe'
+import type { AfeEstimate, ConsumableKind } from '~/types/afe'
 
 const props = defineProps<{
   estimate: AfeEstimate
@@ -37,22 +41,6 @@ function depth(value: string | number | null): string {
   return `${Number(value)} ${props.estimate.well_configuration?.depth_unit === 'ft' ? 'ft' : 'm'}`
 }
 
-/**
- * Section / phase of one priced component row. Components carry their own
- * scope (a well-wide daily service is split per configured section), so every
- * row shows the section it was charged against instead of only the first.
- */
-function componentScope(line: ServiceLineRow, component: CostComponent | null): string {
-  if (component && (component.section_label || component.phase_label)) {
-    return [component.section_label, component.phase_label].filter(Boolean).join(' / ')
-  }
-  if (component == null) return ''
-  const lineScope = [line.estimate.components[0]?.section_label, line.estimate.components[0]?.phase_label]
-    .filter(Boolean)
-    .join(' / ')
-  return lineScope || 'Whole well'
-}
-
 const afe = computed(() => props.estimate.afe)
 const well = computed(() => props.estimate.well_configuration)
 const statusLabel = computed(() => {
@@ -72,11 +60,73 @@ const meta = computed(() => {
   if (props.printedAt) parts.push(`Printed ${props.printedAt}`)
   return parts.join(' · ')
 })
-const summaryTotal = computed(() => money(props.estimate.grand_total))
+
+// --- page 1 summary figures ------------------------------------------------
+
+/** One row per service with its compiled cost — no section/phase split. */
+const serviceRows = computed(() =>
+  props.estimate.services.map((line, index) => ({
+    key: `svc-${line.id}`,
+    label: `${index + 1}. ${line.service_code || ''} ${line.service_name || ''}`.trim(),
+    basis: line.charging_basis,
+    amount: line.estimate.amount,
+  })),
+)
+const servicesTotal = computed(() =>
+  serviceRows.value.reduce((sum, row) => sum + Number(row.amount ?? 0), 0),
+)
+
+const CONSUMABLE_CATEGORY_LABELS: Record<ConsumableKind, string> = {
+  mud_chemical: 'Mud Chemicals',
+  drill_bit: 'Drill Bits',
+  cement_additive: 'Cement Additives',
+  fuel: 'Fuel',
+}
+const CONSUMABLE_CATEGORY_ORDER: ConsumableKind[] = ['mud_chemical', 'drill_bit', 'cement_additive', 'fuel']
+
+/** Consumables rolled up to their main category and its cost. */
+const consumableCategoryRows = computed(() => {
+  const totals = new Map<string, number>()
+  const labelOf = (kind: string): string => CONSUMABLE_CATEGORY_LABELS[kind as ConsumableKind] ?? kind
+  for (const line of props.estimate.consumables) {
+    const label = labelOf(line.item_kind)
+    totals.set(label, (totals.get(label) ?? 0) + Number(line.estimate.amount ?? 0))
+  }
+  // Known categories in display order first, then anything unexpected.
+  const labels = [
+    ...CONSUMABLE_CATEGORY_ORDER.filter(kind => props.estimate.consumables.some(line => line.item_kind === kind))
+      .map(kind => CONSUMABLE_CATEGORY_LABELS[kind]),
+    ...[...new Set(props.estimate.consumables.map(line => labelOf(line.item_kind)))]
+      .filter(label => !CONSUMABLE_CATEGORY_ORDER.some(kind => CONSUMABLE_CATEGORY_LABELS[kind] === label)),
+  ]
+  return labels.map(label => ({ key: `con-${label}`, label, amount: totals.get(label) ?? 0 }))
+})
+const consumablesTotal = computed(() =>
+  consumableCategoryRows.value.reduce((sum, row) => sum + row.amount, 0),
+)
+
+const tangiblesTotal = computed(() =>
+  props.estimate.tangibles.reduce((sum, line) => sum + Number(line.estimate.amount ?? 0), 0),
+)
+/** The engine's compiled total is authoritative for the bottom line. */
+const grandTotal = computed(() => money(props.estimate.grand_total))
+
+const tangibleRows = computed(() =>
+  props.estimate.tangibles.map((line, index) => ({
+    key: `tan-${line.id}`,
+    index: index + 1,
+    code: line.tangible_code || '—',
+    name: line.tangible_name || '—',
+    quantity: quantity(line.quantity),
+    uom: line.uom || '—',
+    rate: line.override_rate == null || line.override_rate === '' ? line.captured_rate : line.override_rate,
+    amount: line.estimate.amount,
+  })),
+)
 </script>
 
 <template>
-  <div class="print-sheet" aria-hidden="true" data-testid="afe-print-sheet">
+  <div class="print-sheet afe-print" aria-hidden="true" data-testid="afe-print-sheet">
     <header class="print-sheet__header">
       <p class="print-sheet__eyebrow">Drilling Costing — AFE Cost Estimate</p>
       <h1>{{ afe.afe_code }} — {{ afe.afe_name }}</h1>
@@ -124,143 +174,116 @@ const summaryTotal = computed(() => money(props.estimate.grand_total))
       </tbody>
     </table>
 
-    <!-- 2 — compiled AFE cost estimate summary -->
+    <!-- 2 — summary: services, consumable categories, tangibles, total -->
     <h2 class="afe-print__title">AFE cost estimate summary</h2>
-    <table class="print-sheet__table">
+
+    <table class="print-sheet__table afe-print__services">
       <thead>
         <tr>
-          <th>Cost Group</th>
-          <th>Lines</th>
-          <th>Amount</th>
+          <th>Service</th>
+          <th>Charging Basis</th>
+          <th class="afe-print__num">Cost</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in estimate.summary" :key="`sum-${row.group}`">
-          <td>{{ row.group }}</td>
-          <td>{{ row.line_count }}</td>
-          <td>{{ money(row.amount) }}</td>
+        <tr v-if="!serviceRows.length">
+          <td colspan="3" class="print-sheet__empty">No services configured.</td>
+        </tr>
+        <tr v-for="row in serviceRows" :key="row.key">
+          <td>{{ row.label }}</td>
+          <td>{{ row.basis }}</td>
+          <td class="afe-print__num">{{ money(row.amount) }}</td>
         </tr>
       </tbody>
       <tfoot>
         <tr>
-          <th colspan="2">Total AFE cost estimate</th>
-          <th>{{ summaryTotal }}</th>
+          <th colspan="2">Services total</th>
+          <th class="afe-print__num">{{ money(servicesTotal) }}</th>
         </tr>
       </tfoot>
     </table>
 
-    <table v-if="estimate.by_section.length" class="print-sheet__table afe-print__rollup">
+    <table class="print-sheet__table afe-print__categories">
       <thead>
         <tr>
-          <th>Section</th>
-          <th>Planned Days</th>
-          <th>Cost</th>
+          <th>Consumables</th>
+          <th class="afe-print__num">Cost</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in estimate.by_section" :key="`roll-${row.section_id ?? 'well'}`">
-          <td>{{ row.section_label || '—' }}</td>
-          <td>{{ quantity(row.planned_days) }}</td>
-          <td>{{ money(row.amount) }}</td>
+        <tr v-if="!consumableCategoryRows.length">
+          <td colspan="2" class="print-sheet__empty">No consumables configured.</td>
+        </tr>
+        <tr v-for="row in consumableCategoryRows" :key="row.key">
+          <td>{{ row.label }}</td>
+          <td class="afe-print__num">{{ money(row.amount) }}</td>
         </tr>
       </tbody>
+      <tfoot>
+        <tr>
+          <th>Consumables total</th>
+          <th class="afe-print__num">{{ money(consumablesTotal) }}</th>
+        </tr>
+      </tfoot>
     </table>
 
-    <!-- 3 — services -->
-    <h2 class="afe-print__title">Services</h2>
-    <table class="print-sheet__table">
-      <thead>
-        <tr>
-          <th>Service</th>
-          <th>Provider</th>
-          <th>Charging Basis</th>
-          <th>Section / Phase</th>
-          <th>Charge Category</th>
-          <th>Qty</th>
-          <th>Rate</th>
-          <th>Amount</th>
-        </tr>
-      </thead>
+    <table class="print-sheet__table afe-print__totals">
       <tbody>
-        <tr v-if="!estimate.services.length">
-          <td colspan="8" class="print-sheet__empty">No services configured.</td>
+        <tr>
+          <td>Services total</td>
+          <td class="afe-print__num">{{ money(servicesTotal) }}</td>
         </tr>
-        <template v-for="line in estimate.services" :key="`svc-${line.id}`">
-          <tr v-for="(component, cIndex) in (line.estimate.components.length ? line.estimate.components : [null])" :key="`svc-${line.id}-${cIndex}`">
-            <td>{{ cIndex === 0 ? `${line.service_code || ''} ${line.service_name || ''}` : '' }}</td>
-            <td>{{ cIndex === 0 ? (line.provider_type || '—') : '' }}</td>
-            <td>{{ cIndex === 0 ? line.charging_basis : '' }}</td>
-            <td>{{ componentScope(line, component) }}</td>
-            <td>{{ component ? component.category : '—' }}</td>
-            <td>{{ component ? quantity(component.quantity) : '' }}</td>
-            <td>{{ component ? money(component.rate) : '' }}</td>
-            <td>{{ component ? money(component.amount) : '0.00' }}</td>
+        <tr>
+          <td>Consumables total</td>
+          <td class="afe-print__num">{{ money(consumablesTotal) }}</td>
+        </tr>
+        <tr>
+          <td>Tangibles total ({{ estimate.tangibles.length }} item(s) — listed on page 2)</td>
+          <td class="afe-print__num">{{ money(tangiblesTotal) }}</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <th>Total AFE cost</th>
+          <th class="afe-print__num">{{ grandTotal }}</th>
+        </tr>
+      </tfoot>
+    </table>
+
+    <!-- 3 — page 2: the tangibles going into the well -->
+    <div v-if="estimate.tangibles.length" class="afe-print__page2">
+      <h2 class="afe-print__title">Tangibles to be used</h2>
+      <table class="print-sheet__table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Code</th>
+            <th>Tangible</th>
+            <th>Qty</th>
+            <th>UOM</th>
+            <th>Rate</th>
+            <th>Amount</th>
           </tr>
-          <tr class="afe-print__subtotal">
-            <td colspan="7">{{ line.service_code }} total</td>
-            <td>{{ money(line.estimate.amount) }}</td>
+        </thead>
+        <tbody>
+          <tr v-for="row in tangibleRows" :key="row.key">
+            <td>{{ row.index }}</td>
+            <td>{{ row.code }}</td>
+            <td>{{ row.name }}</td>
+            <td>{{ row.quantity }}</td>
+            <td>{{ row.uom }}</td>
+            <td class="afe-print__num">{{ money(row.rate) }}</td>
+            <td class="afe-print__num">{{ money(row.amount) }}</td>
           </tr>
-        </template>
-      </tbody>
-    </table>
-
-    <!-- 4 — consumables -->
-    <h2 class="afe-print__title">Consumables</h2>
-    <table class="print-sheet__table">
-      <thead>
-        <tr>
-          <th>Code</th>
-          <th>Consumable</th>
-          <th>Section / Phase</th>
-          <th>Qty</th>
-          <th>Captured Rate</th>
-          <th>Override Rate</th>
-          <th>Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-if="!estimate.consumables.length">
-          <td colspan="7" class="print-sheet__empty">No consumables configured.</td>
-        </tr>
-        <tr v-for="line in estimate.consumables" :key="`con-${line.id}`">
-          <td>{{ line.item_code }}</td>
-          <td>{{ line.item_name }}</td>
-          <td>{{ [line.estimate.components[0]?.section_label, line.estimate.components[0]?.phase_label].filter(Boolean).join(' / ') || '—' }}</td>
-          <td>{{ quantity(line.quantity) }} {{ line.uom || '' }}</td>
-          <td>{{ money(line.captured_rate) }}</td>
-          <td>{{ line.override_rate == null || line.override_rate === '' ? '—' : money(line.override_rate) }}</td>
-          <td>{{ money(line.estimate.amount) }}</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <!-- 5 — tangibles -->
-    <h2 class="afe-print__title">Tangibles</h2>
-    <table class="print-sheet__table">
-      <thead>
-        <tr>
-          <th>Code</th>
-          <th>Tangible</th>
-          <th>Qty</th>
-          <th>Captured Rate</th>
-          <th>Override Rate</th>
-          <th>Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-if="!estimate.tangibles.length">
-          <td colspan="6" class="print-sheet__empty">No tangibles configured.</td>
-        </tr>
-        <tr v-for="line in estimate.tangibles" :key="`tan-${line.id}`">
-          <td>{{ line.tangible_code || '—' }}</td>
-          <td>{{ line.tangible_name || '—' }}</td>
-          <td>{{ quantity(line.quantity) }} {{ line.uom || '' }}</td>
-          <td>{{ money(line.captured_rate) }}</td>
-          <td>{{ line.override_rate == null || line.override_rate === '' ? '—' : money(line.override_rate) }}</td>
-          <td>{{ money(line.estimate.amount) }}</td>
-        </tr>
-      </tbody>
-    </table>
+        </tbody>
+        <tfoot>
+          <tr>
+            <th colspan="6">Tangibles total</th>
+            <th class="afe-print__num">{{ money(tangiblesTotal) }}</th>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
 
     <p v-if="estimate.warnings.length" class="afe-print__warnings">
       Notes: {{ estimate.warnings.join(' · ') }}
@@ -270,31 +293,62 @@ const summaryTotal = computed(() => money(props.estimate.grand_total))
 
 <style scoped>
   .afe-print__title {
-    margin: 14px 0 4px;
-    font-size: .82rem;
+    margin: 10px 0 3px;
+    font-size: .78rem;
     font-weight: 800;
     letter-spacing: .06em;
     text-transform: uppercase;
     color: #333;
   }
 
-  .afe-print__subtotal td {
+  .afe-print__num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* Keep the summary compact so well configuration + summary share page 1. */
+  .afe-print :deep(.print-sheet__table) {
+    font-size: .72rem;
+  }
+
+  .afe-print :deep(.print-sheet__table th),
+  .afe-print :deep(.print-sheet__table td) {
+    padding: 2px 4px;
+  }
+
+  .afe-print__services,
+  .afe-print__categories,
+  .afe-print__totals {
+    margin-top: 6px;
+  }
+
+  .afe-print__totals td {
+    font-weight: 600;
+  }
+
+  .afe-print__totals tfoot th {
+    background: #e8eef1;
+    font-weight: 800;
+    font-size: .74rem;
+  }
+
+  .afe-print__categories tfoot th,
+  .afe-print__services tfoot th,
+  .afe-print__page2 tfoot th {
     background: #f2f6f7;
     font-weight: 700;
   }
 
-  .afe-print__rollup {
-    margin-top: 10px;
-  }
-
-  .print-sheet__table :deep(tfoot th) {
-    background: #e8eef1;
-    font-weight: 800;
+  /* The tangible list always starts on the second page. */
+  .afe-print__page2 {
+    break-before: page;
+    page-break-before: always;
   }
 
   .afe-print__warnings {
     margin-top: 10px;
-    font-size: .72rem;
+    font-size: .68rem;
     color: #555;
   }
 </style>
